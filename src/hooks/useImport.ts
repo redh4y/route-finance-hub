@@ -44,53 +44,80 @@ export function useImportPayers() {
       };
 
       // Create import log
-      const { data: importLog } = await supabase
+      const { data: importLog, error: importLogError } = await supabase
         .from("import_logs")
         .insert({
           file_name: file.name,
-          type: "PAGADORES",
+          type: "PAYERS",
           total_rows: rows.length,
           status: "PROCESSING",
         })
         .select()
         .single();
 
-      // Batch process for better performance
+      if (importLogError) {
+        // Don't block import if logging fails
+        console.warn("Failed to create import log:", importLogError);
+      }
+
+      // Transform rows with row numbers for precise error reporting
       const batchSize = 50;
-      const payers = rows.map(transformPayerRow).filter(Boolean);
-      
-      for (let i = 0; i < payers.length; i += batchSize) {
-        const batch = payers.slice(i, i + batchSize);
-        
+      const transformed = rows.map((row, idx) => ({
+        rowNumber: idx + 2, // header is line 1
+        payer: transformPayerRow(row),
+      }));
+
+      const valid = transformed.filter((t) => {
+        if (!t.payer) {
+          result.errors++;
+          result.errorDetails.push({ row: t.rowNumber, error: "Dados inválidos (sem nome ou identificador)" });
+          return false;
+        }
+        return true;
+      }) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
+
+      for (let i = 0; i < valid.length; i += batchSize) {
+        const batchItems = valid.slice(i, i + batchSize);
+        const batch = batchItems.map((b) => b.payer);
+
         try {
           const { error } = await supabase
             .from("payers")
-            .upsert(batch as any[], { 
-              onConflict: "id",
-              ignoreDuplicates: false 
-            });
+            .upsert(batch as any[], { onConflict: "id" });
 
-          if (error) {
-            result.errors += batch.length;
-            result.errorDetails.push({ row: i + 2, error: error.message });
-          } else {
-            result.success += batch.length;
+          if (error) throw error;
+          result.success += batchItems.length;
+        } catch (err: any) {
+          // If the batch fails (e.g. due to one invalid row), fallback to per-row upsert to pinpoint errors
+          for (const item of batchItems) {
+            const { error: rowError } = await supabase
+              .from("payers")
+              .upsert(item.payer as any, { onConflict: "id" });
+
+            if (rowError) {
+              result.errors++;
+              result.errorDetails.push({
+                row: item.rowNumber,
+                error: [rowError.message, rowError.details].filter(Boolean).join(" | "),
+              });
+            } else {
+              result.success++;
+            }
           }
-        } catch (err) {
-          result.errors += batch.length;
-          result.errorDetails.push({ row: i + 2, error: String(err) });
         }
 
-        setProgress(Math.round(((i + batchSize) / payers.length) * 100));
+        setProgress(Math.round((Math.min(i + batchSize, valid.length) / Math.max(valid.length, 1)) * 100));
       }
 
       // Update import log
       if (importLog) {
+        const finalStatus = result.success === 0 && result.errors > 0 ? "FAILED" : "COMPLETED";
+
         await supabase
           .from("import_logs")
           .update({
-            status: result.errors > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED",
-            processed_rows: payers.length,
+            status: finalStatus,
+            processed_rows: rows.length,
             success_rows: result.success,
             error_rows: result.errors,
             errors: result.errorDetails,
@@ -153,16 +180,20 @@ export function useImportBillings() {
       };
 
       // Create import log
-      const { data: importLog } = await supabase
+      const { data: importLog, error: importLogError } = await supabase
         .from("import_logs")
         .insert({
           file_name: file.name,
-          type: "BOLETOS",
+          type: "BILLINGS",
           total_rows: rows.length,
           status: "PROCESSING",
         })
         .select()
         .single();
+
+      if (importLogError) {
+        console.warn("Failed to create import log:", importLogError);
+      }
 
       // Group billings by payer_id + reference_month for conflict resolution
       const billingMap = new Map<string, ReturnType<typeof transformBillingRow>>();
@@ -308,10 +339,12 @@ export function useImportBillings() {
 
       // Update import log
       if (importLog) {
+        const finalStatus = result.success === 0 && result.errors > 0 ? "FAILED" : "COMPLETED";
+
         await supabase
           .from("import_logs")
           .update({
-            status: result.errors > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED",
+            status: finalStatus,
             processed_rows: billings.length,
             success_rows: result.success,
             error_rows: result.errors,
@@ -451,7 +484,7 @@ export function useImportCEPs() {
       };
 
       // Create import log
-      const { data: importLog } = await supabase
+      const { data: importLog, error: importLogError } = await supabase
         .from("import_logs")
         .insert({
           file_name: file.name,
@@ -461,6 +494,10 @@ export function useImportCEPs() {
         })
         .select()
         .single();
+
+      if (importLogError) {
+        console.warn("Failed to create import log:", importLogError);
+      }
 
       // Batch insert for better performance
       const ceps = rows.map(transformCEPRow).filter(Boolean);
@@ -489,10 +526,12 @@ export function useImportCEPs() {
 
       // Update import log
       if (importLog) {
+        const finalStatus = result.success === 0 && result.errors > 0 ? "FAILED" : "COMPLETED";
+
         await supabase
           .from("import_logs")
           .update({
-            status: result.errors > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED",
+            status: finalStatus,
             processed_rows: ceps.length,
             success_rows: result.success,
             error_rows: result.errors,

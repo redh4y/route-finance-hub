@@ -10,6 +10,7 @@ import {
   ArrowDownCircle,
   Bus,
   LogOut,
+  Bug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,20 +18,20 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 
 const navItems = [
-  { 
-    label: "Dashboard", 
-    path: "/", 
-    icon: LayoutDashboard 
+  {
+    label: "Dashboard",
+    path: "/",
+    icon: LayoutDashboard,
   },
-  { 
-    label: "Pagadores", 
-    path: "/pagadores", 
-    icon: Users 
+  {
+    label: "Pagadores",
+    path: "/pagadores",
+    icon: Users,
   },
-  { 
-    label: "Importar", 
-    path: "/importar", 
-    icon: Upload 
+  {
+    label: "Importar",
+    path: "/importar",
+    icon: Upload,
   },
   {
     label: "Financeiro",
@@ -42,10 +43,15 @@ const navItems = [
       { label: "Saídas", path: "/financeiro/saidas", icon: ArrowDownCircle },
     ],
   },
-  { 
-    label: "Rotas", 
-    path: "/rotas", 
-    icon: MapPin 
+  {
+    label: "Rotas",
+    path: "/rotas",
+    icon: MapPin,
+  },
+  {
+    label: "Diagnóstico",
+    path: "/diagnostico",
+    icon: Bug,
   },
 ];
 
