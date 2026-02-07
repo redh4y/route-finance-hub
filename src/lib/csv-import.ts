@@ -1,11 +1,37 @@
 import Papa from "papaparse";
 
+// Coerce values that may come from Excel as scientific notation (e.g. "4,62E+10")
+function coerceExcelScientificToIntegerString(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (!/[eE][+-]?\d+/.test(trimmed)) return null;
+
+  const normalized = trimmed.replace(/\s/g, "").replace(",", ".");
+  const num = Number.parseFloat(normalized);
+  if (!Number.isFinite(num)) return null;
+
+  // CPF/CEP/phones are integer-like
+  return String(Math.round(num));
+}
+
 // Normalize CPF to 11 digits with leading zeros
 export function normalizeCPF(doc: string | null | undefined): string | null {
   if (!doc) return null;
-  const digits = doc.replace(/\D/g, "");
+  const coerced = coerceExcelScientificToIntegerString(doc) ?? doc;
+  const digits = coerced.replace(/\D/g, "");
   if (digits.length === 0) return null;
   return digits.padStart(11, "0").slice(-11);
+}
+
+// Normalize CEP to 8 digits (removes hyphen, pads with zeros)
+export function normalizeCEP(cep: string | null | undefined): string | null {
+  if (!cep) return null;
+  const coerced = coerceExcelScientificToIntegerString(cep) ?? cep;
+  const digits = coerced.replace(/\D/g, "");
+  if (digits.length === 0) return null;
+  const normalized = digits.padStart(8, "0").slice(-8);
+  return normalized.length === 8 ? normalized : null;
 }
 
 // Check if "Seu Número" indicates a previous month reissue
@@ -318,14 +344,16 @@ export function transformPayerRow(row: PayerCSVRow) {
 
   // Only add matched address fields if match_ok is true
   if (matchOk) {
+    const stateRaw = (row.matched_uf ?? row.UF ?? "").trim();
+
     return {
       ...basePayer,
       street: row.matched_logradouro?.trim() || null,
       number: row.parsed_numero?.trim() || row.matched_numero?.trim() || null,
       neighborhood: row.matched_bairro?.trim() || null,
-      cep: row.matched_cep?.trim() || row.CEP?.trim() || null,
+      cep: normalizeCEP(row.matched_cep) || normalizeCEP(row.CEP) || null,
       city: row.matched_cidade?.trim() || row.Cidade?.trim() || null,
-      state: row.matched_uf?.trim() || row.UF?.trim() || null,
+      state: stateRaw ? stateRaw.toUpperCase().slice(0, 2) : null,
       address_base: row.matched_full?.trim() || row.matched_endereco_completo?.trim() || null,
     };
   }
