@@ -375,10 +375,10 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
   }
 
   // Create placeholder payer if not found
+  // Note: name_lower is a generated column, so we don't include it
   const placeholderPayer = {
     id: billing.payer_id,
     name: billing.payer_name || `Pagador ${billing.payer_code || billing.payer_id}`,
-    name_lower: (billing.payer_name || `Pagador ${billing.payer_code || billing.payer_id}`).toLowerCase(),
     document: billing.payer_id,
     document_digits: billing.payer_id,
     payer_code: billing.payer_code,

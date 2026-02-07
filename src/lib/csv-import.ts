@@ -297,10 +297,10 @@ export function transformPayerRow(row: PayerCSVRow) {
   }
 
   // Base payer object - always saved fields
+  // Note: name_lower is a generated column in the database, so we don't include it
   const basePayer = {
     id,
     name: row.Nome.trim(),
-    name_lower: row.Nome.trim().toLowerCase(),
     document: row.Identif?.trim() || null,
     document_digits: documentDigits,
     document_valid: documentValid,
