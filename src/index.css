@@ -1,96 +1,135 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
+/* Sistema Tavares Financeiro - Design System
+   Cores profissionais inspiradas em fintech: navy, emerald, amber
 */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-
+    /* Backgrounds */
+    --background: 220 20% 98%;
+    --foreground: 222 47% 11%;
+    
+    /* Cards e Surfaces */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
+    --card-foreground: 222 47% 11%;
+    
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 222.2 47.4% 11.2%;
+    --popover-foreground: 222 47% 11%;
+    
+    /* Primary - Navy Blue (Confiança, Profissionalismo) */
+    --primary: 222 47% 20%;
     --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
-    --radius: 0.5rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    
+    /* Secondary - Slate */
+    --secondary: 215 20% 95%;
+    --secondary-foreground: 222 47% 20%;
+    
+    /* Muted - Subtle grays */
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    
+    /* Accent - Light blue */
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+    
+    /* Success - Emerald Green (Pagamentos, Receitas) */
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+    
+    /* Warning - Amber (Atenção, Em aberto) */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+    
+    /* Destructive - Red (Cancelado, Despesas) */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Review - Purple (Revisão) */
+    --review: 262 83% 58%;
+    --review-foreground: 0 0% 100%;
+    
+    /* Borders and inputs */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 222 47% 20%;
+    
+    --radius: 0.625rem;
+    
+    /* Sidebar */
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 47% 16%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 222 47% 18%;
+    --sidebar-ring: 217 91% 60%;
+    
+    /* Chart colors for DRE */
+    --chart-1: 160 84% 39%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 262 83% 58%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    --background: 222 47% 6%;
     --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
+    
+    --card: 222 47% 9%;
     --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
+    
+    --popover: 222 47% 9%;
     --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
+    
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 6%;
+    
+    --secondary: 222 47% 14%;
     --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    
+    --muted: 222 47% 14%;
+    --muted-foreground: 215 20% 65%;
+    
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+    
+    --success: 160 84% 45%;
+    --success-foreground: 0 0% 100%;
+    
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+    
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --review: 262 83% 65%;
+    --review-foreground: 0 0% 100%;
+    
+    --border: 222 47% 18%;
+    --input: 222 47% 18%;
+    --ring: 217 91% 60%;
+    
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 222 47% 11%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 222 47% 14%;
+    --sidebar-ring: 217 91% 60%;
+    
+    --chart-1: 160 84% 45%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 0 62% 45%;
+    --chart-5: 262 83% 65%;
   }
 }
 
@@ -100,6 +139,130 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-muted/50;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/30;
+  }
+}
+
+@layer components {
+  /* Status badges */
+  .badge-paid {
+    @apply bg-success/10 text-success border-success/20;
+  }
+  
+  .badge-open {
+    @apply bg-warning/10 text-warning border-warning/20;
+  }
+  
+  .badge-cancelled {
+    @apply bg-destructive/10 text-destructive border-destructive/20;
+  }
+  
+  .badge-review {
+    @apply bg-review/10 text-review border-review/20;
+  }
+  
+  .badge-active {
+    @apply bg-success/10 text-success border-success/20;
+  }
+  
+  .badge-inactive {
+    @apply bg-muted text-muted-foreground border-border;
+  }
+  
+  /* Financial cards */
+  .finance-card {
+    @apply bg-card rounded-xl border shadow-sm p-6 transition-shadow hover:shadow-md;
+  }
+  
+  .finance-card-positive {
+    @apply border-l-4 border-l-success;
+  }
+  
+  .finance-card-negative {
+    @apply border-l-4 border-l-destructive;
+  }
+  
+  .finance-card-warning {
+    @apply border-l-4 border-l-warning;
+  }
+  
+  .finance-card-neutral {
+    @apply border-l-4 border-l-accent;
+  }
+  
+  /* Data table styling */
+  .data-table {
+    @apply w-full;
+  }
+  
+  .data-table th {
+    @apply text-xs font-semibold uppercase tracking-wider text-muted-foreground bg-muted/50 px-4 py-3 text-left;
+  }
+  
+  .data-table td {
+    @apply px-4 py-3 text-sm border-b border-border;
+  }
+  
+  .data-table tr:hover td {
+    @apply bg-muted/30;
+  }
+  
+  /* Sidebar nav styling */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors;
+    @apply text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent;
+  }
+  
+  .nav-item.active {
+    @apply bg-sidebar-primary text-sidebar-primary-foreground;
+  }
+  
+  /* Page headers */
+  .page-header {
+    @apply mb-8;
+  }
+  
+  .page-title {
+    @apply text-2xl font-bold tracking-tight text-foreground;
+  }
+  
+  .page-subtitle {
+    @apply text-muted-foreground mt-1;
+  }
+  
+  /* Stat cards */
+  .stat-value {
+    @apply text-3xl font-bold tracking-tight;
+  }
+  
+  .stat-label {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  
+  .stat-change-positive {
+    @apply text-success text-sm font-medium flex items-center gap-1;
+  }
+  
+  .stat-change-negative {
+    @apply text-destructive text-sm font-medium flex items-center gap-1;
   }
 }
