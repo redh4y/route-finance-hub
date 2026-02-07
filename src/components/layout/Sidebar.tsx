@@ -6,12 +6,15 @@ import {
   TrendingUp,
   MapPin,
   FileText,
-  DollarSign,
   ArrowUpCircle,
   ArrowDownCircle,
   Bus,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
 
 const navItems = [
   { 
@@ -48,6 +51,7 @@ const navItems = [
 
 export function Sidebar() {
   const location = useLocation();
+  const { signOut, user } = useAuth();
 
   const isActive = (path: string) => {
     if (path === "/") {
@@ -56,10 +60,18 @@ export function Sidebar() {
     return location.pathname.startsWith(path);
   };
 
+  const handleLogout = async () => {
+    await signOut();
+  };
+
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border">
+      <motion.div 
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border"
+      >
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-primary">
           <Bus className="h-5 w-5 text-sidebar-primary-foreground" />
         </div>
@@ -67,12 +79,17 @@ export function Sidebar() {
           <h1 className="text-lg font-bold text-sidebar-foreground">Tavares</h1>
           <p className="text-xs text-sidebar-foreground/60">Financeiro</p>
         </div>
-      </div>
+      </motion.div>
 
       {/* Navigation */}
       <nav className="p-4 space-y-1">
-        {navItems.map((item) => (
-          <div key={item.path}>
+        {navItems.map((item, index) => (
+          <motion.div 
+            key={item.path}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.05 }}
+          >
             {item.children ? (
               <div className="space-y-1">
                 <div className={cn(
@@ -110,21 +127,27 @@ export function Sidebar() {
                 <span>{item.label}</span>
               </Link>
             )}
-          </div>
+          </motion.div>
         ))}
       </nav>
 
-      {/* Footer */}
+      {/* Footer with user info and logout */}
       <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-3 px-3 py-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-accent">
-            <DollarSign className="h-4 w-4 text-sidebar-primary" />
+        {user && (
+          <div className="mb-3 px-3">
+            <p className="text-xs text-sidebar-foreground/60 truncate">
+              {user.email}
+            </p>
           </div>
-          <div>
-            <p className="text-xs font-medium text-sidebar-foreground">Sistema Financeiro</p>
-            <p className="text-xs text-sidebar-foreground/50">v1.0.0</p>
-          </div>
-        </div>
+        )}
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+          onClick={handleLogout}
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Sair
+        </Button>
       </div>
     </aside>
   );

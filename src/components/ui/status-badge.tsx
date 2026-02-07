@@ -1,5 +1,20 @@
 import { cn } from "@/lib/utils";
 
+export function mapBillingStatus(status: string): "paid" | "open" | "cancelled" | "review" {
+  switch (status) {
+    case "PAID":
+      return "paid";
+    case "OPEN":
+      return "open";
+    case "CANCELADO":
+      return "cancelled";
+    case "NEEDS_REVIEW":
+      return "review";
+    default:
+      return "open";
+  }
+}
+
 type StatusType = "paid" | "open" | "cancelled" | "review" | "active" | "inactive";
 
 interface StatusBadgeProps {
@@ -31,22 +46,6 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
       {label || config.label}
     </span>
   );
-}
-
-// Utility function to map billing status to StatusType
-export function mapBillingStatus(status: string): StatusType {
-  switch (status) {
-    case "PAID":
-      return "paid";
-    case "OPEN":
-      return "open";
-    case "CANCELADO":
-      return "cancelled";
-    case "NEEDS_REVIEW":
-      return "review";
-    default:
-      return "open";
-  }
 }
 
 // Utility function to map payer status to StatusType
