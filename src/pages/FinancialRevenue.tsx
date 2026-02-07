@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge, mapBillingStatus } from "@/components/ui/status-badge";
 import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useSearchParams } from "react-router-dom";
 
 interface Billing {
   id: string;
@@ -64,6 +65,8 @@ export default function FinancialRevenue() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = searchParams.get("status");
 
   const queryClient = useQueryClient();
 
@@ -138,6 +141,12 @@ export default function FinancialRevenue() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
 
+  const filteredBillings = useMemo(() => {
+    if (!billings) return [];
+    if (!statusFilter) return billings;
+    return billings.filter((b) => b.status === statusFilter);
+  }, [billings, statusFilter]);
+
   // Calculate totals
   const expectedRevenue = billings?.filter(b => b.status !== "CANCELADO").reduce((sum, b) => sum + b.amount_expected_cents, 0) || 0;
   const paidBillings = billings?.filter(b => b.status === "PAID").reduce((sum, b) => sum + (b.amount_paid_cents || b.amount_expected_cents), 0) || 0;
@@ -148,23 +157,39 @@ export default function FinancialRevenue() {
   return (
     <MainLayout>
       <div className="page-header">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="page-title">Entradas</h1>
-            <p className="page-subtitle">Receitas e cobranças</p>
+            <p className="page-subtitle">Receitas e cobran??as</p>
           </div>
-          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {months.map((month) => (
-                <SelectItem key={month} value={month}>
-                  {formatMonthRef(month)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-3">
+            {statusFilter && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("status");
+                  setSearchParams(next);
+                }}
+              >
+                Limpar filtro
+              </Button>
+            )}
+            {statusFilter && <Badge variant="outline">Status: {statusFilter}</Badge>}
+            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {months.map((month) => (
+                  <SelectItem key={month} value={month}>
+                    {formatMonthRef(month)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -314,7 +339,7 @@ export default function FinancialRevenue() {
                     <Skeleton key={i} className="h-12" />
                   ))}
                 </div>
-              ) : billings && billings.length > 0 ? (
+              ) : filteredBillings && filteredBillings.length > 0 ? (
                 <div className="max-h-[400px] overflow-auto">
                   <Table>
                     <TableHeader>
@@ -326,7 +351,7 @@ export default function FinancialRevenue() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {billings.slice(0, 20).map((billing) => (
+                      {filteredBillings.slice(0, 20).map((billing) => (
                         <TableRow key={billing.id}>
                           <TableCell>
                             {billing.due_date ? formatDate(billing.due_date) : "-"}
@@ -344,9 +369,9 @@ export default function FinancialRevenue() {
                       ))}
                     </TableBody>
                   </Table>
-                  {billings.length > 20 && (
+                  {filteredBillings.length > 20 && (
                     <p className="text-sm text-muted-foreground text-center py-2">
-                      ... e mais {billings.length - 20} boletos
+                      ... e mais {filteredBillings.length - 20} boletos
                     </p>
                   )}
                 </div>

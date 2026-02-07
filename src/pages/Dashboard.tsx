@@ -34,6 +34,13 @@ function DashboardSkeleton() {
   );
 }
 
+const STATUS_LINKS = {
+  paid: { label: "Pagos", status: "PAID" },
+  open: { label: "Em Aberto", status: "OPEN" },
+  cancelled: { label: "Cancelados", status: "CANCELADO" },
+  review: { label: "Revisão", status: "NEEDS_REVIEW" },
+} as const;
+
 export default function Dashboard() {
   const { data: stats, isLoading, error } = useDashboardStats();
   const currentMonth = getCurrentMonthRef();
@@ -113,34 +120,46 @@ export default function Dashboard() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
+                      <Link
+                        to={`/financeiro/entradas?status=${STATUS_LINKS.paid.status}`}
+                        className="flex items-center justify-between rounded-lg p-2 hover:bg-muted/50 transition-colors"
+                      >
                         <div className="flex items-center gap-2">
                           <StatusBadge status="paid" />
-                          <span className="text-sm">Pagos</span>
+                          <span className="text-sm">{STATUS_LINKS.paid.label}</span>
                         </div>
                         <span className="font-semibold">{stats?.paidBillings || 0}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
+                      </Link>
+                      <Link
+                        to={`/financeiro/entradas?status=${STATUS_LINKS.open.status}`}
+                        className="flex items-center justify-between rounded-lg p-2 hover:bg-muted/50 transition-colors"
+                      >
                         <div className="flex items-center gap-2">
                           <StatusBadge status="open" />
-                          <span className="text-sm">Em Aberto</span>
+                          <span className="text-sm">{STATUS_LINKS.open.label}</span>
                         </div>
                         <span className="font-semibold">{stats?.openBillings || 0}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
+                      </Link>
+                      <Link
+                        to={`/financeiro/entradas?status=${STATUS_LINKS.cancelled.status}`}
+                        className="flex items-center justify-between rounded-lg p-2 hover:bg-muted/50 transition-colors"
+                      >
                         <div className="flex items-center gap-2">
                           <StatusBadge status="cancelled" />
-                          <span className="text-sm">Cancelados</span>
+                          <span className="text-sm">{STATUS_LINKS.cancelled.label}</span>
                         </div>
                         <span className="font-semibold">{stats?.cancelledBillings || 0}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
+                      </Link>
+                      <Link
+                        to={`/financeiro/entradas?status=${STATUS_LINKS.review.status}`}
+                        className="flex items-center justify-between rounded-lg p-2 hover:bg-muted/50 transition-colors"
+                      >
                         <div className="flex items-center gap-2">
                           <StatusBadge status="review" />
-                          <span className="text-sm">Revisão</span>
+                          <span className="text-sm">{STATUS_LINKS.review.label}</span>
                         </div>
                         <span className="font-semibold">{stats?.reviewBillings || 0}</span>
-                      </div>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>

@@ -248,6 +248,8 @@ export function useOptimizedImportBillings() {
         if (!billing) continue;
 
         let payerId = billing.payer_id;
+        const payerRoute =
+          billing.amount_expected_cents > 50000 ? "FRANCA" : "BARRETOS";
 
         // Check if payer exists
         if (!existingPayerIds.has(payerId)) {
@@ -266,6 +268,7 @@ export function useOptimizedImportBillings() {
               billing_mode: "BOLETO",
               review_flag: true,
               needs_review: true,
+              default_route: payerRoute,
             });
             existingPayerIds.add(payerId);
           }
@@ -317,6 +320,7 @@ export function useOptimizedImportBillings() {
           last_billing_ref: billing.reference_month,
           status: "ATIVO",
           billing_mode: "BOLETO",
+          default_route: payerRoute,
         };
 
         if (billing.status === "PAID" && billing.settlement_at) {

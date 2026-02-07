@@ -233,6 +233,9 @@ export function useImportBillings() {
         const billing = billings[i];
         if (!billing) continue;
 
+        const payerRoute =
+          billing.amount_expected_cents > 50000 ? "FRANCA" : "BARRETOS";
+
         try {
           // Find payer by id (document_digits) or payer_code
           let payer = await findOrCreatePayer(billing);
@@ -308,6 +311,7 @@ export function useImportBillings() {
             last_billing_ref: billing.reference_month,
             status: "ATIVO",
             billing_mode: "BOLETO",
+            default_route: payerRoute,
           };
 
           if (billing.status === "PAID" && billing.settlement_at) {
@@ -419,6 +423,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
     billing_mode: "BOLETO",
     review_flag: true,
     needs_review: true,
+    default_route: billing.amount_expected_cents > 50000 ? "FRANCA" : "BARRETOS",
   };
 
   const { data: newPayer, error } = await supabase
