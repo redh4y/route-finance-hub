@@ -1,0 +1,572 @@
+import { useState, useCallback } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  parseCSV,
+  transformPayerRow,
+  transformBillingRow,
+  transformCEPRow,
+  PayerCSVRow,
+  BillingCSVRow,
+  CEPCSVRow,
+  getHigherPriorityStatus,
+  isQuickCancellation,
+} from "@/lib/csv-import";
+import { toast } from "sonner";
+
+export interface ImportResult {
+  total: number;
+  success: number;
+  errors: number;
+  errorDetails: Array<{ row: number; error: string }>;
+}
+
+const BATCH_SIZE_PAYERS = 200;
+const BATCH_SIZE_BILLINGS = 100;
+const BATCH_SIZE_CEPS = 500;
+
+// Optimized payer import with larger batches and parallel processing
+export function useOptimizedImportPayers() {
+  const queryClient = useQueryClient();
+  const [progress, setProgress] = useState(0);
+
+  const mutation = useMutation({
+    mutationFn: async (file: File): Promise<ImportResult> => {
+      const rows = await parseCSV<PayerCSVRow>(file);
+      const result: ImportResult = {
+        total: rows.length,
+        success: 0,
+        errors: 0,
+        errorDetails: [],
+      };
+
+      // Create import log (fire and forget)
+      const logPromise = supabase
+        .from("import_logs")
+        .insert({
+          file_name: file.name,
+          type: "PAYERS",
+          total_rows: rows.length,
+          status: "PROCESSING",
+        })
+        .select("id")
+        .single();
+
+      // Transform all rows at once
+      const transformed = rows
+        .map((row, idx) => ({
+          rowNumber: idx + 2,
+          payer: transformPayerRow(row),
+        }))
+        .filter((t): t is { rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> } => {
+          if (!t.payer) {
+            result.errors++;
+            result.errorDetails.push({ row: t.rowNumber, error: "Dados inválidos" });
+            return false;
+          }
+          return true;
+        });
+
+      // Process in larger batches
+      const totalBatches = Math.ceil(transformed.length / BATCH_SIZE_PAYERS);
+      
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const start = batchIdx * BATCH_SIZE_PAYERS;
+        const batchItems = transformed.slice(start, start + BATCH_SIZE_PAYERS);
+        const batch = batchItems.map((b) => b.payer);
+
+        try {
+          const { error } = await supabase
+            .from("payers")
+            .upsert(batch as any[], { onConflict: "id" });
+
+          if (error) throw error;
+          result.success += batchItems.length;
+        } catch (err: any) {
+          // Only fallback to per-row if batch fails
+          for (const item of batchItems) {
+            try {
+              const { error: rowError } = await supabase
+                .from("payers")
+                .upsert(item.payer as any, { onConflict: "id" });
+
+              if (rowError) {
+                result.errors++;
+                result.errorDetails.push({
+                  row: item.rowNumber,
+                  error: [rowError.message, rowError.details].filter(Boolean).join(" | "),
+                });
+              } else {
+                result.success++;
+              }
+            } catch (e: any) {
+              result.errors++;
+              result.errorDetails.push({ row: item.rowNumber, error: e.message });
+            }
+          }
+        }
+
+        setProgress(Math.round(((batchIdx + 1) / totalBatches) * 100));
+      }
+
+      // Update import log
+      const { data: importLog } = await logPromise;
+      if (importLog?.id) {
+        await supabase
+          .from("import_logs")
+          .update({
+            status: result.errors === result.total ? "FAILED" : "COMPLETED",
+            processed_rows: result.total,
+            success_rows: result.success,
+            error_rows: result.errors,
+            errors: result.errorDetails.slice(0, 100), // Limit error details
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", importLog.id);
+      }
+
+      return result;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+
+      if (result.errors > 0) {
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
+      } else {
+        toast.success(`${result.success} pagadores importados!`);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro: ${error.message}`);
+    },
+  });
+
+  return {
+    importPayers: mutation.mutateAsync,
+    isImporting: mutation.isPending,
+    progress,
+    reset: useCallback(() => setProgress(0), []),
+  };
+}
+
+// Optimized billing import with caching and batch operations
+export function useOptimizedImportBillings() {
+  const queryClient = useQueryClient();
+  const [progress, setProgress] = useState(0);
+
+  const mutation = useMutation({
+    mutationFn: async (file: File): Promise<ImportResult & { referenceMonth: string | null }> => {
+      const rows = await parseCSV<BillingCSVRow>(file);
+      const result: ImportResult & { referenceMonth: string | null } = {
+        total: rows.length,
+        success: 0,
+        errors: 0,
+        errorDetails: [],
+        referenceMonth: null,
+      };
+
+      // Create import log
+      const logPromise = supabase
+        .from("import_logs")
+        .insert({
+          file_name: file.name,
+          type: "BILLINGS",
+          total_rows: rows.length,
+          status: "PROCESSING",
+        })
+        .select("id")
+        .single();
+
+      // Group billings by payer_id + reference_month for conflict resolution
+      const billingMap = new Map<string, ReturnType<typeof transformBillingRow>>();
+      const payerIdsInImport = new Set<string>();
+
+      for (const row of rows) {
+        const billing = transformBillingRow(row);
+        if (!billing) continue;
+
+        const key = `${billing.payer_id}-${billing.reference_month}`;
+        const existing = billingMap.get(key);
+
+        if (existing) {
+          const higherStatus = getHigherPriorityStatus(
+            billing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW",
+            existing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW"
+          );
+          if (higherStatus === billing.status) {
+            billingMap.set(key, billing);
+          }
+        } else {
+          billingMap.set(key, billing);
+        }
+
+        payerIdsInImport.add(billing.payer_id);
+
+        if (!result.referenceMonth && billing.reference_month) {
+          result.referenceMonth = billing.reference_month;
+        }
+      }
+
+      const billings = Array.from(billingMap.values());
+
+      // Pre-fetch all existing payers in one query
+      const payerIds = Array.from(payerIdsInImport);
+      const { data: existingPayers } = await supabase
+        .from("payers")
+        .select("id, payer_code")
+        .in("id", payerIds);
+
+      const existingPayerIds = new Set(existingPayers?.map((p) => p.id) || []);
+      const existingPayerCodes = new Map(
+        existingPayers?.filter((p) => p.payer_code).map((p) => [p.payer_code!, p.id]) || []
+      );
+
+      // Pre-fetch existing billings for this reference month
+      const existingBillingsQuery = result.referenceMonth
+        ? await supabase
+            .from("billings")
+            .select("id, payer_id, status, reference_month")
+            .eq("reference_month", result.referenceMonth)
+            .in("payer_id", payerIds)
+        : { data: [] as { id: string; payer_id: string; status: string; reference_month: string }[] };
+
+      const existingBillings = existingBillingsQuery.data || [];
+
+      const existingBillingsMap = new Map(
+        existingBillings.map((b) => [`${b.payer_id}-${b.reference_month}`, b])
+      );
+
+      // Process billings in batches
+      const newBillings: any[] = [];
+      const updateBillings: { id: string; data: any }[] = [];
+      const payersToCreate: any[] = [];
+      const payerUpdates: Map<string, any> = new Map();
+
+      for (let i = 0; i < billings.length; i++) {
+        const billing = billings[i];
+        if (!billing) continue;
+
+        let payerId = billing.payer_id;
+
+        // Check if payer exists
+        if (!existingPayerIds.has(payerId)) {
+          // Try by payer_code
+          if (billing.payer_code && existingPayerCodes.has(billing.payer_code)) {
+            payerId = existingPayerCodes.get(billing.payer_code)!;
+          } else {
+            // Create placeholder payer
+            payersToCreate.push({
+              id: payerId,
+              name: billing.payer_name || `Pagador ${billing.payer_code || payerId}`,
+              document: payerId,
+              document_digits: payerId,
+              payer_code: billing.payer_code,
+              status: "ATIVO",
+              billing_mode: "BOLETO",
+              review_flag: true,
+              needs_review: true,
+            });
+            existingPayerIds.add(payerId);
+          }
+        }
+
+        const billingKey = `${payerId}-${billing.reference_month}`;
+        const existingBilling = existingBillingsMap.get(billingKey);
+
+        const billingData = {
+          payer_id: payerId,
+          payer_code: billing.payer_code,
+          nosso_numero: billing.nosso_numero,
+          seu_numero: billing.seu_numero,
+          due_date: billing.due_date,
+          liquidation_at: billing.liquidation_at,
+          settlement_at: billing.settlement_at,
+          amount_expected_cents: billing.amount_expected_cents,
+          amount_paid_cents: billing.amount_paid_cents,
+          status: billing.status,
+          reference_month: billing.reference_month,
+          payment_method: billing.payment_method,
+          source: billing.source,
+          route: billing.route,
+          source_file_name: file.name,
+        };
+
+        if (existingBilling) {
+          const newStatus = getHigherPriorityStatus(
+            billing.status as any,
+            existingBilling.status as any
+          );
+          if (newStatus !== existingBilling.status) {
+            updateBillings.push({
+              id: existingBilling.id,
+              data: { ...billingData, status: newStatus },
+            });
+          }
+        } else {
+          newBillings.push(billingData);
+        }
+
+        // Accumulate payer updates
+        const needsReview =
+          billing.status === "NEEDS_REVIEW" ||
+          isQuickCancellation(billing.due_date, billing.liquidation_at);
+
+        const payerUpdate: any = {
+          billing_seen_in_month: billing.reference_month,
+          last_billing_ref: billing.reference_month,
+          status: "ATIVO",
+          billing_mode: "BOLETO",
+        };
+
+        if (billing.status === "PAID" && billing.settlement_at) {
+          payerUpdate.last_payment_at = billing.settlement_at;
+        }
+
+        if (needsReview) {
+          payerUpdate.needs_review = true;
+        }
+
+        payerUpdates.set(payerId, payerUpdate);
+      }
+
+      setProgress(30);
+
+      // Create placeholder payers in batch
+      if (payersToCreate.length > 0) {
+        const { error } = await supabase
+          .from("payers")
+          .upsert(payersToCreate, { onConflict: "id" });
+
+        if (error) {
+          console.warn("Error creating placeholder payers:", error);
+        }
+      }
+
+      setProgress(40);
+
+      // Insert new billings in batches
+      for (let i = 0; i < newBillings.length; i += BATCH_SIZE_BILLINGS) {
+        const batch = newBillings.slice(i, i + BATCH_SIZE_BILLINGS);
+        try {
+          const { error } = await supabase.from("billings").insert(batch);
+          if (error) throw error;
+          result.success += batch.length;
+        } catch (err: any) {
+          // Fallback to individual inserts
+          for (const b of batch) {
+            try {
+              const { error } = await supabase.from("billings").insert(b);
+              if (error) {
+                result.errors++;
+                result.errorDetails.push({ row: 0, error: error.message });
+              } else {
+                result.success++;
+              }
+            } catch (e: any) {
+              result.errors++;
+              result.errorDetails.push({ row: 0, error: e.message });
+            }
+          }
+        }
+        setProgress(40 + Math.round((i / newBillings.length) * 30));
+      }
+
+      setProgress(70);
+
+      // Update existing billings
+      for (const { id, data } of updateBillings) {
+        try {
+          await supabase.from("billings").update(data).eq("id", id);
+          result.success++;
+        } catch (err: any) {
+          result.errors++;
+          result.errorDetails.push({ row: 0, error: err.message });
+        }
+      }
+
+      setProgress(85);
+
+      // Update payers in batch
+      const payerUpdateEntries = Array.from(payerUpdates.entries());
+      for (let i = 0; i < payerUpdateEntries.length; i += BATCH_SIZE_PAYERS) {
+        const batch = payerUpdateEntries.slice(i, i + BATCH_SIZE_PAYERS);
+        await Promise.all(
+          batch.map(([id, update]) =>
+            supabase.from("payers").update(update).eq("id", id)
+          )
+        );
+      }
+
+      setProgress(95);
+
+      // Deactivate payers not in import
+      if (result.referenceMonth) {
+        await deactivatePayersNotInImport(result.referenceMonth, payerIdsInImport);
+      }
+
+      // Update import log
+      const { data: importLog } = await logPromise;
+      if (importLog?.id) {
+        await supabase
+          .from("import_logs")
+          .update({
+            status: result.errors === result.total ? "FAILED" : "COMPLETED",
+            processed_rows: billings.length,
+            success_rows: result.success,
+            error_rows: result.errors,
+            errors: result.errorDetails.slice(0, 100),
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", importLog.id);
+      }
+
+      setProgress(100);
+      return result;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["billings"] });
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+
+      if (result.errors > 0) {
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
+      } else {
+        toast.success(`${result.success} boletos importados!`);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro: ${error.message}`);
+    },
+  });
+
+  return {
+    importBillings: mutation.mutateAsync,
+    isImporting: mutation.isPending,
+    progress,
+    reset: useCallback(() => setProgress(0), []),
+  };
+}
+
+// Optimized CEP import with very large batches
+export function useOptimizedImportCEPs() {
+  const queryClient = useQueryClient();
+  const [progress, setProgress] = useState(0);
+
+  const mutation = useMutation({
+    mutationFn: async (file: File): Promise<ImportResult> => {
+      const rows = await parseCSV<CEPCSVRow>(file);
+      const result: ImportResult = {
+        total: rows.length,
+        success: 0,
+        errors: 0,
+        errorDetails: [],
+      };
+
+      const logPromise = supabase
+        .from("import_logs")
+        .insert({
+          file_name: file.name,
+          type: "CEPS",
+          total_rows: rows.length,
+          status: "PROCESSING",
+        })
+        .select("id")
+        .single();
+
+      const ceps = rows.map(transformCEPRow).filter(Boolean) as NonNullable<
+        ReturnType<typeof transformCEPRow>
+      >[];
+
+      const totalBatches = Math.ceil(ceps.length / BATCH_SIZE_CEPS);
+
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const start = batchIdx * BATCH_SIZE_CEPS;
+        const batch = ceps.slice(start, start + BATCH_SIZE_CEPS);
+
+        try {
+          const { error } = await supabase
+            .from("ceps")
+            .upsert(batch, { onConflict: "cep" });
+
+          if (error) throw error;
+          result.success += batch.length;
+        } catch (err: any) {
+          result.errors += batch.length;
+          result.errorDetails.push({ row: start, error: err.message });
+        }
+
+        setProgress(Math.round(((batchIdx + 1) / totalBatches) * 100));
+      }
+
+      const { data: importLog } = await logPromise;
+      if (importLog?.id) {
+        await supabase
+          .from("import_logs")
+          .update({
+            status: result.errors === result.total ? "FAILED" : "COMPLETED",
+            processed_rows: ceps.length,
+            success_rows: result.success,
+            error_rows: result.errors,
+            errors: result.errorDetails.slice(0, 100),
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", importLog.id);
+      }
+
+      return result;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["ceps"] });
+
+      if (result.errors > 0) {
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
+      } else {
+        toast.success(`${result.success} CEPs importados!`);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro: ${error.message}`);
+    },
+  });
+
+  return {
+    importCEPs: mutation.mutateAsync,
+    isImporting: mutation.isPending,
+    progress,
+    reset: useCallback(() => setProgress(0), []),
+  };
+}
+
+// Helper function to deactivate payers not in import
+async function deactivatePayersNotInImport(
+  referenceMonth: string,
+  payerIdsInImport: Set<string>
+) {
+  const { data: activePayers } = await supabase
+    .from("payers")
+    .select("id, billing_mode, is_coordinator, manual_active_until")
+    .eq("status", "ATIVO")
+    .eq("billing_mode", "BOLETO");
+
+  if (!activePayers) return;
+
+  const payersToDeactivate: string[] = [];
+
+  for (const payer of activePayers) {
+    if (payerIdsInImport.has(payer.id)) continue;
+    if (payer.is_coordinator) continue;
+    if (payer.manual_active_until && payer.manual_active_until >= referenceMonth)
+      continue;
+
+    payersToDeactivate.push(payer.id);
+  }
+
+  if (payersToDeactivate.length > 0) {
+    // Batch update in chunks
+    for (let i = 0; i < payersToDeactivate.length; i += 500) {
+      const batch = payersToDeactivate.slice(i, i + 500);
+      await supabase.from("payers").update({ status: "INATIVO" }).in("id", batch);
+    }
+  }
+}
