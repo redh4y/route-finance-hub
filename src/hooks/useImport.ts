@@ -10,6 +10,7 @@ import {
   BillingCSVRow,
   CEPCSVRow,
   getHigherPriorityStatus,
+  isQuickCancellation,
 } from "@/lib/csv-import";
 import { toast } from "sonner";
 
@@ -54,33 +55,33 @@ export function useImportPayers() {
         .select()
         .single();
 
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
+      // Batch process for better performance
+      const batchSize = 50;
+      const payers = rows.map(transformPayerRow).filter(Boolean);
+      
+      for (let i = 0; i < payers.length; i += batchSize) {
+        const batch = payers.slice(i, i + batchSize);
+        
         try {
-          const payer = transformPayerRow(row);
-          if (!payer) {
-            result.errors++;
-            result.errorDetails.push({ row: i + 2, error: "Dados inválidos (sem nome ou identificador)" });
-            continue;
-          }
-
-          // Upsert payer
           const { error } = await supabase
             .from("payers")
-            .upsert(payer, { onConflict: "id" });
+            .upsert(batch as any[], { 
+              onConflict: "id",
+              ignoreDuplicates: false 
+            });
 
           if (error) {
-            result.errors++;
+            result.errors += batch.length;
             result.errorDetails.push({ row: i + 2, error: error.message });
           } else {
-            result.success++;
+            result.success += batch.length;
           }
         } catch (err) {
-          result.errors++;
+          result.errors += batch.length;
           result.errorDetails.push({ row: i + 2, error: String(err) });
         }
 
-        setProgress(Math.round(((i + 1) / rows.length) * 100));
+        setProgress(Math.round(((i + batchSize) / payers.length) * 100));
       }
 
       // Update import log
@@ -89,7 +90,7 @@ export function useImportPayers() {
           .from("import_logs")
           .update({
             status: result.errors > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED",
-            processed_rows: rows.length,
+            processed_rows: payers.length,
             success_rows: result.success,
             error_rows: result.errors,
             errors: result.errorDetails,
@@ -141,13 +142,14 @@ export function useImportBillings() {
   };
 
   const mutation = useMutation({
-    mutationFn: async (file: File): Promise<ImportResult> => {
+    mutationFn: async (file: File): Promise<ImportResult & { referenceMonth: string | null }> => {
       const rows = await parseCSV<BillingCSVRow>(file);
-      const result: ImportResult = {
+      const result: ImportResult & { referenceMonth: string | null } = {
         total: rows.length,
         success: 0,
         errors: 0,
         errorDetails: [],
+        referenceMonth: null,
       };
 
       // Create import log
@@ -162,14 +164,15 @@ export function useImportBillings() {
         .select()
         .single();
 
-      // Group billings by payer_code + reference_month for conflict resolution
+      // Group billings by payer_id + reference_month for conflict resolution
       const billingMap = new Map<string, ReturnType<typeof transformBillingRow>>();
+      const payerIdsInImport = new Set<string>();
 
       for (const row of rows) {
         const billing = transformBillingRow(row);
         if (!billing) continue;
 
-        const key = `${billing.payer_code}-${billing.reference_month}`;
+        const key = `${billing.payer_id}-${billing.reference_month}`;
         const existing = billingMap.get(key);
 
         if (existing) {
@@ -184,6 +187,13 @@ export function useImportBillings() {
         } else {
           billingMap.set(key, billing);
         }
+        
+        payerIdsInImport.add(billing.payer_id);
+        
+        // Track reference month (should be consistent across file)
+        if (!result.referenceMonth && billing.reference_month) {
+          result.referenceMonth = billing.reference_month;
+        }
       }
 
       const billings = Array.from(billingMap.values());
@@ -193,18 +203,14 @@ export function useImportBillings() {
         if (!billing) continue;
 
         try {
-          // Find payer by payer_code
-          const { data: payer } = await supabase
-            .from("payers")
-            .select("id")
-            .eq("payer_code", billing.payer_code)
-            .maybeSingle();
-
+          // Find payer by id (document_digits) or payer_code
+          let payer = await findOrCreatePayer(billing);
+          
           if (!payer) {
             result.errors++;
             result.errorDetails.push({ 
               row: i + 1, 
-              error: `Pagador não encontrado: ${billing.payer_code}` 
+              error: `Não foi possível encontrar ou criar pagador: ${billing.payer_id}` 
             });
             continue;
           }
@@ -217,9 +223,22 @@ export function useImportBillings() {
             .eq("reference_month", billing.reference_month)
             .maybeSingle();
 
+          // Prepare billing data
           const billingData = {
-            ...billing,
             payer_id: payer.id,
+            payer_code: billing.payer_code,
+            nosso_numero: billing.nosso_numero,
+            seu_numero: billing.seu_numero,
+            due_date: billing.due_date,
+            liquidation_at: billing.liquidation_at,
+            settlement_at: billing.settlement_at,
+            amount_expected_cents: billing.amount_expected_cents,
+            amount_paid_cents: billing.amount_paid_cents,
+            status: billing.status,
+            reference_month: billing.reference_month,
+            payment_method: billing.payment_method,
+            source: billing.source,
+            route: billing.route,
             source_file_name: file.name,
           };
 
@@ -247,14 +266,30 @@ export function useImportBillings() {
             if (error) throw error;
           }
 
-          // Update payer's last billing info
+          // Determine if payer needs review
+          const needsReview = 
+            billing.status === "NEEDS_REVIEW" ||
+            isQuickCancellation(billing.due_date, billing.liquidation_at);
+
+          // Update payer's billing info
+          const payerUpdate: Record<string, any> = {
+            billing_seen_in_month: billing.reference_month,
+            last_billing_ref: billing.reference_month,
+            status: "ATIVO",
+            billing_mode: "BOLETO",
+          };
+
+          if (billing.status === "PAID" && billing.settlement_at) {
+            payerUpdate.last_payment_at = billing.settlement_at;
+          }
+
+          if (needsReview) {
+            payerUpdate.needs_review = true;
+          }
+
           await supabase
             .from("payers")
-            .update({
-              billing_seen_in_month: billing.reference_month,
-              last_billing_ref: billing.reference_month,
-              ...(billing.status === "PAID" && { last_payment_at: new Date().toISOString() }),
-            })
+            .update(payerUpdate)
             .eq("id", payer.id);
 
           result.success++;
@@ -264,6 +299,11 @@ export function useImportBillings() {
         }
 
         setProgress(Math.round(((i + 1) / billings.length) * 100));
+      }
+
+      // Automatic payer deactivation logic
+      if (result.referenceMonth) {
+        await deactivatePayersNotInImport(result.referenceMonth, payerIdsInImport);
       }
 
       // Update import log
@@ -310,6 +350,90 @@ export function useImportBillings() {
       setPreview([]);
     },
   };
+}
+
+// Helper function to find or create payer from billing data
+async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transformBillingRow>>) {
+  // First try to find by id (document_digits)
+  let { data: payer } = await supabase
+    .from("payers")
+    .select("id")
+    .eq("id", billing.payer_id)
+    .maybeSingle();
+
+  if (payer) return payer;
+
+  // Try to find by payer_code
+  if (billing.payer_code) {
+    const { data: payerByCode } = await supabase
+      .from("payers")
+      .select("id")
+      .eq("payer_code", billing.payer_code)
+      .maybeSingle();
+
+    if (payerByCode) return payerByCode;
+  }
+
+  // Create placeholder payer if not found
+  const placeholderPayer = {
+    id: billing.payer_id,
+    name: billing.payer_name || `Pagador ${billing.payer_code || billing.payer_id}`,
+    name_lower: (billing.payer_name || `Pagador ${billing.payer_code || billing.payer_id}`).toLowerCase(),
+    document: billing.payer_id,
+    document_digits: billing.payer_id,
+    payer_code: billing.payer_code,
+    status: "ATIVO",
+    billing_mode: "BOLETO",
+    review_flag: true,
+    needs_review: true,
+  };
+
+  const { data: newPayer, error } = await supabase
+    .from("payers")
+    .insert(placeholderPayer)
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("Error creating placeholder payer:", error);
+    return null;
+  }
+
+  return newPayer;
+}
+
+// Deactivate payers that didn't appear in the import
+async function deactivatePayersNotInImport(referenceMonth: string, payerIdsInImport: Set<string>) {
+  // Get all BOLETO payers that should be checked
+  const { data: activePayers } = await supabase
+    .from("payers")
+    .select("id, billing_mode, is_coordinator, manual_active_until")
+    .eq("status", "ATIVO")
+    .eq("billing_mode", "BOLETO");
+
+  if (!activePayers) return;
+
+  const payersToDeactivate: string[] = [];
+
+  for (const payer of activePayers) {
+    // Skip if payer appeared in import
+    if (payerIdsInImport.has(payer.id)) continue;
+
+    // Skip coordinators
+    if (payer.is_coordinator) continue;
+
+    // Skip if manual_active_until is set and >= current reference month
+    if (payer.manual_active_until && payer.manual_active_until >= referenceMonth) continue;
+
+    payersToDeactivate.push(payer.id);
+  }
+
+  if (payersToDeactivate.length > 0) {
+    await supabase
+      .from("payers")
+      .update({ status: "INATIVO" })
+      .in("id", payersToDeactivate);
+  }
 }
 
 export function useImportCEPs() {

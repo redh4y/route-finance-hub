@@ -1,3 +1,4 @@
+import * as React from "react";
 import { cn } from "@/lib/utils";
 
 export function mapBillingStatus(status: string): "paid" | "open" | "cancelled" | "review" {
@@ -17,10 +18,9 @@ export function mapBillingStatus(status: string): "paid" | "open" | "cancelled" 
 
 type StatusType = "paid" | "open" | "cancelled" | "review" | "active" | "inactive";
 
-interface StatusBadgeProps {
+interface StatusBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   status: StatusType;
   label?: string;
-  className?: string;
 }
 
 const statusConfig: Record<StatusType, { label: string; className: string }> = {
@@ -32,21 +32,28 @@ const statusConfig: Record<StatusType, { label: string; className: string }> = {
   inactive: { label: "Inativo", className: "badge-inactive" },
 };
 
-export function StatusBadge({ status, label, className }: StatusBadgeProps) {
-  const config = statusConfig[status];
+const StatusBadge = React.forwardRef<HTMLSpanElement, StatusBadgeProps>(
+  ({ status, label, className, ...props }, ref) => {
+    const config = statusConfig[status];
 
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
-        config.className,
-        className
-      )}
-    >
-      {label || config.label}
-    </span>
-  );
-}
+    return (
+      <span
+        ref={ref}
+        className={cn(
+          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+          config.className,
+          className
+        )}
+        {...props}
+      >
+        {label || config.label}
+      </span>
+    );
+  }
+);
+StatusBadge.displayName = "StatusBadge";
+
+export { StatusBadge };
 
 // Utility function to map payer status to StatusType
 export function mapPayerStatus(status: string): StatusType {
