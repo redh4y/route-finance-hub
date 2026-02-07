@@ -339,7 +339,7 @@ function ImportPayersCard() {
                       {payer?.document_digits ? formatCPF(payer.document_digits) : "-"}
                     </TableCell>
                     <TableCell>{payer?.payer_code || "-"}</TableCell>
-                    <TableCell>{payer?.city || "-"}</TableCell>
+                    <TableCell>{"city" in payer ? payer.city : "-"}</TableCell>
                     <TableCell>
                       {payer?.match_ok ? (
                         <CheckCircle2 className="h-4 w-4 text-success" />
