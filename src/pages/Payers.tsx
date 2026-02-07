@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { usePayers } from "@/hooks/usePayers";
+import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
 import { PageTransition } from "@/components/ui/page-transition";
 import { formatCPF, formatPhone, formatCurrency } from "@/lib/formatters";
@@ -11,12 +13,19 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   Search,
   Users,
   AlertCircle,
   Filter,
   X,
-  ChevronRight,
   Phone,
   Mail,
   MapPin,
@@ -24,11 +33,12 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Edit,
   UserCheck,
   UserX,
   AlertTriangle,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 // Quick filter buttons
@@ -45,6 +55,7 @@ export default function Payers() {
   const [searchTerm, setSearchTerm] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilterKey>("active");
   const [selectedPayerId, setSelectedPayerId] = useState<string | null>(null);
+  const [editPayerId, setEditPayerId] = useState<string | null>(null);
 
   // Build filters based on quick filter
   const filters = useMemo(() => {
@@ -181,19 +192,27 @@ export default function Payers() {
                       ))}
                     </div>
                   ) : payers && payers.length > 0 ? (
-                    <div className="divide-y">
-                      <AnimatePresence mode="popLayout">
-                        {payers.map((payer, index) => (
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="hover:bg-transparent">
+                          <TableHead>Pagador</TableHead>
+                          <TableHead className="text-center">Modo de cobranca</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Acoes</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {payers.map((payer) => (
                           <PayerRow
                             key={payer.id}
                             payer={payer}
-                            index={index}
                             isSelected={selectedPayerId === payer.id}
                             onClick={() => setSelectedPayerId(payer.id)}
+                            onEdit={() => setEditPayerId(payer.id)}
                           />
                         ))}
-                      </AnimatePresence>
-                    </div>
+                      </TableBody>
+                    </Table>
                   ) : (
                     <EmptyState searchTerm={searchTerm} quickFilter={quickFilter} />
                   )}
@@ -208,13 +227,10 @@ export default function Payers() {
           </div>
         </div>
 
-        {/* Mobile modal */}
-        <div className="lg:hidden">
-          <PayerDetailsModal
-            payerId={selectedPayerId}
-            onClose={() => setSelectedPayerId(null)}
-          />
-        </div>
+        <PayerDetailsModal
+          payerId={editPayerId}
+          onClose={() => setEditPayerId(null)}
+        />
       </PageTransition>
     </MainLayout>
   );
@@ -255,84 +271,91 @@ function StatPill({
 // Payer row component
 function PayerRow({
   payer,
-  index,
   isSelected,
   onClick,
+  onEdit,
 }: {
   payer: ReturnType<typeof usePayers>["data"] extends (infer T)[] | undefined
     ? T
     : never;
-  index: number;
   isSelected: boolean;
   onClick: () => void;
+  onEdit: () => void;
 }) {
   if (!payer) return null;
 
   const isActive = payer.status === "ATIVO";
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ delay: Math.min(index * 0.02, 0.3) }}
+    <TableRow
       onClick={onClick}
       className={cn(
-        "flex items-center gap-4 p-4 cursor-pointer transition-colors hover:bg-muted/50",
-        isSelected && "bg-primary/5 border-l-2 border-l-primary"
+        "cursor-pointer transition-colors hover:bg-muted/50",
+        isSelected && "bg-primary/5"
       )}
     >
-      {/* Avatar / Status indicator */}
-      <div
-        className={cn(
-          "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold",
-          isActive
-            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            : "bg-muted text-muted-foreground"
-        )}
-      >
-        {payer.name.charAt(0).toUpperCase()}
-      </div>
+      <TableCell>
+        <div className="flex items-center gap-4">
+          <div
+            className={cn(
+              "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold",
+              isActive
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "bg-muted text-muted-foreground"
+            )}
+          >
+            {payer.name.charAt(0).toUpperCase()}
+          </div>
 
-      {/* Main info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium truncate">{payer.name}</span>
-          {payer.is_coordinator && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-              Coord
-            </Badge>
-          )}
-          {payer.needs_review && (
-            <Badge
-              variant="outline"
-              className="text-[10px] px-1.5 py-0 shrink-0 border-amber-500/50 text-amber-600"
-            >
-              Revisão
-            </Badge>
-          )}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium truncate">{payer.name}</span>
+              {payer.is_coordinator && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                  Coord
+                </Badge>
+              )}
+              {payer.needs_review && (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 shrink-0 border-amber-500/50 text-amber-600"
+                >
+                  Revisao
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+              <span className="font-mono">
+                {payer.document_digits
+                  ? formatCPF(payer.document_digits)
+                  : payer.payer_code || "-"}
+              </span>
+              {payer.neighborhood && (
+                <>
+                  <span className="text-muted-foreground/50">{"\u2022"}</span>
+                  <span className="truncate">{payer.neighborhood}</span>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-          <span className="font-mono">
-            {payer.document_digits
-              ? formatCPF(payer.document_digits)
-              : payer.payer_code || "—"}
-          </span>
-          {payer.neighborhood && (
-            <>
-              <span className="text-muted-foreground/50">•</span>
-              <span className="truncate">{payer.neighborhood}</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Right side info */}
-      <div className="hidden sm:flex items-center gap-3 shrink-0">
-        <Badge variant="outline" className="text-xs">
+      </TableCell>
+      <TableCell className="text-center">
+        <Badge
+          variant="outline"
+          className={cn("text-xs", {
+            "border-emerald-500/40 text-emerald-600 bg-emerald-500/5":
+              payer.billing_mode === "PIX_ONLY",
+            "border-amber-500/40 text-amber-600 bg-amber-500/5":
+              payer.billing_mode === "MIXED",
+            "border-sky-500/40 text-sky-600 bg-sky-500/5":
+              payer.billing_mode === "BOLETO",
+          })}
+        >
           {payer.billing_mode}
         </Badge>
+      </TableCell>
+      <TableCell>
         <Badge
           variant={isActive ? "default" : "secondary"}
           className={cn(
@@ -342,10 +365,20 @@ function PayerRow({
         >
           {isActive ? "Ativo" : "Inativo"}
         </Badge>
-      </div>
-
-      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-    </motion.div>
+      </TableCell>
+      <TableCell className="text-right">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -379,6 +412,77 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
   const { data: payer, isLoading } = usePayers({});
 
   const selectedPayer = payer?.find((p) => p.id === payerId);
+
+  const payerCode = selectedPayer?.payer_code || null;
+
+  const { data: paidBillings } = useQuery({
+    queryKey: ["payer-last-paid", payerId, payerCode],
+    queryFn: async () => {
+      if (!payerId) return [];
+      let query = supabase
+        .from("billings")
+        .select("settlement_at, due_date, status, payer_id, payer_code")
+        .eq("status", "PAID")
+        .order("due_date", { ascending: false })
+        .limit(50);
+
+      if (payerCode) {
+        query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payerCode}`);
+      } else {
+        query = query.eq("payer_id", payerId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (import.meta.env.DEV) {
+        console.log("[Payers] paid billings for", { payerId, payerCode }, data);
+      }
+      return data || [];
+    },
+    enabled: !!payerId,
+  });
+
+  const { data: allBillings } = useQuery({
+    queryKey: ["payer-all-billings", payerId, payerCode],
+    queryFn: async () => {
+      if (!payerId) return [];
+      let query = supabase
+        .from("billings")
+        .select("id, status, settlement_at, liquidation_at, due_date, payer_id, payer_code, reference_month")
+        .order("reference_month", { ascending: false })
+        .limit(200);
+
+      if (payerCode) {
+        query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payerCode}`);
+      } else {
+        query = query.eq("payer_id", payerId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (import.meta.env.DEV) {
+        console.log("[Payers] all billings for", { payerId, payerCode }, data);
+      }
+      return data || [];
+    },
+    enabled: !!payerId,
+  });
+  void allBillings;
+
+  const latestPaidDate = useMemo(() => {
+    if (!paidBillings || paidBillings.length == 0) return null;
+    let latest = null;
+    for (const b of paidBillings) {
+      const raw = b.settlement_at || b.due_date;
+      if (!raw) continue;
+      const d = new Date(raw);
+      if (!latest || d > latest) latest = d;
+    }
+    if (import.meta.env.DEV) {
+      console.log("[Payers] latestPaidDate for", payerId, latest);
+    }
+    return latest;
+  }, [paidBillings]);
 
   if (!payerId || !selectedPayer) {
     return (
@@ -482,20 +586,28 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
               </h4>
               <InfoRow
                 icon={Receipt}
-                label="Última ref."
+                label="Ultima ref."
                 value={selectedPayer.last_billing_ref || "—"}
               />
               <InfoRow
                 icon={Clock}
-                label="Último pagamento"
+                label="Ultimo pagamento"
                 value={
                   selectedPayer.last_payment_at
                     ? new Date(selectedPayer.last_payment_at).toLocaleDateString(
                         "pt-BR"
                       )
-                    : "—"
+                    : latestPaidDate
+                    ? latestPaidDate.toLocaleDateString("pt-BR")
+                    : "-"
                 }
               />
+              {!latestPaidDate && (
+                <Badge variant="outline" className="gap-1 text-warning border-warning/50">
+                  <Clock className="h-3 w-3" />
+                  Boleto em aberto
+                </Badge>
+              )}
               {selectedPayer.pix_monthly_amount_cents && (
                 <InfoRow
                   icon={Receipt}

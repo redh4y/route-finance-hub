@@ -33,12 +33,14 @@ import { useSearchParams } from "react-router-dom";
 interface Billing {
   id: string;
   payer_id: string;
+  payer_code?: string | null;
   reference_month: string;
   due_date: string | null;
   status: string;
   amount_expected_cents: number;
   amount_paid_cents: number | null;
   settlement_at: string | null;
+  payers?: { name: string | null } | null;
 }
 
 interface FinancialEntry {
@@ -76,7 +78,7 @@ export default function FinancialRevenue() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("billings")
-        .select("*")
+        .select("*, payers(name)")
         .eq("reference_month", selectedMonth)
         .order("due_date", { ascending: true });
 
@@ -356,9 +358,9 @@ export default function FinancialRevenue() {
                           <TableCell>
                             {billing.due_date ? formatDate(billing.due_date) : "-"}
                           </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {billing.payer_id}
-                          </TableCell>
+                        <TableCell className="text-sm">
+                          {billing.payers?.name || billing.payer_id}
+                        </TableCell>
                           <TableCell>
                             <StatusBadge status={mapBillingStatus(billing.status)} />
                           </TableCell>

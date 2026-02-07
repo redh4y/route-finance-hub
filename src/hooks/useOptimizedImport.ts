@@ -181,6 +181,7 @@ export function useOptimizedImportBillings() {
       // Group billings by payer_id + reference_month for conflict resolution
       const billingMap = new Map<string, ReturnType<typeof transformBillingRow>>();
       const payerIdsInImport = new Set<string>();
+      const payerMonthStatus = new Map<string, "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW">();
 
       for (const row of rows) {
         const billing = transformBillingRow(row);
@@ -274,6 +275,16 @@ export function useOptimizedImportBillings() {
           }
         }
 
+        const existingStatus = payerMonthStatus.get(payerId);
+        const nextStatus = existingStatus
+          ? getHigherPriorityStatus(
+              billing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW",
+              existingStatus
+            )
+          : (billing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW");
+        payerMonthStatus.set(payerId, nextStatus);
+
+        payerIdsInImport.add(payerId);
         const billingKey = `${payerId}-${billing.reference_month}`;
         const existingBilling = existingBillingsMap.get(billingKey);
 
@@ -323,8 +334,8 @@ export function useOptimizedImportBillings() {
           default_route: payerRoute,
         };
 
-        if (billing.status === "PAID" && billing.settlement_at) {
-          payerUpdate.last_payment_at = billing.settlement_at;
+        if (billing.status === "PAID") {
+          payerUpdate.last_payment_at = billing.settlement_at || billing.due_date || null;
         }
 
         if (needsReview) {
@@ -406,6 +417,7 @@ export function useOptimizedImportBillings() {
 
       // Deactivate payers not in import
       if (result.referenceMonth) {
+        await applyPayerMonthStatus(result.referenceMonth, payerMonthStatus);
         await deactivatePayersNotInImport(result.referenceMonth, payerIdsInImport);
       }
 
@@ -542,6 +554,36 @@ export function useOptimizedImportCEPs() {
   };
 }
 
+async function applyPayerMonthStatus(
+  referenceMonth: string,
+  payerMonthStatus: Map<string, "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW">
+) {
+  const toDeactivate: string[] = [];
+  const toActivate: string[] = [];
+
+  for (const [payerId, status] of payerMonthStatus.entries()) {
+    if (status === "CANCELADO") {
+      toDeactivate.push(payerId);
+    } else if (status === "PAID" || status === "OPEN") {
+      toActivate.push(payerId);
+    }
+  }
+
+  if (toDeactivate.length > 0) {
+    for (let i = 0; i < toDeactivate.length; i += 500) {
+      const batch = toDeactivate.slice(i, i + 500);
+      await supabase.from("payers").update({ status: "INATIVO" }).in("id", batch);
+    }
+  }
+
+  if (toActivate.length > 0) {
+    for (let i = 0; i < toActivate.length; i += 500) {
+      const batch = toActivate.slice(i, i + 500);
+      await supabase.from("payers").update({ status: "ATIVO" }).in("id", batch);
+    }
+  }
+}
+
 // Helper function to deactivate payers not in import
 async function deactivatePayersNotInImport(
   referenceMonth: string,
@@ -550,18 +592,25 @@ async function deactivatePayersNotInImport(
   const { data: activePayers } = await supabase
     .from("payers")
     .select("id, billing_mode, is_coordinator, manual_active_until")
-    .eq("status", "ATIVO")
-    .eq("billing_mode", "BOLETO");
+    .eq("status", "ATIVO");
 
   if (!activePayers) return;
 
   const payersToDeactivate: string[] = [];
+  const mixedToReview: string[] = [];
 
   for (const payer of activePayers) {
     if (payerIdsInImport.has(payer.id)) continue;
     if (payer.is_coordinator) continue;
     if (payer.manual_active_until && payer.manual_active_until >= referenceMonth)
       continue;
+
+    if (payer.billing_mode === "PIX_ONLY") continue;
+
+    if (payer.billing_mode === "MIXED") {
+      mixedToReview.push(payer.id);
+      continue;
+    }
 
     payersToDeactivate.push(payer.id);
   }
@@ -571,6 +620,13 @@ async function deactivatePayersNotInImport(
     for (let i = 0; i < payersToDeactivate.length; i += 500) {
       const batch = payersToDeactivate.slice(i, i + 500);
       await supabase.from("payers").update({ status: "INATIVO" }).in("id", batch);
+    }
+  }
+
+  if (mixedToReview.length > 0) {
+    for (let i = 0; i < mixedToReview.length; i += 500) {
+      const batch = mixedToReview.slice(i, i + 500);
+      await supabase.from("payers").update({ needs_review: true }).in("id", batch);
     }
   }
 }
