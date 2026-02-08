@@ -13,11 +13,18 @@ import {
   LogOut,
   Bug,
   MessageCircle,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 const navItems = [
   {
@@ -36,7 +43,7 @@ const navItems = [
     icon: Upload,
   },
   {
-    label: "Cartoes",
+    label: "Cartões",
     path: "/cartoes",
     icon: CreditCard,
   },
@@ -67,9 +74,16 @@ const navItems = [
   },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  onNavigate?: () => void;
+}
+
+export function Sidebar({ onNavigate }: SidebarProps) {
   const location = useLocation();
   const { signOut, user } = useAuth();
+  const [financeiroOpen, setFinanceiroOpen] = useState(
+    location.pathname.startsWith("/financeiro")
+  );
 
   const isActive = (path: string) => {
     if (path === "/") {
@@ -82,25 +96,29 @@ export function Sidebar() {
     await signOut();
   };
 
+  const handleNavClick = () => {
+    onNavigate?.();
+  };
+
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border">
+    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
       {/* Logo */}
       <motion.div 
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border"
+        className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border shrink-0"
       >
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-primary">
           <Bus className="h-5 w-5 text-sidebar-primary-foreground" />
         </div>
-        <div>
-          <h1 className="text-lg font-bold text-sidebar-foreground">Tavares</h1>
+        <div className="min-w-0">
+          <h1 className="text-lg font-bold text-sidebar-foreground truncate">Tavares</h1>
           <p className="text-xs text-sidebar-foreground/60">Financeiro</p>
         </div>
       </motion.div>
 
       {/* Navigation */}
-      <nav className="p-4 space-y-1">
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {navItems.map((item, index) => (
           <motion.div 
             key={item.path}
@@ -109,40 +127,52 @@ export function Sidebar() {
             transition={{ delay: index * 0.05 }}
           >
             {item.children ? (
-              <div className="space-y-1">
-                <div className={cn(
-                  "nav-item cursor-default",
-                  isActive(item.path) && "text-sidebar-foreground"
-                )}>
-                  <item.icon className="h-5 w-5" />
-                  <span>{item.label}</span>
-                </div>
-                <div className="ml-4 pl-4 border-l border-sidebar-border space-y-1">
-                  {item.children.map((child) => (
-                    <Link
-                      key={child.path}
-                      to={child.path}
-                      className={cn(
-                        "nav-item",
-                        location.pathname === child.path && "active"
-                      )}
-                    >
-                      <child.icon className="h-4 w-4" />
-                      <span>{child.label}</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
+              <Collapsible open={financeiroOpen} onOpenChange={setFinanceiroOpen}>
+                <CollapsibleTrigger asChild>
+                  <button className={cn(
+                    "nav-item w-full justify-between",
+                    isActive(item.path) && "text-sidebar-foreground"
+                  )}>
+                    <span className="flex items-center gap-3">
+                      <item.icon className="h-5 w-5 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </span>
+                    <ChevronDown className={cn(
+                      "h-4 w-4 transition-transform shrink-0",
+                      financeiroOpen && "rotate-180"
+                    )} />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="ml-4 pl-4 border-l border-sidebar-border space-y-1 mt-1">
+                    {item.children.map((child) => (
+                      <Link
+                        key={child.path}
+                        to={child.path}
+                        onClick={handleNavClick}
+                        className={cn(
+                          "nav-item",
+                          location.pathname === child.path && "active"
+                        )}
+                      >
+                        <child.icon className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{child.label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             ) : (
               <Link
                 to={item.path}
+                onClick={handleNavClick}
                 className={cn(
                   "nav-item",
                   isActive(item.path) && !item.children && "active"
                 )}
               >
-                <item.icon className="h-5 w-5" />
-                <span>{item.label}</span>
+                <item.icon className="h-5 w-5 shrink-0" />
+                <span className="truncate">{item.label}</span>
               </Link>
             )}
           </motion.div>
@@ -150,7 +180,7 @@ export function Sidebar() {
       </nav>
 
       {/* Footer with user info and logout */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-sidebar-border">
+      <div className="shrink-0 p-4 border-t border-sidebar-border">
         {user && (
           <div className="mb-3 px-3">
             <p className="text-xs text-sidebar-foreground/60 truncate">
@@ -163,8 +193,8 @@ export function Sidebar() {
           className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
           onClick={handleLogout}
         >
-          <LogOut className="h-4 w-4 mr-2" />
-          Sair
+          <LogOut className="h-4 w-4 mr-2 shrink-0" />
+          <span className="truncate">Sair</span>
         </Button>
       </div>
     </aside>

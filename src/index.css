@@ -238,20 +238,20 @@
   
   /* Page headers */
   .page-header {
-    @apply mb-8;
+    @apply mb-6 sm:mb-8;
   }
   
   .page-title {
-    @apply text-2xl font-bold tracking-tight text-foreground;
+    @apply text-xl sm:text-2xl font-bold tracking-tight text-foreground;
   }
   
   .page-subtitle {
-    @apply text-muted-foreground mt-1;
+    @apply text-sm sm:text-base text-muted-foreground mt-1;
   }
   
   /* Stat cards */
   .stat-value {
-    @apply text-3xl font-bold tracking-tight;
+    @apply text-2xl sm:text-3xl font-bold tracking-tight;
   }
   
   .stat-label {
@@ -264,5 +264,23 @@
   
   .stat-change-negative {
     @apply text-destructive text-sm font-medium flex items-center gap-1;
+  }
+  
+  /* Mobile-first responsive utilities */
+  .responsive-grid {
+    @apply grid gap-4 sm:gap-6;
+    @apply grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4;
+  }
+  
+  .responsive-grid-2 {
+    @apply grid gap-4 sm:gap-6;
+    @apply grid-cols-1 lg:grid-cols-2;
+  }
+  
+  /* Touch-friendly spacing for mobile */
+  @media (max-width: 640px) {
+    .touch-target {
+      @apply min-h-[44px] min-w-[44px];
+    }
   }
 }

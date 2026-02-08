@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -37,6 +38,7 @@ import {
   UserCheck,
   UserX,
   AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -184,7 +186,7 @@ export default function Payers() {
             {/* Payers list */}
             <div className="lg:col-span-2">
               <Card className="overflow-hidden">
-                <ScrollArea className="h-[calc(100vh-280px)]">
+                <ScrollArea className="h-[calc(100vh-320px)] sm:h-[calc(100vh-280px)]">
                   {isLoading ? (
                     <div className="p-4 space-y-3">
                       {Array.from({ length: 8 }).map((_, i) => (
@@ -192,18 +194,11 @@ export default function Payers() {
                       ))}
                     </div>
                   ) : payers && payers.length > 0 ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="hover:bg-transparent">
-                          <TableHead>Pagador</TableHead>
-                          <TableHead className="text-center">Modo de cobranca</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Acoes</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                    <>
+                      {/* Mobile: Card list */}
+                      <div className="lg:hidden p-3 space-y-3">
                         {payers.map((payer) => (
-                          <PayerRow
+                          <PayerCard
                             key={payer.id}
                             payer={payer}
                             isSelected={selectedPayerId === payer.id}
@@ -211,8 +206,33 @@ export default function Payers() {
                             onEdit={() => setEditPayerId(payer.id)}
                           />
                         ))}
-                      </TableBody>
-                    </Table>
+                      </div>
+
+                      {/* Desktop: Table */}
+                      <div className="hidden lg:block">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead>Pagador</TableHead>
+                              <TableHead className="text-center">Modo de cobrança</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-right">Ações</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {payers.map((payer) => (
+                              <PayerRow
+                                key={payer.id}
+                                payer={payer}
+                                isSelected={selectedPayerId === payer.id}
+                                onClick={() => setSelectedPayerId(payer.id)}
+                                onEdit={() => setEditPayerId(payer.id)}
+                              />
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
                   ) : (
                     <EmptyState searchTerm={searchTerm} quickFilter={quickFilter} />
                   )}
@@ -220,10 +240,21 @@ export default function Payers() {
               </Card>
             </div>
 
-            {/* Quick view panel */}
+            {/* Quick view panel - desktop only */}
             <div className="hidden lg:block">
               <QuickViewPanel payerId={selectedPayerId} />
             </div>
+          </div>
+
+          {/* Mobile: Quick view as sheet */}
+          <div className="lg:hidden">
+            <Sheet open={!!selectedPayerId} onOpenChange={(open) => !open && setSelectedPayerId(null)}>
+              <SheetContent side="bottom" className="h-[70vh] p-0">
+                <ScrollArea className="h-full">
+                  <QuickViewPanel payerId={selectedPayerId} />
+                </ScrollArea>
+              </SheetContent>
+            </Sheet>
           </div>
         </div>
 
@@ -379,6 +410,112 @@ function PayerRow({
         </Button>
       </TableCell>
     </TableRow>
+  );
+}
+
+// Mobile card component for payers
+function PayerCard({
+  payer,
+  isSelected,
+  onClick,
+  onEdit,
+}: {
+  payer: ReturnType<typeof usePayers>["data"] extends (infer T)[] | undefined
+    ? T
+    : never;
+  isSelected: boolean;
+  onClick: () => void;
+  onEdit: () => void;
+}) {
+  if (!payer) return null;
+
+  const isActive = payer.status === "ATIVO";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      onClick={onClick}
+      className={cn(
+        "p-4 rounded-lg border transition-all cursor-pointer",
+        isSelected ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30"
+      )}
+    >
+      <div className="flex items-start gap-3">
+        {/* Avatar */}
+        <div
+          className={cn(
+            "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold",
+            isActive
+              ? "bg-success/10 text-success"
+              : "bg-muted text-muted-foreground"
+          )}
+        >
+          {payer.name.charAt(0).toUpperCase()}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-medium truncate">{payer.name}</span>
+            {payer.needs_review && (
+              <Badge
+                variant="outline"
+                className="text-[10px] px-1.5 py-0 shrink-0 border-warning/50 text-warning"
+              >
+                Revisão
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-mono">
+              {payer.document_digits
+                ? formatCPF(payer.document_digits)
+                : payer.payer_code || "-"}
+            </span>
+            {payer.neighborhood && (
+              <>
+                <span>•</span>
+                <span className="truncate">{payer.neighborhood}</span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <Badge
+              variant={isActive ? "default" : "secondary"}
+              className={cn(
+                "text-xs",
+                isActive && "bg-success/10 text-success border-success/30"
+              )}
+            >
+              {isActive ? "Ativo" : "Inativo"}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="text-xs"
+            >
+              {payer.billing_mode}
+            </Badge>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          >
+            <Edit className="h-4 w-4" />
+          </Button>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+    </motion.div>
   );
 }
 
