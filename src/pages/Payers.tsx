@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { usePayers } from "@/hooks/usePayers";
@@ -58,6 +58,19 @@ export default function Payers() {
   const [quickFilter, setQuickFilter] = useState<QuickFilterKey>("active");
   const [selectedPayerId, setSelectedPayerId] = useState<string | null>(null);
   const [editPayerId, setEditPayerId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
 
   // Build filters based on quick filter
   const filters = useMemo(() => {
@@ -247,7 +260,7 @@ export default function Payers() {
           </div>
 
           {/* Mobile: Quick view as sheet */}
-          <div className="lg:hidden">
+          {isMobile && (
             <Sheet open={!!selectedPayerId} onOpenChange={(open) => !open && setSelectedPayerId(null)}>
               <SheetContent side="bottom" className="h-[70vh] p-0">
                 <ScrollArea className="h-full">
@@ -255,7 +268,7 @@ export default function Payers() {
                 </ScrollArea>
               </SheetContent>
             </Sheet>
-          </div>
+          )}
         </div>
 
         <PayerDetailsModal

@@ -19,11 +19,9 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
 const navItems = [
@@ -81,9 +79,7 @@ interface SidebarProps {
 export function Sidebar({ onNavigate }: SidebarProps) {
   const location = useLocation();
   const { signOut, user } = useAuth();
-  const [financeiroOpen, setFinanceiroOpen] = useState(
-    location.pathname.startsWith("/financeiro")
-  );
+  const financeiroOpen = true;
 
   const isActive = (path: string) => {
     if (path === "/") {
@@ -127,22 +123,17 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             transition={{ delay: index * 0.05 }}
           >
             {item.children ? (
-              <Collapsible open={financeiroOpen} onOpenChange={setFinanceiroOpen}>
-                <CollapsibleTrigger asChild>
-                  <button className={cn(
-                    "nav-item w-full justify-between",
-                    isActive(item.path) && "text-sidebar-foreground"
-                  )}>
-                    <span className="flex items-center gap-3">
-                      <item.icon className="h-5 w-5 shrink-0" />
-                      <span className="truncate">{item.label}</span>
-                    </span>
-                    <ChevronDown className={cn(
-                      "h-4 w-4 transition-transform shrink-0",
-                      financeiroOpen && "rotate-180"
-                    )} />
-                  </button>
-                </CollapsibleTrigger>
+              <Collapsible open={financeiroOpen}>
+                <div className={cn(
+                  "nav-item w-full justify-between cursor-default",
+                  isActive(item.path) && "text-sidebar-foreground"
+                )}>
+                  <span className="flex items-center gap-3">
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 transition-transform shrink-0 rotate-180" />
+                </div>
                 <CollapsibleContent>
                   <div className="ml-4 pl-4 border-l border-sidebar-border space-y-1 mt-1">
                     {item.children.map((child) => (
