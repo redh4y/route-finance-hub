@@ -85,6 +85,39 @@ export type Database = {
           },
         ]
       }
+      cards: {
+        Row: {
+          active: boolean
+          closing_day: number | null
+          created_at: string
+          due_day: number | null
+          id: string
+          name: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          closing_day?: number | null
+          created_at?: string
+          due_day?: number | null
+          id?: string
+          name: string
+          provider?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          closing_day?: number | null
+          created_at?: string
+          due_day?: number | null
+          id?: string
+          name?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ceps: {
         Row: {
           bairro: string | null

@@ -15,8 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageTransition } from "@/components/ui/page-transition";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs } from "@/hooks/useOptimizedImport";
+import { useInvoiceImport } from "@/hooks/useInvoiceImport";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
@@ -33,7 +34,7 @@ import {
   FileWarning,
 } from "lucide-react";
 import { toast } from "sonner";
-import { buildContractsAndExpenses, parseInvoiceCsvRobust, ParsedInvoiceLine } from "@/lib/invoice-import";
+import { parseInvoiceCsvRobust, ParsedInvoiceLine } from "@/lib/invoice-import";
 
 export default function Import() {
   const [activeTab, setActiveTab] = useState("pagadores");
@@ -316,7 +317,6 @@ function ImportBillingsCard() {
 function ImportInvoicesCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [preview, setPreview] = useState<ParsedInvoiceLine[]>([]);
   const [parsedLines, setParsedLines] = useState<ParsedInvoiceLine[]>([]);
   const [isParsing, setIsParsing] = useState(false);
@@ -331,7 +331,7 @@ function ImportInvoicesCard() {
 
   const isSpreadsheet = (f: File) => /\.xlsx?$/i.test(f.name);
 
-  const queryClient = useQueryClient();
+  const { importInvoice, isImporting, progress, reset } = useInvoiceImport();
 
   const { data: cards } = useQuery({
     queryKey: ["cards"],
@@ -360,85 +360,41 @@ function ImportInvoicesCard() {
     setProvider((selected.provider as "sicredi" | "generic") || "sicredi");
   }, [selectedCardId, cards]);
 
-  const mutation = useMutation({
-    mutationFn: async () => {
-      if (!file) throw new Error("Selecione um arquivo");
-      if (!invoiceMonthOverride) throw new Error("Informe o mês da fatura (YYYY-MM)");
-      if (parsedLines.length === 0) throw new Error("Arquivo não processado");
+  const handleImport = async () => {
+    if (!file) {
+      toast.error("Selecione um arquivo");
+      return;
+    }
+    if (!invoiceMonthOverride) {
+      toast.error("Informe o mês da fatura");
+      return;
+    }
+    if (parsedLines.length === 0) {
+      toast.error("Arquivo não processado ou sem linhas válidas");
+      return;
+    }
 
-      setProgress(10);
+    const selectedCard = cards?.find((c) => c.id === selectedCardId);
+    const cardId = selectedCard?.id || "NO_CARD";
+    const cardName = selectedCard?.name || null;
 
-      if (selectedCardId != "manual" && !cards?.some((c) => c.id == selectedCardId)) {
-        throw new Error("Selecione um cartao valido");
-      }
-
-      const selectedCard = cards?.find((c) => c.id === selectedCardId);
-      const cardId = selectedCard?.id || "NO_CARD";
-      const cardName = selectedCard?.name || null;
-
-      const { contracts, expenses } = buildContractsAndExpenses(parsedLines, {
+    try {
+      await importInvoice({
+        parsedLines,
         cardId,
         cardName,
         provider,
+        invoiceMonthOverride,
         costCenterCode,
         category,
-        invoiceMonthOverride,
-        runId: crypto.randomUUID(),
       });
-
-      if (contracts.length > 0) {
-        const { error } = await supabase
-          .from("installment_contracts")
-          .upsert(contracts, { onConflict: "id" });
-        if (error) throw error;
-      }
-
-      setProgress(60);
-
-      const expenseIds = expenses.map((e) => e.expense_id);
-      const { data: existing } = await supabase
-        .from("financial_entries")
-        .select("expense_id, status")
-        .in("expense_id", expenseIds);
-
-      const existingMap = new Map<string, string | null>(
-        (existing || []).map((e) => [e.expense_id, e.status || null])
-      );
-
-      const finalExpenses = expenses.map((e) => {
-        const existingStatus = existingMap.get(e.expense_id);
-        if (existingStatus === "REAL" && e.status === "PREVISTO") {
-          return { ...e, status: "REAL" as const };
-        }
-        return e;
-      });
-
-      setProgress(80);
-
-      const { error: insertError } = await supabase
-        .from("financial_entries")
-        .upsert(finalExpenses as any[], { onConflict: "expense_id" });
-      if (insertError) throw insertError;
-
-      setProgress(100);
-
-      return {
-        parsed: parsedLines.length,
-        contracts: contracts.length,
-        expenses: expenses.length,
-      };
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["dre"] });
-      toast.success(`Importacao OK: ${result.expenses} parcelas`);
-      setProgress(0);
-    },
-    onError: (error) => {
-      toast.error(`Erro na importação: ${error.message}`);
-      setProgress(0);
-    },
-  });
+      setFile(null);
+      setParsedLines([]);
+      setPreview([]);
+    } catch (error) {
+      // Error handled by hook
+    }
+  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -474,7 +430,6 @@ function ImportInvoicesCard() {
     const run = async () => {
       try {
         setIsParsing(true);
-        setProgress(0);
         const buffer = await file.arrayBuffer();
         const workbook = XLSX.read(buffer, { type: "array" });
         const sheetName = workbook.SheetNames[0];
@@ -516,7 +471,7 @@ function ImportInvoicesCard() {
           <DropZone
             file={file}
             isDragging={isDragging}
-            isImporting={mutation.isPending}
+            isImporting={isImporting}
             accept=".xls,.xlsx"
             label="Arraste um arquivo XLS/XLSX aqui"
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
@@ -525,7 +480,7 @@ function ImportInvoicesCard() {
             onFileChange={handleFileChange}
           />
 
-          {(mutation.isPending || isParsing) && <ProgressBar progress={progress} />}
+          {(isImporting || isParsing) && <ProgressBar progress={progress} />}
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -568,12 +523,13 @@ function ImportInvoicesCard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">            <Button
+          <div className="flex items-center gap-2">
+            <Button
               className="ml-auto"
-              onClick={() => mutation.mutate()}
-              disabled={!file || mutation.isPending || isParsing}
+              onClick={handleImport}
+              disabled={!file || isImporting || isParsing}
             >
-              {mutation.isPending ? (
+              {isImporting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Importando...
