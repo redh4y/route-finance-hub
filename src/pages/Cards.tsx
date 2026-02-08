@@ -118,16 +118,17 @@ export default function Cards() {
   return (
     <MainLayout>
       <div className="page-header">
-        <h1 className="page-title">Cartoes</h1>
-        <p className="page-subtitle">Cadastre os cartoes para importacao de faturas</p>
+        <h1 className="page-title">Cartões</h1>
+        <p className="page-subtitle">Cadastre os cartões para importação de faturas</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
+        {/* Form - full width on mobile, 1/3 on desktop */}
+        <Card className="order-2 lg:order-1">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5" />
-              Novo cartao
+              Novo cartão
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -169,7 +170,7 @@ export default function Cards() {
               <div>
                 <p className="text-sm font-medium">Ativo</p>
                 <p className="text-xs text-muted-foreground">
-                  Disponivel para importacao
+                  Disponível para importação
                 </p>
               </div>
               <Switch checked={active} onCheckedChange={setActive} />
@@ -180,66 +181,107 @@ export default function Cards() {
               disabled={createCard.isPending}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Cadastrar cartao
+              Cadastrar cartão
             </Button>
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        {/* Card list - full width on mobile, 2/3 on desktop */}
+        <Card className="order-1 lg:order-2 lg:col-span-2">
           <CardHeader>
-            <CardTitle>Cartoes cadastrados</CardTitle>
+            <CardTitle>Cartões cadastrados</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
               <div className="text-sm text-muted-foreground">Carregando...</div>
             ) : cards && cards.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Provider</TableHead>
-                    <TableHead>Fechamento</TableHead>
-                    <TableHead>Vencimento</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-[70px]">Acoes</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <>
+                {/* Mobile: Card list */}
+                <div className="lg:hidden space-y-3">
                   {cards.map((card) => (
-                    <TableRow key={card.id}>
-                      <TableCell className="font-medium">{card.name}</TableCell>
-                      <TableCell>{card.provider}</TableCell>
-                      <TableCell>{card.closing_day ?? "-"}</TableCell>
-                      <TableCell>{card.due_day ?? "-"}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            checked={card.active}
-                            onCheckedChange={(checked) =>
-                              toggleCard.mutate({ id: card.id, active: checked })
-                            }
-                          />
-                          <Badge variant={card.active ? "secondary" : "outline"}>
-                            {card.active ? "Ativo" : "Inativo"}
-                          </Badge>
+                    <div key={card.id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{card.name}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                          <span>{card.provider}</span>
+                          <span>•</span>
+                          <span>Fech: {card.closing_day ?? "-"}</span>
+                          <span>•</span>
+                          <span>Venc: {card.due_day ?? "-"}</span>
                         </div>
-                      </TableCell>
-                      <TableCell>
+                      </div>
+                      <div className="flex items-center gap-2 ml-2">
+                        <Switch
+                          checked={card.active}
+                          onCheckedChange={(checked) =>
+                            toggleCard.mutate({ id: card.id, active: checked })
+                          }
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
+                          className="shrink-0"
                           onClick={() => deleteCard.mutate(card.id)}
                         >
                           <Trash2 className="h-4 w-4 text-muted-foreground" />
                         </Button>
-                      </TableCell>
-                    </TableRow>
+                      </div>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+
+                {/* Desktop: Table */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nome</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Fechamento</TableHead>
+                        <TableHead>Vencimento</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="w-[70px]">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {cards.map((card) => (
+                        <TableRow key={card.id}>
+                          <TableCell className="font-medium">{card.name}</TableCell>
+                          <TableCell>{card.provider}</TableCell>
+                          <TableCell>{card.closing_day ?? "-"}</TableCell>
+                          <TableCell>{card.due_day ?? "-"}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={card.active}
+                                onCheckedChange={(checked) =>
+                                  toggleCard.mutate({ id: card.id, active: checked })
+                                }
+                              />
+                              <Badge variant={card.active ? "secondary" : "outline"}>
+                                {card.active ? "Ativo" : "Inativo"}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteCard.mutate(card.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             ) : (
-              <div className="text-sm text-muted-foreground">
-                Nenhum cartao cadastrado.
+              <div className="text-sm text-muted-foreground py-8 text-center">
+                <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                <p>Nenhum cartão cadastrado.</p>
               </div>
             )}
           </CardContent>
