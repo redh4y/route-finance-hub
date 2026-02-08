@@ -56,6 +56,9 @@ export default function Routes() {
     search: searchTerm || undefined,
   });
 
+  const isReview = (p: { needs_review: boolean | null; match_ok: boolean | null }) =>
+    !!p.needs_review || p.match_ok === false;
+
   // Filter by additional criteria
   const filteredPayers = payers?.filter((p) => {
     if (neighborhoodFilter && !p.neighborhood?.toLowerCase().includes(neighborhoodFilter.toLowerCase())) {
@@ -63,7 +66,7 @@ export default function Routes() {
     }
     if (matchFilter === "matched" && !p.match_ok) return false;
     if (matchFilter === "unmatched" && p.match_ok) return false;
-    if (matchFilter === "review" && !p.needs_review) return false;
+    if (matchFilter === "review" && !isReview(p)) return false;
     return true;
   });
 
@@ -77,7 +80,7 @@ export default function Routes() {
   const matchStats = {
     matched: filteredPayers?.filter((p) => p.match_ok).length || 0,
     unmatched: filteredPayers?.filter((p) => !p.match_ok).length || 0,
-    needsReview: filteredPayers?.filter((p) => p.needs_review).length || 0,
+    needsReview: filteredPayers?.filter((p) => isReview(p)).length || 0,
   };
 
   // Get unique neighborhoods
@@ -236,7 +239,7 @@ export default function Routes() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{payer.name}</span>
-                        {(payer.needs_review || !payer.match_ok) && (
+                        {isReview(payer) && (
                           <AlertTriangle className="h-4 w-4 text-review" />
                         )}
                       </div>
