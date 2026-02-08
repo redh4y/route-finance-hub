@@ -9,6 +9,7 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   Bus,
+  CreditCard,
   LogOut,
   Bug,
   MessageCircle,
@@ -33,6 +34,11 @@ const navItems = [
     label: "Importar",
     path: "/importar",
     icon: Upload,
+  },
+  {
+    label: "Cartoes",
+    path: "/cartoes",
+    icon: CreditCard,
   },
   {
     label: "Financeiro",

@@ -15,6 +15,7 @@ import FinancialRevenue from "./pages/FinancialRevenue";
 import RoutesPage from "./pages/Routes";
 import Diagnostics from "./pages/Diagnostics";
 import Overdue from "./pages/Overdue";
+import Cards from "./pages/Cards";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -51,6 +52,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Import />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/cartoes"
+                element={
+                  <ProtectedRoute>
+                    <Cards />
                   </ProtectedRoute>
                 }
               />

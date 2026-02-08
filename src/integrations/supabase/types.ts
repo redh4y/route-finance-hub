@@ -142,6 +142,39 @@ export type Database = {
         }
         Relationships: []
       }
+      cards: {
+        Row: {
+          active: boolean
+          closing_day: number | null
+          created_at: string
+          due_day: number | null
+          id: string
+          name: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          closing_day?: number | null
+          created_at?: string
+          due_day?: number | null
+          id?: string
+          name: string
+          provider?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          closing_day?: number | null
+          created_at?: string
+          due_day?: number | null
+          id?: string
+          name?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       financial_entries: {
         Row: {
           amount_cents: number
@@ -149,6 +182,7 @@ export type Database = {
           card_id: string | null
           category: string
           competence_month: string
+          contract_id: string | null
           cost_center_code: string | null
           cost_type: string | null
           created_at: string
@@ -157,10 +191,13 @@ export type Database = {
           expense_id: string | null
           id: string
           installments_total: number | null
+          invoice_month: string | null
+          operation_date: string | null
           parent_entry_id: string | null
           payer_id: string | null
           payment_method: string | null
           source: string
+          status: string | null
           subcategory: string | null
           type: string
           updated_at: string
@@ -172,6 +209,7 @@ export type Database = {
           card_id?: string | null
           category: string
           competence_month: string
+          contract_id?: string | null
           cost_center_code?: string | null
           cost_type?: string | null
           created_at?: string
@@ -180,10 +218,13 @@ export type Database = {
           expense_id?: string | null
           id?: string
           installments_total?: number | null
+          invoice_month?: string | null
+          operation_date?: string | null
           parent_entry_id?: string | null
           payer_id?: string | null
           payment_method?: string | null
           source?: string
+          status?: string | null
           subcategory?: string | null
           type: string
           updated_at?: string
@@ -195,6 +236,7 @@ export type Database = {
           card_id?: string | null
           category?: string
           competence_month?: string
+          contract_id?: string | null
           cost_center_code?: string | null
           cost_type?: string | null
           created_at?: string
@@ -203,10 +245,13 @@ export type Database = {
           expense_id?: string | null
           id?: string
           installments_total?: number | null
+          invoice_month?: string | null
+          operation_date?: string | null
           parent_entry_id?: string | null
           payer_id?: string | null
           payment_method?: string | null
           source?: string
+          status?: string | null
           subcategory?: string | null
           type?: string
           updated_at?: string
@@ -275,6 +320,48 @@ export type Database = {
           success_rows?: number
           total_rows?: number
           type?: string
+        }
+        Relationships: []
+      }
+      installment_contracts: {
+        Row: {
+          card_id: string
+          card_name: string | null
+          created_at: string
+          id: string
+          installment_amount_cents: number
+          installment_total: number
+          merchant_base: string
+          provider: string
+          purchase_date: string
+          run_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          card_id: string
+          card_name?: string | null
+          created_at?: string
+          id: string
+          installment_amount_cents: number
+          installment_total: number
+          merchant_base: string
+          provider: string
+          purchase_date: string
+          run_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          card_id?: string
+          card_name?: string | null
+          created_at?: string
+          id?: string
+          installment_amount_cents?: number
+          installment_total?: number
+          merchant_base?: string
+          provider?: string
+          purchase_date?: string
+          run_id?: string | null
+          updated_at?: string
         }
         Relationships: []
       }

@@ -91,21 +91,25 @@ export function DiagnosticsProvider({ children }: { children: React.ReactNode })
     const originalWarn = console.warn;
     const originalInfo = console.info;
 
+    const scheduleAdd = (entry: Omit<DiagnosticsEntry, "id" | "ts">) => {
+      queueMicrotask(() => add(entry));
+    };
+
     console.error = (...args: unknown[]) => {
       const { message, details } = safeJoin(args);
-      add({ level: "error", source: "console", message, details });
+      scheduleAdd({ level: "error", source: "console", message, details });
       originalError(...args);
     };
 
     console.warn = (...args: unknown[]) => {
       const { message, details } = safeJoin(args);
-      add({ level: "warn", source: "console", message, details });
+      scheduleAdd({ level: "warn", source: "console", message, details });
       originalWarn(...args);
     };
 
     console.info = (...args: unknown[]) => {
       const { message, details } = safeJoin(args);
-      add({ level: "info", source: "console", message, details });
+      scheduleAdd({ level: "info", source: "console", message, details });
       originalInfo(...args);
     };
 

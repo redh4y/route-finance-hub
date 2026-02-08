@@ -1,12 +1,25 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageTransition } from "@/components/ui/page-transition";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs } from "@/hooks/useOptimizedImport";
+import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
+import * as XLSX from "xlsx";
 import { 
   Upload, 
   FileText, 
@@ -20,6 +33,7 @@ import {
   FileWarning,
 } from "lucide-react";
 import { toast } from "sonner";
+import { buildContractsAndExpenses, parseInvoiceCsvRobust, ParsedInvoiceLine } from "@/lib/invoice-import";
 
 export default function Import() {
   const [activeTab, setActiveTab] = useState("pagadores");
@@ -63,23 +77,7 @@ export default function Import() {
           </TabsContent>
 
           <TabsContent value="faturas">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CreditCard className="h-5 w-5" />
-                  Importar Faturas
-                </CardTitle>
-                <CardDescription>
-                  Importe faturas de cartão para lançamentos financeiros
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8 text-muted-foreground">
-                  <CreditCard className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>Funcionalidade em desenvolvimento</p>
-                </div>
-              </CardContent>
-            </Card>
+            <ImportInvoicesCard />
           </TabsContent>
 
           <TabsContent value="ceps">
@@ -315,6 +313,325 @@ function ImportBillingsCard() {
   );
 }
 
+function ImportInvoicesCard() {
+  const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [preview, setPreview] = useState<ParsedInvoiceLine[]>([]);
+  const [parsedLines, setParsedLines] = useState<ParsedInvoiceLine[]>([]);
+  const [isParsing, setIsParsing] = useState(false);
+  const [selectedCardId, setSelectedCardId] = useState("manual");
+  const [invoiceMonthOverride, setInvoiceMonthOverride] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [provider, setProvider] = useState<"sicredi" | "generic">("sicredi");
+  const costCenterCode = "GERAL";
+  const category = "CARTAO_CREDITO";
+
+  const isSpreadsheet = (f: File) => /\.xlsx?$/i.test(f.name);
+
+  const queryClient = useQueryClient();
+
+  const { data: cards } = useQuery({
+    queryKey: ["cards"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cards")
+        .select("id, name, provider, closing_day, due_day, active")
+        .eq("active", true)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as {
+        id: string;
+        name: string;
+        provider: string;
+        closing_day: number | null;
+        due_day: number | null;
+        active: boolean;
+      }[];
+    },
+  });
+
+  useEffect(() => {
+    if (selectedCardId === "manual") return;
+    const selected = cards?.find((c) => c.id === selectedCardId);
+    if (!selected) return;
+    setProvider((selected.provider as "sicredi" | "generic") || "sicredi");
+  }, [selectedCardId, cards]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error("Selecione um arquivo");
+      if (!invoiceMonthOverride) throw new Error("Informe o mês da fatura (YYYY-MM)");
+      if (parsedLines.length === 0) throw new Error("Arquivo não processado");
+
+      setProgress(10);
+
+      if (selectedCardId != "manual" && !cards?.some((c) => c.id == selectedCardId)) {
+        throw new Error("Selecione um cartao valido");
+      }
+
+      const selectedCard = cards?.find((c) => c.id === selectedCardId);
+      const cardId = selectedCard?.id || "NO_CARD";
+      const cardName = selectedCard?.name || null;
+
+      const { contracts, expenses } = buildContractsAndExpenses(parsedLines, {
+        cardId,
+        cardName,
+        provider,
+        costCenterCode,
+        category,
+        invoiceMonthOverride,
+        runId: crypto.randomUUID(),
+      });
+
+      if (contracts.length > 0) {
+        const { error } = await supabase
+          .from("installment_contracts")
+          .upsert(contracts, { onConflict: "id" });
+        if (error) throw error;
+      }
+
+      setProgress(60);
+
+      const expenseIds = expenses.map((e) => e.expense_id);
+      const { data: existing } = await supabase
+        .from("financial_entries")
+        .select("expense_id, status")
+        .in("expense_id", expenseIds);
+
+      const existingMap = new Map<string, string | null>(
+        (existing || []).map((e) => [e.expense_id, e.status || null])
+      );
+
+      const finalExpenses = expenses.map((e) => {
+        const existingStatus = existingMap.get(e.expense_id);
+        if (existingStatus === "REAL" && e.status === "PREVISTO") {
+          return { ...e, status: "REAL" as const };
+        }
+        return e;
+      });
+
+      setProgress(80);
+
+      const { error: insertError } = await supabase
+        .from("financial_entries")
+        .upsert(finalExpenses as any[], { onConflict: "expense_id" });
+      if (insertError) throw insertError;
+
+      setProgress(100);
+
+      return {
+        parsed: parsedLines.length,
+        contracts: contracts.length,
+        expenses: expenses.length,
+      };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["dre"] });
+      toast.success(`Importacao OK: ${result.expenses} parcelas`);
+      setProgress(0);
+    },
+    onError: (error) => {
+      toast.error(`Erro na importação: ${error.message}`);
+      setProgress(0);
+    },
+  });
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      if (!isSpreadsheet(droppedFile)) {
+        toast.error("Selecione um arquivo XLS ou XLSX");
+        return;
+      }
+      setFile(droppedFile);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      if (!isSpreadsheet(selectedFile)) {
+        toast.error("Selecione um arquivo XLS ou XLSX");
+        return;
+      }
+      setFile(selectedFile);
+    }
+  };
+  
+  useEffect(() => {
+    if (!file) {
+      setParsedLines([]);
+      setPreview([]);
+      return;
+    }
+    let active = true;
+    const run = async () => {
+      try {
+        setIsParsing(true);
+        setProgress(0);
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 }) as string[][];
+        const parsed = parseInvoiceCsvRobust(rows);
+        if (!active) return;
+        setParsedLines(parsed);
+        setPreview(parsed.slice(0, 50));
+      } catch (err: any) {
+        if (!active) return;
+        toast.error(`Falha ao processar arquivo: ${err?.message ?? "erro inesperado"}`);
+        setParsedLines([]);
+        setPreview([]);
+      } finally {
+        if (!active) return;
+        setIsParsing(false);
+      }
+    };
+    run();
+    return () => {
+      active = false;
+    };
+  }, [file]);
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5" />
+            Importar Faturas (XLS)
+          </CardTitle>
+          <CardDescription>
+            Arquivo .xls com colunas: Data, Descricao, Parcela, Valor (R$)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <DropZone
+            file={file}
+            isDragging={isDragging}
+            isImporting={mutation.isPending}
+            accept=".xls,.xlsx"
+            label="Arraste um arquivo XLS/XLSX aqui"
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            onFileChange={handleFileChange}
+          />
+
+          {(mutation.isPending || isParsing) && <ProgressBar progress={progress} />}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Cartao cadastrado</Label>
+              <Select
+                value={selectedCardId}
+                onValueChange={(v) => {
+                  if (v === "manual") {
+                    setSelectedCardId("manual");
+                    setProvider("sicredi");
+                    return;
+                  }
+                  setSelectedCardId(v);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um cartao (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Sem cartao</SelectItem>
+                  {(cards || []).map((card) => (
+                    <SelectItem key={card.id} value={card.id}>
+                      {card.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Selecione um cartao cadastrado ou importe sem cartao.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Mes da fatura</Label>
+              <Input
+                type="month"
+                placeholder="2026-02"
+                value={invoiceMonthOverride}
+                onChange={(e) => setInvoiceMonthOverride(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">            <Button
+              className="ml-auto"
+              onClick={() => mutation.mutate()}
+              disabled={!file || mutation.isPending || isParsing}
+            >
+              {mutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Importando...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Importar
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Prévia</CardTitle>
+          <CardDescription>
+            Primeiras 50 linhas válidas do arquivo
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {preview.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <CreditCard className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>Sem prévia disponível</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[520px] overflow-auto">
+              <div className="sticky top-0 z-10 grid grid-cols-4 gap-3 rounded-lg border bg-muted px-3 py-2 text-xs font-medium text-muted-foreground">
+                <span>Data</span>
+                <span>Descricao</span>
+                <span>Parcela</span>
+                <span className="text-right">Valor (R$)</span>
+              </div>
+              {preview.map((p, idx) => (
+                <div key={idx} className="grid grid-cols-4 gap-3 rounded-lg border bg-card px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">{p.purchaseDate}</span>
+                  <span className="font-medium truncate">{p.description}</span>
+                  <span>
+                    {p.installmentTotal
+                      ? `${p.installmentCurrent}/${p.installmentTotal}`
+                      : "A vista"}
+                  </span>
+                  <span className="text-right tabular-nums">
+                    {(p.amountCents / 100).toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function ImportCEPsCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -415,6 +732,8 @@ function DropZone({
   file,
   isDragging,
   isImporting,
+  accept = ".csv",
+  label = "Arraste um arquivo CSV aqui",
   onDragOver,
   onDragLeave,
   onDrop,
@@ -423,6 +742,8 @@ function DropZone({
   file: File | null;
   isDragging: boolean;
   isImporting: boolean;
+  accept?: string;
+  label?: string;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent) => void;
@@ -444,7 +765,7 @@ function DropZone({
     >
       <input
         type="file"
-        accept=".csv"
+        accept={accept}
         onChange={onFileChange}
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         disabled={isImporting}
@@ -473,7 +794,7 @@ function DropZone({
             className="space-y-2"
           >
             <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
-            <p className="font-medium">Arraste um arquivo CSV aqui</p>
+            <p className="font-medium">{label}</p>
             <p className="text-sm text-muted-foreground">ou clique para selecionar</p>
           </motion.div>
         )}

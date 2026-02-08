@@ -1,22 +1,22 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import Papa from "papaparse";
-import * as XLSX from "xlsx";
-import { MainLayout } from "@/components/layout/MainLayout";
-import { PageTransition } from "@/components/ui/page-transition";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
+import { MainLayout } from '@/components/layout/MainLayout'
+import { PageTransition } from '@/components/ui/page-transition'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ScrollArea } from "@/components/ui/scroll-area";
+  TableRow
+} from '@/components/ui/table'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   MessageCircle,
   AlertTriangle,
@@ -25,141 +25,185 @@ import {
   Users,
   Upload,
   CheckCircle2,
-  XCircle,
-  Copy,
-  Loader2,
-} from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+  Loader2
+} from 'lucide-react'
+import { supabase } from '@/integrations/supabase/client'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from '@/components/ui/tooltip'
 
-type PayerLite = { id: string; name: string; phone: string | null };
+type PayerLite = { id: string; name: string; phone: string | null }
 
 type MessageItem = {
-  id: string;
-  raw: string;
-  name: string | null;
-  phone: string | null;
-  status: "ready" | "no_phone" | "no_match" | "no_name" | "multiple";
-};
+  id: string
+  raw: string
+  name: string | null
+  phone: string | null
+  status: 'ready' | 'no_phone' | 'no_match' | 'no_name' | 'multiple'
+}
 
 function normalizeName(input: string) {
   return input
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function extractName(message: string) {
-  const match = message.match(/^(?:Olá|Ola)\s+(.+?)[!\n\r]/i);
-  if (!match) return null;
-  return match[1].trim();
+  const match = message.match(/^(?:Olá|Ola)\s+(.+?)[!\n\r]/i)
+  if (!match) return null
+  return match[1].trim()
 }
 
 async function parseMessages(file: File): Promise<string[]> {
-  const ext = file.name.toLowerCase().split(".").pop();
-  if (ext === "xlsx" || ext === "xls") {
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array" });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
+  const ext = file.name.toLowerCase().split('.').pop()
+  if (ext === 'xlsx' || ext === 'xls') {
+    const buffer = await file.arrayBuffer()
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    const sheetName = workbook.SheetNames[0]
+    const sheet = workbook.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 })
     return rows
-      .map((r) => (Array.isArray(r) ? String(r[0] ?? "").trim() : ""))
-      .filter(Boolean);
+      .map(r => (Array.isArray(r) ? String(r[0] ?? '').trim() : ''))
+      .filter(Boolean)
   }
 
-  const text = await file.text();
+  const text = await file.text()
   return new Promise((resolve, reject) => {
     Papa.parse<string[]>(text, {
       skipEmptyLines: true,
-      complete: (results) => {
+      complete: results => {
         const messages = (results.data || [])
-          .map((row) => (Array.isArray(row) ? String(row[0] ?? "").trim() : ""))
-          .filter(Boolean);
-        resolve(messages);
+          .map(row => (Array.isArray(row) ? String(row[0] ?? '').trim() : ''))
+          .filter(Boolean)
+        resolve(messages)
       },
-      error: (err) => reject(err),
-    });
-  });
+      error: err => reject(err)
+    })
+  })
 }
 
 export default function Overdue() {
-  const [file, setFile] = useState<File | null>(null);
-  const [messages, setMessages] = useState<string[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isParsing, setIsParsing] = useState(false);
+  const [file, setFile] = useState<File | null>(null)
+  const [messages, setMessages] = useState<string[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const [isParsing, setIsParsing] = useState(false)
+
+  const today = useMemo(() => new Date(), [])
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], [])
+  const sevenDaysAgoStr = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toISOString().split('T')[0]
+  }, [])
+  const currentMonth = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }, [])
 
   const { data: payers } = useQuery({
-    queryKey: ["payers-lite"],
+    queryKey: ['payers-lite'],
     queryFn: async (): Promise<PayerLite[]> => {
       const { data, error } = await supabase
-        .from("payers")
-        .select("id, name, phone")
-        .order("name", { ascending: true });
-      if (error) throw error;
-      return (data || []) as PayerLite[];
-    },
-  });
+        .from('payers')
+        .select('id, name, phone')
+        .order('name', { ascending: true })
+      if (error) throw error
+      return (data || []) as PayerLite[]
+    }
+  })
 
   const payerIndex = useMemo(() => {
-    const map = new Map<string, PayerLite>();
-    const duplicates = new Set<string>();
-    (payers || []).forEach((p) => {
-      const key = normalizeName(p.name || "");
-      if (!key) return;
+    const map = new Map<string, PayerLite>()
+    const duplicates = new Set<string>()
+    ;(payers || []).forEach(p => {
+      const key = normalizeName(p.name || '')
+      if (!key) return
       if (map.has(key)) {
-        duplicates.add(key);
+        duplicates.add(key)
       } else {
-        map.set(key, p);
+        map.set(key, p)
       }
-    });
-    return { map, duplicates };
-  }, [payers]);
+    })
+    return { map, duplicates }
+  }, [payers])
+
+  const { data: overdueBillings } = useQuery({
+    queryKey: ['overdue-billings', todayStr],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('billings')
+        .select('id, due_date, reference_month, status')
+        .eq('status', 'OPEN')
+        .lt('due_date', todayStr)
+      if (error) throw error
+      return data || []
+    }
+  })
+
+  const overdueStats = useMemo(() => {
+    const all = overdueBillings || []
+    const total = all.length
+    const month = all.filter(b => b.reference_month === currentMonth).length
+    const priority = all.filter(
+      b => b.due_date && b.due_date <= sevenDaysAgoStr
+    ).length
+    return { total, month, priority }
+  }, [overdueBillings, currentMonth, sevenDaysAgoStr])
 
   const items = useMemo<MessageItem[]>(() => {
     return messages.map((raw, idx) => {
-      const name = extractName(raw);
+      const name = extractName(raw)
       if (!name) {
-        return { id: String(idx), raw, name: null, phone: null, status: "no_name" };
+        return {
+          id: String(idx),
+          raw,
+          name: null,
+          phone: null,
+          status: 'no_name'
+        }
       }
-      const key = normalizeName(name);
+      const key = normalizeName(name)
       if (payerIndex.duplicates.has(key)) {
-        return { id: String(idx), raw, name, phone: null, status: "multiple" };
+        return { id: String(idx), raw, name, phone: null, status: 'multiple' }
       }
-      const payer = payerIndex.map.get(key);
+      const payer = payerIndex.map.get(key)
       if (!payer) {
-        return { id: String(idx), raw, name, phone: null, status: "no_match" };
+        return { id: String(idx), raw, name, phone: null, status: 'no_match' }
       }
       if (!payer.phone) {
-        return { id: String(idx), raw, name, phone: null, status: "no_phone" };
+        return { id: String(idx), raw, name, phone: null, status: 'no_phone' }
       }
-      return { id: String(idx), raw, name, phone: payer.phone, status: "ready" };
-    });
-  }, [messages, payerIndex]);
+      return { id: String(idx), raw, name, phone: payer.phone, status: 'ready' }
+    })
+  }, [messages, payerIndex])
 
   const stats = useMemo(() => {
-    const total = items.length;
-    const ready = items.filter((i) => i.status === "ready").length;
-    const noPhone = items.filter((i) => i.status === "no_phone").length;
-    const noMatch = items.filter((i) => i.status === "no_match").length;
-    const noName = items.filter((i) => i.status === "no_name").length;
-    const multiple = items.filter((i) => i.status === "multiple").length;
-    return { total, ready, noPhone, noMatch, noName, multiple };
-  }, [items]);
+    const total = items.length
+    const ready = items.filter(i => i.status === 'ready').length
+    const noPhone = items.filter(i => i.status === 'no_phone').length
+    const noMatch = items.filter(i => i.status === 'no_match').length
+    const noName = items.filter(i => i.status === 'no_name').length
+    const multiple = items.filter(i => i.status === 'multiple').length
+    return { total, ready, noPhone, noMatch, noName, multiple }
+  }, [items])
 
   const handleFile = async (f: File | null) => {
-    if (!f) return;
-    setIsParsing(true);
-    setFile(f);
-    const parsed = await parseMessages(f);
-    setMessages(parsed);
-    setIsParsing(false);
-  };
+    if (!f) return
+    setIsParsing(true)
+    setFile(f)
+    const parsed = await parseMessages(f)
+    setMessages(parsed)
+    setIsParsing(false)
+  }
 
   const copyMessage = async (text: string) => {
-    await navigator.clipboard.writeText(text);
-  };
+    await navigator.clipboard.writeText(text)
+  }
 
   return (
     <MainLayout>
@@ -183,26 +227,26 @@ export default function Overdue() {
             <div
               className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
                 isDragging
-                  ? "border-accent bg-accent/5"
+                  ? 'border-accent bg-accent/5'
                   : file
-                  ? "border-emerald-500 bg-emerald-500/5"
-                  : "border-border hover:border-muted-foreground/50"
+                    ? 'border-emerald-500 bg-emerald-500/5'
+                    : 'border-border hover:border-muted-foreground/50'
               }`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
+              onDragOver={e => {
+                e.preventDefault()
+                setIsDragging(true)
               }}
               onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                handleFile(e.dataTransfer.files?.[0] || null);
+              onDrop={e => {
+                e.preventDefault()
+                setIsDragging(false)
+                handleFile(e.dataTransfer.files?.[0] || null)
               }}
             >
               <input
                 type="file"
                 accept=".csv,.xlsx,.xls"
-                onChange={(e) => handleFile(e.target.files?.[0] || null)}
+                onChange={e => handleFile(e.target.files?.[0] || null)}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 disabled={isParsing}
               />
@@ -230,8 +274,8 @@ export default function Overdue() {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setFile(null);
-                    setMessages([]);
+                    setFile(null)
+                    setMessages([])
                   }}
                   disabled={isParsing}
                 >
@@ -261,55 +305,55 @@ export default function Overdue() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="stat-label">Mensagens</p>
-                  <p className="stat-value">{stats.total}</p>
+                  <p className="stat-label">Atrasados</p>
+                  <p className="stat-value">{overdueStats.total}</p>
                 </div>
                 <AlertTriangle className="h-8 w-8 text-warning/40" />
               </div>
               <p className="text-xs text-muted-foreground mt-2">
+                Total de boletos vencidos
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="stat-label">No mês</p>
+                  <p className="stat-value">{overdueStats.month}</p>
+                </div>
+                <Clock className="h-8 w-8 text-accent/40" />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Vencidos no mês atual
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="stat-label">Prioridade</p>
+                  <p className="stat-value">{overdueStats.priority}</p>
+                </div>
+                <AlertTriangle className="h-8 w-8 text-destructive/40" />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Vencidos há mais de 7 dias
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="stat-label">Mensagens</p>
+                  <p className="stat-value">{stats.total}</p>
+                </div>
+                <MessageCircle className="h-8 w-8 text-primary/40" />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
                 Total de mensagens carregadas
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-label">Prontas</p>
-                  <p className="stat-value">{stats.ready}</p>
-                </div>
-                <CheckCircle2 className="h-8 w-8 text-success/40" />
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Com telefone válido
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-label">Sem telefone</p>
-                  <p className="stat-value">{stats.noPhone}</p>
-                </div>
-                <Phone className="h-8 w-8 text-muted-foreground/40" />
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Pagadores sem número
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-label">Sem match</p>
-                  <p className="stat-value">{stats.noMatch + stats.noName + stats.multiple}</p>
-                </div>
-                <XCircle className="h-8 w-8 text-destructive/40" />
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Nome ausente, duplicado ou não encontrado
               </p>
             </CardContent>
           </Card>
@@ -334,64 +378,72 @@ export default function Overdue() {
                     </p>
                   </div>
                 ) : (
-                  <Table>
+                  <Table className="table-fixed w-full">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Pagador</TableHead>
-                        <TableHead>Telefone</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
+                        <TableHead className="w-[420px]">Pagador</TableHead>
+                        <TableHead className="w-[180px]">Telefone</TableHead>
+                        <TableHead className="w-[140px]">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {items.map((item) => (
+                      {items.map(item => (
                         <TableRow key={item.id}>
                           <TableCell>
-                            <div className="min-w-0">
+                            <div className="min-w-0 max-w-[420px]">
                               <p className="font-medium truncate">
-                                {item.name || "(nome não identificado)"}
+                                {item.name || '(nome não identificado)'}
                               </p>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {item.raw}
-                              </p>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <p className="text-xs text-muted-foreground truncate cursor-help">
+                                    {item.raw}
+                                  </p>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-md">
+                                  <p className="text-xs leading-relaxed whitespace-pre-wrap">
+                                    {item.raw}
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
                             </div>
                           </TableCell>
                           <TableCell className="font-mono text-sm">
-                            {item.phone || "-"}
+                            {item.phone || '-'}
                           </TableCell>
                           <TableCell>
-                            {item.status === "ready" && (
+                            {item.status === 'ready' && (
                               <Badge className="bg-success/10 text-success border-success/30">
                                 Pronto
                               </Badge>
                             )}
-                            {item.status === "no_phone" && (
-                              <Badge variant="outline" className="text-warning border-warning/50">
+                            {item.status === 'no_phone' && (
+                              <Badge
+                                variant="outline"
+                                className="text-warning border-warning/50"
+                              >
                                 Sem telefone
                               </Badge>
                             )}
-                            {item.status === "no_match" && (
-                              <Badge variant="outline" className="text-destructive border-destructive/50">
+                            {item.status === 'no_match' && (
+                              <Badge
+                                variant="outline"
+                                className="text-destructive border-destructive/50"
+                              >
                                 Sem match
                               </Badge>
                             )}
-                            {item.status === "no_name" && (
+                            {item.status === 'no_name' && (
                               <Badge variant="outline">Sem nome</Badge>
                             )}
-                            {item.status === "multiple" && (
-                              <Badge variant="outline" className="text-warning border-warning/50">
+                            {item.status === 'multiple' && (
+                              <Badge
+                                variant="outline"
+                                className="text-warning border-warning/50"
+                              >
                                 Nome duplicado
                               </Badge>
                             )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => copyMessage(item.raw)}
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -416,9 +468,19 @@ export default function Overdue() {
               <div className="rounded-lg border p-4 text-sm">
                 <p className="font-medium mb-2">Prévia da mensagem</p>
                 <p className="text-muted-foreground">
-                  Olá, {`{NOME}`}. Seu boleto venceu em {`{DATA}`}. Caso já tenha
-                  realizado o pagamento, desconsidere.
+                  Olá, {`{NOME}`}. Seu boleto venceu em {`{DATA}`}. Caso já
+                  tenha realizado o pagamento, desconsidere.
                 </p>
+              </div>
+              <div className="rounded-lg border p-4 space-y-3">
+                <p className="font-medium text-sm">
+                  Regras de envio (em breve)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input placeholder="Janela: 09:00 - 18:00" disabled />
+                  <Input placeholder="Limite: 30/min" disabled />
+                </div>
+                <Input placeholder="Dias úteis apenas" disabled />
               </div>
               <Button className="w-full" disabled>
                 <MessageCircle className="h-4 w-4 mr-2" />
@@ -432,5 +494,5 @@ export default function Overdue() {
         </div>
       </PageTransition>
     </MainLayout>
-  );
+  )
 }
