@@ -14,6 +14,7 @@ import FinancialExpenses from "./pages/FinancialExpenses";
 import FinancialRevenue from "./pages/FinancialRevenue";
 import RoutesPage from "./pages/Routes";
 import Diagnostics from "./pages/Diagnostics";
+import Overdue from "./pages/Overdue";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -82,6 +83,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <RoutesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/atrasos"
+                element={
+                  <ProtectedRoute>
+                    <Overdue />
                   </ProtectedRoute>
                 }
               />

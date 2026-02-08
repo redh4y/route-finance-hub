@@ -236,7 +236,7 @@ export default function Routes() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{payer.name}</span>
-                        {payer.needs_review && (
+                        {(payer.needs_review || !payer.match_ok) && (
                           <AlertTriangle className="h-4 w-4 text-review" />
                         )}
                       </div>

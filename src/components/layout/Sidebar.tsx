@@ -11,6 +11,7 @@ import {
   Bus,
   LogOut,
   Bug,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -47,6 +48,11 @@ const navItems = [
     label: "Rotas",
     path: "/rotas",
     icon: MapPin,
+  },
+  {
+    label: "Atrasos",
+    path: "/atrasos",
+    icon: MessageCircle,
   },
   {
     label: "Diagnóstico",
