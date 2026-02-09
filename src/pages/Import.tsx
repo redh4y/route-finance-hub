@@ -34,7 +34,7 @@ import {
   FileWarning,
 } from "lucide-react";
 import { toast } from "sonner";
-import { parseInvoiceCsvRobust, ParsedInvoiceLine } from "@/lib/invoice-import";
+import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
 
 export default function Import() {
   const [activeTab, setActiveTab] = useState("pagadores");
@@ -377,6 +377,8 @@ function ImportInvoicesCard() {
     const selectedCard = cards?.find((c) => c.id === selectedCardId);
     const cardId = selectedCard?.id || "NO_CARD";
     const cardName = selectedCard?.name || null;
+    const closingDay = selectedCard?.closing_day ?? 9;
+    const dueDay = selectedCard?.due_day ?? 15;
 
     try {
       await importInvoice({
@@ -385,6 +387,8 @@ function ImportInvoicesCard() {
         cardName,
         provider,
         invoiceMonthOverride,
+        closingDay,
+        dueDay,
         costCenterCode,
         category,
       });
@@ -435,7 +439,12 @@ function ImportInvoicesCard() {
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 }) as string[][];
-        const parsed = parseInvoiceCsvRobust(rows);
+        const { lines, invoiceDueDate } = parseInvoiceSheet(rows);
+        if (invoiceDueDate) {
+          const dueMonth = invoiceDueDate.slice(0, 7);
+          setInvoiceMonthOverride(dueMonth);
+        }
+        const parsed = lines;
         if (!active) return;
         setParsedLines(parsed);
         setPreview(parsed.slice(0, 50));

@@ -7,6 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -34,12 +42,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { CreditCard, Plus, Trash2 } from "lucide-react";
+import { CreditCard, Plus, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 type CardRecord = {
   id: string;
   name: string;
+  card_number: string | null;
   provider: string;
   closing_day: number | null;
   due_day: number | null;
@@ -49,10 +58,18 @@ type CardRecord = {
 
 export default function Cards() {
   const [name, setName] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
   const [provider, setProvider] = useState<"sicredi" | "generic">("sicredi");
   const [closingDay, setClosingDay] = useState("");
   const [dueDay, setDueDay] = useState("");
   const [active, setActive] = useState(true);
+  const [editingCard, setEditingCard] = useState<CardRecord | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editCardNumber, setEditCardNumber] = useState("");
+  const [editProvider, setEditProvider] = useState<"sicredi" | "generic">("sicredi");
+  const [editClosingDay, setEditClosingDay] = useState("");
+  const [editDueDay, setEditDueDay] = useState("");
+  const [editActive, setEditActive] = useState(true);
 
   const queryClient = useQueryClient();
 
@@ -75,6 +92,7 @@ export default function Cards() {
       const due = dueDay ? Number.parseInt(dueDay, 10) : null;
       const { error } = await supabase.from("cards").insert({
         name: name.trim(),
+        card_number: cardNumber.trim() || null,
         provider,
         closing_day: Number.isNaN(closing) ? null : closing,
         due_day: Number.isNaN(due) ? null : due,
@@ -85,6 +103,7 @@ export default function Cards() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cards"] });
       setName("");
+      setCardNumber("");
       setClosingDay("");
       setDueDay("");
       setActive(true);
@@ -126,6 +145,46 @@ export default function Cards() {
     },
   });
 
+  const updateCard = useMutation({
+    mutationFn: async () => {
+      if (!editingCard) return;
+      if (!editName.trim()) throw new Error("Informe o nome do cartao");
+      const closing = editClosingDay ? Number.parseInt(editClosingDay, 10) : null;
+      const due = editDueDay ? Number.parseInt(editDueDay, 10) : null;
+      const { error } = await supabase
+        .from("cards")
+        .update({
+          name: editName.trim(),
+          card_number: editCardNumber.trim() || null,
+          provider: editProvider,
+          closing_day: Number.isNaN(closing) ? null : closing,
+          due_day: Number.isNaN(due) ? null : due,
+          active: editActive,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingCard.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+      setEditingCard(null);
+      toast.success("Cartao atualizado");
+    },
+    onError: (error) => {
+      toast.error(`Erro ao atualizar: ${error.message}`);
+    },
+  });
+
+  const openEdit = (card: CardRecord) => {
+    setEditingCard(card);
+    setEditName(card.name);
+    setEditCardNumber(card.card_number ?? "");
+    setEditProvider((card.provider as "sicredi" | "generic") || "sicredi");
+    setEditClosingDay(card.closing_day ? String(card.closing_day) : "");
+    setEditDueDay(card.due_day ? String(card.due_day) : "");
+    setEditActive(card.active);
+  };
+
   return (
     <MainLayout>
       <div className="page-header">
@@ -146,6 +205,14 @@ export default function Cards() {
             <div className="space-y-2">
               <Label>Nome</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Numero do cartao</Label>
+              <Input
+                placeholder="**** 1234"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Provider</Label>
@@ -215,9 +282,15 @@ export default function Cards() {
                         <p className="font-medium truncate">{card.name}</p>
                         <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                           <span>{card.provider}</span>
-                          <span>•</span>
+                          {card.card_number && (
+                            <>
+                              <span>?</span>
+                              <span>Final {card.card_number.slice(-4)}</span>
+                            </>
+                          )}
+                          <span>?</span>
                           <span>Fech: {card.closing_day ?? "-"}</span>
-                          <span>•</span>
+                          <span>?</span>
                           <span>Venc: {card.due_day ?? "-"}</span>
                         </div>
                       </div>
@@ -228,14 +301,22 @@ export default function Cards() {
                             toggleCard.mutate({ id: card.id, active: checked })
                           }
                         />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 group"
+                          onClick={() => openEdit(card)}
+                        >
+                          <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-white" />
+                        </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="shrink-0"
+                              className="shrink-0 group"
                             >
-                              <Trash2 className="h-4 w-4 text-muted-foreground" />
+                              <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
@@ -266,6 +347,7 @@ export default function Cards() {
                       <TableRow>
                         <TableHead>Nome</TableHead>
                         <TableHead>Provider</TableHead>
+                        <TableHead>Cartao</TableHead>
                         <TableHead>Fechamento</TableHead>
                         <TableHead>Vencimento</TableHead>
                         <TableHead>Status</TableHead>
@@ -277,6 +359,7 @@ export default function Cards() {
                         <TableRow key={card.id}>
                           <TableCell className="font-medium">{card.name}</TableCell>
                           <TableCell>{card.provider}</TableCell>
+                          <TableCell>{card.card_number ? `Final ${card.card_number.slice(-4)}` : "-"}</TableCell>
                           <TableCell>{card.closing_day ?? "-"}</TableCell>
                           <TableCell>{card.due_day ?? "-"}</TableCell>
                           <TableCell>
@@ -293,10 +376,14 @@ export default function Cards() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <AlertDialog>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="group" onClick={() => openEdit(card)}>
+                                <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-white" />
+                              </Button>
+                              <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                <Button variant="ghost" size="icon" className="group">
+                                  <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
@@ -314,7 +401,8 @@ export default function Cards() {
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
-                            </AlertDialog>
+                              </AlertDialog>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -331,6 +419,78 @@ export default function Cards() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={!!editingCard} onOpenChange={(open) => !open && setEditingCard(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar cartao</DialogTitle>
+            <DialogDescription>Atualize os dados do cartao.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Numero do cartao</Label>
+              <Input
+                placeholder="**** 1234"
+                value={editCardNumber}
+                onChange={(e) => setEditCardNumber(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Provider</Label>
+              <Select value={editProvider} onValueChange={(v) => setEditProvider(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sicredi">sicredi</SelectItem>
+                  <SelectItem value="generic">generic</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Fechamento</Label>
+                <Input
+                  placeholder="Dia"
+                  value={editClosingDay}
+                  onChange={(e) => setEditClosingDay(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Vencimento</Label>
+                <Input
+                  placeholder="Dia"
+                  value={editDueDay}
+                  onChange={(e) => setEditDueDay(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Ativo</p>
+                <p className="text-xs text-muted-foreground">Disponivel para importacao</p>
+              </div>
+              <Switch checked={editActive} onCheckedChange={setEditActive} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingCard(null)}
+              disabled={updateCard.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={() => updateCard.mutate()} disabled={updateCard.isPending}>
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

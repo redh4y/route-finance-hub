@@ -10,6 +10,8 @@ export type InvoiceImportInput = {
   cardName: string | null;
   provider: "sicredi" | "generic";
   invoiceMonthOverride: string;
+  closingDay?: number;
+  dueDay?: number;
   costCenterCode?: string;
   category?: string;
 };
@@ -40,6 +42,8 @@ export function useInvoiceImport() {
         costCenterCode: input.costCenterCode ?? "GERAL",
         category: input.category ?? "CARTAO_CREDITO",
         invoiceMonthOverride: input.invoiceMonthOverride,
+        closingDay: input.closingDay,
+        dueDay: input.dueDay,
         runId,
       });
 

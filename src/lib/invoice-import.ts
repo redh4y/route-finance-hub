@@ -14,6 +14,8 @@ export type BuildInput = {
   costCenterCode?: string;
   category?: string;
   invoiceMonthOverride: string; // YYYY-MM
+  closingDay?: number; // day of month (1-31)
+  dueDay?: number; // day of month (1-31)
   runId?: string | null;
 };
 
@@ -178,6 +180,30 @@ export function parseInvoiceCsvRobust(rows: string[][]): ParsedInvoiceLine[] {
   return lines;
 }
 
+export function parseInvoiceSheet(rows: string[][]): {
+  lines: ParsedInvoiceLine[];
+  invoiceDueDate: string | null;
+} {
+  let invoiceDueDate: string | null = null;
+
+  for (const row of rows) {
+    const cells = row.map((c) => String(c ?? "").trim()).filter((c) => c.length > 0);
+    if (cells.length === 0) continue;
+    const joined = cells.join(" ").toLowerCase();
+    if (joined.includes("data de vencimento")) {
+      for (const cell of cells) {
+        const parsed = parseDateBR(cell);
+        if (parsed) {
+          invoiceDueDate = parsed;
+          break;
+        }
+      }
+    }
+  }
+
+  return { lines: parseInvoiceCsvRobust(rows), invoiceDueDate };
+}
+
 export function buildContractsAndExpenses(
   lines: ParsedInvoiceLine[],
   input: BuildInput
@@ -185,6 +211,8 @@ export function buildContractsAndExpenses(
   const provider = input.provider ?? "sicredi";
   const category = input.category ?? "CARTAO_CREDITO";
   const costCenterCode = input.costCenterCode ?? "GERAL";
+  const closingDay = input.closingDay ?? 9;
+  const dueDay = input.dueDay ?? 15;
 
   const contractsMap = new Map<string, InstallmentContract>();
   const expenses: ExpenseEntry[] = [];
@@ -195,6 +223,10 @@ export function buildContractsAndExpenses(
       provider === "generic"
         ? addMonths(purchaseDate, -(line.installmentCurrent - 1))
         : purchaseDate;
+
+    const firstMonthBase = new Date(purchaseDate.getFullYear(), purchaseDate.getMonth(), 1);
+    const firstCompetence =
+      purchaseDate.getDate() > closingDay ? addMonths(firstMonthBase, 1) : firstMonthBase;
 
     const contractHash = cyrb53(
       `${input.cardId}|${line.descriptionNorm}|${toIsoDate(baseDate)}|${line.amountCents}|${line.installmentTotal}`
@@ -215,7 +247,7 @@ export function buildContractsAndExpenses(
     }
 
     for (let i = 1; i <= line.installmentTotal; i++) {
-      const competenceDate = addMonths(baseDate, i - 1);
+      const competenceDate = addMonths(firstCompetence, i - 1);
       const competenceMonth = toMonthRef(competenceDate);
       const invoiceMonth = input.invoiceMonthOverride;
       const status = competenceMonth <= invoiceMonth ? "REAL" : "PREVISTO";
@@ -234,10 +266,10 @@ export function buildContractsAndExpenses(
         description: descriptionWithInst,
         amount_cents: line.amountCents,
         status,
-        date: toInvoiceDay15(invoiceMonth),
-        operation_date: toIsoDate(competenceDate),
+        date: `${competenceMonth}-${String(dueDay).padStart(2, "0")}`,
+        operation_date: toIsoDate(purchaseDate),
         competence_month: competenceMonth,
-        invoice_month: invoiceMonth,
+        invoice_month: competenceMonth,
         card_id: input.cardId,
         cost_center_code: costCenterCode,
         category,
