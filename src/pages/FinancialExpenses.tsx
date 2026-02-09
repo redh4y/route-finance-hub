@@ -64,117 +64,12 @@ type AllocationDraft = {
   vehicleId: string;
   amount: string;
 };
-
-
-const COST_CATEGORIES = [
-  {
-    category: "Motoristas",
-    subcategories: [
-      "Sal?rio",
-      "Di?rias",
-      "Horas extras",
-      "Encargos trabalhistas (INSS, FGTS)",
-      "F?rias + 1/3",
-      "13? sal?rio",
-      "Rescis?es",
-    ],
-  },
-  {
-    category: "Combust?vel",
-    subcategories: ["Diesel", "Aditivos", "ARLA 32"],
-  },
-  {
-    category: "Manuten??o de Ve?culos",
-    subcategories: [
-      "Pe?as",
-      "M?o de obra mec?nica",
-      "Troca de ?leo",
-      "Filtros",
-      "Pneus",
-      "Alinhamento e balanceamento",
-      "Lavagem",
-      "Manuten??o preventiva",
-      "Manuten??o corretiva",
-    ],
-  },
-  {
-    category: "Documenta??o e Regulariza??o",
-    subcategories: [
-      "Licenciamento",
-      "IPVA",
-      "Vistoria",
-      "ANTT / Artesp",
-      "Tac?grafo (aferi??o)",
-      "Seguro obrigat?rio",
-    ],
-  },
-  {
-    category: "Seguros",
-    subcategories: [
-      "Seguro do ve?culo",
-      "Seguro de passageiros",
-      "Seguro contra terceiros",
-    ],
-  },
-  {
-    category: "Deprecia??o",
-    subcategories: [
-      "Deprecia??o dos ?nibus",
-      "Deprecia??o de equipamentos (ex: c?meras)",
-    ],
-  },
-  {
-    category: "Ped?gios",
-    subcategories: ["Ped?gios fixos da rota", "Ped?gios eventuais"],
-  },
-];
-
-const EXPENSE_CATEGORIES = [
-  {
-    category: "Administrativo",
-    subcategories: [
-      "Pr?-labore",
-      "Sal?rio administrativo",
-      "Encargos",
-      "Contabilidade",
-      "Honor?rios jur?dicos",
-      "Sistema / Software",
-      "Internet",
-      "Energia el?trica",
-      "Telefone",
-    ],
-  },
-  {
-    category: "Comercial",
-    subcategories: ["Marketing", "Impulsionamento", "Designer", "Impressos"],
-  },
-  {
-    category: "Financeiro",
-    subcategories: [
-      "Taxas banc?rias",
-      "Juros",
-      "Multas",
-      "Tarifas de boleto / PIX",
-      "Antecipa??o de receb?veis",
-    ],
-  },
-  {
-    category: "Estrutura F?sica",
-    subcategories: ["Aluguel (se houver)", "IPTU", "?gua", "Manuten??o do escrit?rio"],
-  },
-  {
-    category: "Outros",
-    subcategories: ["Uniformes", "Treinamentos", "Multas de tr?nsito", "Brindes"],
-  },
-];
-
-const COST_CATEGORY_SET = new Set(COST_CATEGORIES.map((item) => item.category));
-const EXPENSE_CATEGORY_SET = new Set(EXPENSE_CATEGORIES.map((item) => item.category));
 export default function FinancialExpenses() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef());
   const [entryType, setEntryType] = useState<"CUSTO" | "DESPESA">("CUSTO");
-  const [category, setCategory] = useState("");
-  const [subcategory, setSubcategory] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [subgroupId, setSubgroupId] = useState("");
+  const [costCenterId, setCostCenterId] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -206,6 +101,63 @@ export default function FinancialExpenses() {
     });
     return map;
   }, [vehicles]);
+
+  const { data: dreGroups } = useQuery({
+    queryKey: ["dre-groups", entryType],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_groups")
+        .select("id, name, nature")
+        .eq("nature", entryType)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; nature: string }[];
+    },
+  });
+
+  const { data: dreSubgroups } = useQuery({
+    queryKey: ["dre-subgroups", groupId],
+    enabled: !!groupId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_subgroups")
+        .select("id, name, group_id")
+        .eq("group_id", groupId)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; group_id: string }[];
+    },
+  });
+
+  const { data: costCenters } = useQuery({
+    queryKey: ["cost-centers"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cost_centers")
+        .select("id, name, type, active")
+        .eq("active", true)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; type: string; active: boolean }[];
+    },
+  });
+
+  const groupById = useMemo(() => {
+    const map = new Map<string, { name: string }>();
+    (dreGroups || []).forEach((group) => {
+      map.set(group.id, { name: group.name });
+    });
+    return map;
+  }, [dreGroups]);
+
+  const subgroupById = useMemo(() => {
+    const map = new Map<string, { name: string }>();
+    (dreSubgroups || []).forEach((subgroup) => {
+      map.set(subgroup.id, { name: subgroup.name });
+    });
+    return map;
+  }, [dreSubgroups]);
+
   const { data: entries, isLoading } = useQuery({
     queryKey: ["financial-entries", selectedMonth, "expenses"],
     queryFn: async () => {
@@ -250,24 +202,29 @@ export default function FinancialExpenses() {
       if (entryType === "CUSTO" && !vehicleId) {
         throw new Error("Selecione um veiculo para custos operacionais.");
       }
-      if (entryType === "CUSTO" && !COST_CATEGORY_SET.has(category)) {
-        throw new Error("Categoria invalida para CUSTO.");
+      if (!groupId) {
+        throw new Error("Selecione um grupo.");
       }
-      if (entryType === "DESPESA" && !EXPENSE_CATEGORY_SET.has(category)) {
-        throw new Error("Categoria invalida para DESPESA.");
+      if ((dreSubgroups?.length || 0) > 0 && !subgroupId) {
+        throw new Error("Selecione um subgrupo.");
       }
       const amountCents = Math.round(parseFloat(amount.replace(",", ".")) * 100);
+      const group = groupById.get(groupId);
+      const subgroup = subgroupId ? subgroupById.get(subgroupId) : null;
       
       const { error } = await supabase.from("financial_entries").insert({
         competence_month: selectedMonth,
         date,
         type: entryType,
-        category,
-        subcategory: subcategory || null,
+        category: group?.name || "",
+        subcategory: subgroup?.name || null,
         description,
         amount_cents: amountCents,
         source: "MANUAL",
         vehicle_id: vehicleId || null,
+        group_id: groupId,
+        subgroup_id: subgroupId || null,
+        cost_center_id: costCenterId || null,
       });
 
       if (error) throw error;
@@ -277,8 +234,9 @@ export default function FinancialExpenses() {
       queryClient.invalidateQueries({ queryKey: ["dre"] });
       toast.success("Lançamento criado com sucesso");
       // Reset form
-      setCategory("");
-      setSubcategory("");
+      setGroupId("");
+      setSubgroupId("");
+      setCostCenterId("");
       setDescription("");
       setAmount("");
       setVehicleId("");
@@ -362,11 +320,7 @@ export default function FinancialExpenses() {
       toast.error("Erro ao salvar rateio: " + error.message);
     },
   });
-
-  const categories = entryType === "CUSTO" ? COST_CATEGORIES : EXPENSE_CATEGORIES;
-  const selectedCategory = categories.find(
-    (c) => c.category.toLowerCase() === category.toLowerCase().trim()
-  );
+  const hasSubgroups = (dreSubgroups?.length || 0) > 0;
 
   const months = Array.from({ length: 12 }, (_, i) => {
     const d = new Date();
@@ -443,38 +397,85 @@ export default function FinancialExpenses() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tipo</Label>
+                <Select value={entryType} onValueChange={(v) => {
+                  setEntryType(v as "CUSTO" | "DESPESA");
+                  setGroupId("");
+                  setSubgroupId("");
+                  setCostCenterId("");
+                }}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CUSTO">Custo Operacional</SelectItem>
+                    <SelectItem value="DESPESA">Despesa Administrativa</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  Veiculo {entryType === "CUSTO" ? "(obrigatorio)" : "(opcional)"}
+                </Label>
+                <Select
+                  value={vehicleId || ""}
+                  onValueChange={(value) => setVehicleId(value === "__none__" ? "" : value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={entryType === "CUSTO" ? "Selecione o veiculo" : "Sem veiculo"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {entryType !== "CUSTO" && (
+                      <SelectItem value="__none__">Sem veiculo</SelectItem>
+                    )}
+                    {activeVehicles.map((vehicle) => (
+                      <SelectItem key={vehicle.id} value={vehicle.id}>
+                        {vehicle.name}{vehicle.plate ? ` - ${vehicle.plate}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {entryType === "CUSTO" && !vehicleId && (
+                  <p className="text-xs text-muted-foreground">
+                    Custos operacionais precisam de um veiculo vinculado.
+                  </p>
+                )}
+              </div>
+            </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Categoria</Label>
-                <Select value={category} onValueChange={(v) => {
-                  setCategory(v);
-                  setSubcategory("");
+                <Label>Grupo</Label>
+                <Select value={groupId} onValueChange={(v) => {
+                  setGroupId(v);
+                  setSubgroupId("");
                 }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories.map((c) => (
-                      <SelectItem key={c.category} value={c.category}>
-                        {c.category}
+                    {dreGroups?.map((group) => (
+                      <SelectItem key={group.id} value={group.id}>
+                        {group.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {selectedCategory && selectedCategory.subcategories.length > 0 ? (
+              {hasSubgroups ? (
                 <div className="space-y-2">
-                  <Label>Subcategoria</Label>
-                  <Select value={subcategory} onValueChange={setSubcategory}>
+                  <Label>Subgrupo</Label>
+                  <Select value={subgroupId} onValueChange={setSubgroupId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {selectedCategory.subcategories.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
+                      {dreSubgroups?.map((subgroup) => (
+                        <SelectItem key={subgroup.id} value={subgroup.id}>
+                          {subgroup.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -483,6 +484,26 @@ export default function FinancialExpenses() {
               ) : (
                 <div />
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Centro de custo (opcional)</Label>
+              <Select
+                value={costCenterId || ""}
+                onValueChange={(value) => setCostCenterId(value === "__none__" ? "" : value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sem centro de custo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sem centro de custo</SelectItem>
+                  {costCenters?.map((center) => (
+                    <SelectItem key={center.id} value={center.id}>
+                      {center.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -513,7 +534,8 @@ export default function FinancialExpenses() {
               className="w-full"
               onClick={() => createEntry.mutate()}
               disabled={
-                !category ||
+                !groupId ||
+                (hasSubgroups && !subgroupId) ||
                 !amount ||
                 !description ||
                 createEntry.isPending ||
@@ -576,7 +598,7 @@ export default function FinancialExpenses() {
                     <TableRow>
                       <TableHead>Data</TableHead>
                       <TableHead>Tipo</TableHead>
-                      <TableHead>Categoria</TableHead>
+                      <TableHead>Grupo</TableHead>
                       <TableHead>Parcelas</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="text-right">Valor</TableHead>

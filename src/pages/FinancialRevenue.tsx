@@ -55,16 +55,11 @@ interface FinancialEntry {
 }
 
 
-const REVENUE_CATEGORIES = [
-  { category: "Mensalidades", subcategories: ["Alunos", "Fretamento"] },
-  { category: "Viagens Extras", subcategories: [] },
-];
-
-const REVENUE_CATEGORY_SET = new Set(REVENUE_CATEGORIES.map((item) => item.category));
 export default function FinancialRevenue() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef());
-  const [category, setCategory] = useState("");
-  const [subcategory, setSubcategory] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [subgroupId, setSubgroupId] = useState("");
+  const [costCenterId, setCostCenterId] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -72,6 +67,63 @@ export default function FinancialRevenue() {
   const statusFilter = searchParams.get("status");
 
   const queryClient = useQueryClient();
+
+  const { data: dreGroups } = useQuery({
+    queryKey: ["dre-groups", "RECEITA"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_groups")
+        .select("id, name, nature")
+        .eq("nature", "RECEITA")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; nature: string }[];
+    },
+  });
+
+  const { data: dreSubgroups } = useQuery({
+    queryKey: ["dre-subgroups", groupId],
+    enabled: !!groupId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_subgroups")
+        .select("id, name, group_id")
+        .eq("group_id", groupId)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; group_id: string }[];
+    },
+  });
+
+  const { data: costCenters } = useQuery({
+    queryKey: ["cost-centers"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cost_centers")
+        .select("id, name, type, active")
+        .eq("active", true)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; type: string; active: boolean }[];
+    },
+  });
+
+  const groupById = useMemo(() => {
+    const map = new Map<string, { name: string }>();
+    (dreGroups || []).forEach((group) => {
+      map.set(group.id, { name: group.name });
+    });
+    return map;
+  }, [dreGroups]);
+
+  const subgroupById = useMemo(() => {
+    const map = new Map<string, { name: string }>();
+    (dreSubgroups || []).forEach((subgroup) => {
+      map.set(subgroup.id, { name: subgroup.name });
+    });
+    return map;
+  }, [dreSubgroups]);
+
 
   // Get billings for the month
   const { data: billings, isLoading: loadingBillings } = useQuery({
@@ -107,20 +159,28 @@ export default function FinancialRevenue() {
 
   const createEntry = useMutation({
     mutationFn: async () => {
-      if (!REVENUE_CATEGORY_SET.has(category)) {
-        throw new Error("Categoria invalida para RECEITA.");
+      if (!groupId) {
+        throw new Error("Selecione um grupo.");
+      }
+      if ((dreSubgroups?.length || 0) > 0 && !subgroupId) {
+        throw new Error("Selecione um subgrupo.");
       }
       const amountCents = Math.round(parseFloat(amount.replace(",", ".")) * 100);
+      const group = groupById.get(groupId);
+      const subgroup = subgroupId ? subgroupById.get(subgroupId) : null;
       
       const { error } = await supabase.from("financial_entries").insert({
         competence_month: selectedMonth,
         date,
         type: "RECEITA",
-        category,
-        subcategory: subcategory || null,
+        category: group?.name || "",
+        subcategory: subgroup?.name || null,
         description,
         amount_cents: amountCents,
         source: "MANUAL",
+        group_id: groupId,
+        subgroup_id: subgroupId || null,
+        cost_center_id: costCenterId || null,
       });
 
       if (error) throw error;
@@ -129,8 +189,9 @@ export default function FinancialRevenue() {
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
       toast.success("Receita registrada com sucesso");
-      setCategory("");
-      setSubcategory("");
+      setGroupId("");
+      setSubgroupId("");
+      setCostCenterId("");
       setDescription("");
       setAmount("");
     },
@@ -139,7 +200,7 @@ export default function FinancialRevenue() {
     },
   });
 
-  const selectedCategory = REVENUE_CATEGORIES.find((c) => c.category === category);
+  const hasSubgroups = (dreSubgroups?.length || 0) > 0;
 
   const months = Array.from({ length: 12 }, (_, i) => {
     const d = new Date();
@@ -259,41 +320,61 @@ export default function FinancialRevenue() {
           <CardContent className="space-y-4">
 
             <div className="space-y-2">
-              <Label>Categoria</Label>
-              <Select value={category} onValueChange={(v) => {
-                setCategory(v);
-                setSubcategory("");
+              <Label>Grupo</Label>
+              <Select value={groupId} onValueChange={(v) => {
+                setGroupId(v);
+                setSubgroupId("");
               }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {REVENUE_CATEGORIES.map((c) => (
-                    <SelectItem key={c.category} value={c.category}>
-                      {c.category}
+                  {dreGroups?.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      {group.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {selectedCategory && selectedCategory.subcategories.length > 0 && (
+            {hasSubgroups && (
               <div className="space-y-2">
-                <Label>Subcategoria</Label>
-                <Select value={subcategory} onValueChange={setSubcategory}>
+                <Label>Subgrupo</Label>
+                <Select value={subgroupId} onValueChange={setSubgroupId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {selectedCategory.subcategories.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
+                    {dreSubgroups?.map((subgroup) => (
+                      <SelectItem key={subgroup.id} value={subgroup.id}>
+                        {subgroup.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
+
+            <div className="space-y-2">
+              <Label>Centro de custo (opcional)</Label>
+              <Select
+                value={costCenterId || ""}
+                onValueChange={(value) => setCostCenterId(value === "__none__" ? "" : value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sem centro de custo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sem centro de custo</SelectItem>
+                  {costCenters?.map((center) => (
+                    <SelectItem key={center.id} value={center.id}>
+                      {center.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
 
             <div className="space-y-2">
@@ -324,7 +405,8 @@ export default function FinancialRevenue() {
               className="w-full"
               onClick={() => createEntry.mutate()}
               disabled={
-                !category ||
+                !groupId ||
+                (hasSubgroups && !subgroupId) ||
                 !amount ||
                 !description ||
                 createEntry.isPending
@@ -407,7 +489,7 @@ export default function FinancialRevenue() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Data</TableHead>
-                      <TableHead>Categoria</TableHead>
+                      <TableHead>Grupo</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
                     </TableRow>

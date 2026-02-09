@@ -208,6 +208,89 @@ export type Database = {
         }
         Relationships: []
       }
+      cost_centers: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      dre_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          nature: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          nature: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          nature?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      dre_subgroups: {
+        Row: {
+          created_at: string
+          group_id: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          group_id: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          group_id?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dre_subgroups_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "dre_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_entry_allocations: {
         Row: {
           amount_cents: number
@@ -264,9 +347,11 @@ export type Database = {
           cost_center_code: string | null
           cost_type: string | null
           created_at: string
+          cost_center_id: string | null
           date: string
           description: string
           expense_id: string | null
+          group_id: string | null
           id: string
           installments_total: number | null
           invoice_month: string | null
@@ -277,6 +362,7 @@ export type Database = {
           source: string
           status: string | null
           subcategory: string | null
+          subgroup_id: string | null
           type: string
           updated_at: string
           vehicle_id: string | null
@@ -291,9 +377,11 @@ export type Database = {
           cost_center_code?: string | null
           cost_type?: string | null
           created_at?: string
+          cost_center_id?: string | null
           date: string
           description: string
           expense_id?: string | null
+          group_id?: string | null
           id?: string
           installments_total?: number | null
           invoice_month?: string | null
@@ -304,6 +392,7 @@ export type Database = {
           source?: string
           status?: string | null
           subcategory?: string | null
+          subgroup_id?: string | null
           type: string
           updated_at?: string
           vehicle_id?: string | null
@@ -318,9 +407,11 @@ export type Database = {
           cost_center_code?: string | null
           cost_type?: string | null
           created_at?: string
+          cost_center_id?: string | null
           date?: string
           description?: string
           expense_id?: string | null
+          group_id?: string | null
           id?: string
           installments_total?: number | null
           invoice_month?: string | null
@@ -331,11 +422,19 @@ export type Database = {
           source?: string
           status?: string | null
           subcategory?: string | null
+          subgroup_id?: string | null
           type?: string
           updated_at?: string
           vehicle_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "financial_entries_cost_center_id_fkey"
+            columns: ["cost_center_id"]
+            isOneToOne: false
+            referencedRelation: "cost_centers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "financial_entries_billing_id_fkey"
             columns: ["billing_id"]
@@ -344,10 +443,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "financial_entries_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "dre_groups"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "financial_entries_parent_entry_id_fkey"
             columns: ["parent_entry_id"]
             isOneToOne: false
             referencedRelation: "financial_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entries_subgroup_id_fkey"
+            columns: ["subgroup_id"]
+            isOneToOne: false
+            referencedRelation: "dre_subgroups"
             referencedColumns: ["id"]
           },
           {
