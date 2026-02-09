@@ -10,6 +10,7 @@ import {
   ArrowDownCircle,
   Bus,
   CreditCard,
+  Truck,
   LogOut,
   Bug,
   MessageCircle,
@@ -44,6 +45,11 @@ const navItems = [
     label: "Cartões",
     path: "/cartoes",
     icon: CreditCard,
+  },
+  {
+    label: "Veiculos",
+    path: "/veiculos",
+    icon: Truck,
   },
   {
     label: "Financeiro",

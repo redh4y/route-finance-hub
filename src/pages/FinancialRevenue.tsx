@@ -54,12 +54,13 @@ interface FinancialEntry {
   source: string;
 }
 
+
 const REVENUE_CATEGORIES = [
-  { category: "Mensalidades", subcategories: ["Transporte Universitário", "Fretamento"] },
+  { category: "Mensalidades", subcategories: ["Alunos", "Fretamento"] },
   { category: "Viagens Extras", subcategories: [] },
-  { category: "Outros", subcategories: [] },
 ];
 
+const REVENUE_CATEGORY_SET = new Set(REVENUE_CATEGORIES.map((item) => item.category));
 export default function FinancialRevenue() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef());
   const [category, setCategory] = useState("");
@@ -106,6 +107,9 @@ export default function FinancialRevenue() {
 
   const createEntry = useMutation({
     mutationFn: async () => {
+      if (!REVENUE_CATEGORY_SET.has(category)) {
+        throw new Error("Categoria invalida para RECEITA.");
+      }
       const amountCents = Math.round(parseFloat(amount.replace(",", ".")) * 100);
       
       const { error } = await supabase.from("financial_entries").insert({
@@ -253,6 +257,7 @@ export default function FinancialRevenue() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+
             <div className="space-y-2">
               <Label>Categoria</Label>
               <Select value={category} onValueChange={(v) => {
@@ -290,6 +295,7 @@ export default function FinancialRevenue() {
               </div>
             )}
 
+
             <div className="space-y-2">
               <Label>Data</Label>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -317,7 +323,12 @@ export default function FinancialRevenue() {
             <Button
               className="w-full"
               onClick={() => createEntry.mutate()}
-              disabled={!category || !amount || !description || createEntry.isPending}
+              disabled={
+                !category ||
+                !amount ||
+                !description ||
+                createEntry.isPending
+              }
             >
               <Plus className="h-4 w-4 mr-2" />
               Registrar Receita
@@ -407,6 +418,11 @@ export default function FinancialRevenue() {
                         <TableCell>{formatDate(entry.date)}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{entry.category}</Badge>
+                          {entry.subcategory && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {entry.subcategory}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>{entry.description}</TableCell>
                         <TableCell className="text-right font-mono text-success">
@@ -424,3 +440,4 @@ export default function FinancialRevenue() {
     </MainLayout>
   );
 }
+

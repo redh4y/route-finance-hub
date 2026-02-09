@@ -175,6 +175,84 @@ export type Database = {
         }
         Relationships: []
       }
+      vehicles: {
+        Row: {
+          id: string
+          name: string
+          plate: string | null
+          model: string | null
+          year: number | null
+          active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          plate?: string | null
+          model?: string | null
+          year?: number | null
+          active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          plate?: string | null
+          model?: string | null
+          year?: number | null
+          active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      financial_entry_allocations: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          entry_id: string
+          id: string
+          percent: number | null
+          updated_at: string
+          vehicle_id: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          entry_id: string
+          id?: string
+          percent?: number | null
+          updated_at?: string
+          vehicle_id: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          entry_id?: string
+          id?: string
+          percent?: number | null
+          updated_at?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_entry_allocations_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "financial_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entry_allocations_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_entries: {
         Row: {
           amount_cents: number

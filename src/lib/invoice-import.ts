@@ -48,6 +48,8 @@ export type ExpenseEntry = {
   type: "DESPESA";
   source: "IMPORT";
   installments_total: number;
+  installment_current?: number | null;
+  installment_total?: number | null;
   parent_entry_id: string | null;
 };
 
@@ -145,6 +147,8 @@ export function parseInvoiceCsvRobust(rows: string[][]): ParsedInvoiceLine[] {
       }
     }
     if (!description) continue;
+    const descNorm = normalizeText(description);
+    if (descNorm.includes("pag fat deb cc")) continue;
 
     let installmentCurrent = 1;
     let installmentTotal = 1;
@@ -170,7 +174,7 @@ export function parseInvoiceCsvRobust(rows: string[][]): ParsedInvoiceLine[] {
     lines.push({
       purchaseDate: dateIso,
       description,
-      descriptionNorm: normalizeText(description),
+      descriptionNorm: descNorm,
       installmentCurrent,
       installmentTotal,
       amountCents,
@@ -183,8 +187,10 @@ export function parseInvoiceCsvRobust(rows: string[][]): ParsedInvoiceLine[] {
 export function parseInvoiceSheet(rows: string[][]): {
   lines: ParsedInvoiceLine[];
   invoiceDueDate: string | null;
+  cardLast4: string | null;
 } {
   let invoiceDueDate: string | null = null;
+  let cardLast4: string | null = null;
 
   for (const row of rows) {
     const cells = row.map((c) => String(c ?? "").trim()).filter((c) => c.length > 0);
@@ -199,9 +205,32 @@ export function parseInvoiceSheet(rows: string[][]): {
         }
       }
     }
+
+    if (!cardLast4) {
+      for (const cell of cells) {
+        const raw = cell.trim();
+        if (!raw) continue;
+        const cardMatch = raw.match(/\b(?:\d{4}[\s.-]?){3}\d{4}\b/);
+        if (cardMatch) {
+          const digits = cardMatch[0].replace(/\D/g, "");
+          cardLast4 = digits.slice(-4);
+          break;
+        }
+      }
+    }
+
+    if (!cardLast4) {
+      for (const cell of cells) {
+        const digits = cell.replace(/\D/g, "");
+        if (digits.length >= 15 && digits.length <= 19) {
+          cardLast4 = digits.slice(-4);
+          break;
+        }
+      }
+    }
   }
 
-  return { lines: parseInvoiceCsvRobust(rows), invoiceDueDate };
+  return { lines: parseInvoiceCsvRobust(rows), invoiceDueDate, cardLast4 };
 }
 
 export function buildContractsAndExpenses(
@@ -266,7 +295,7 @@ export function buildContractsAndExpenses(
         description: descriptionWithInst,
         amount_cents: line.amountCents,
         status,
-        date: `${competenceMonth}-${String(dueDay).padStart(2, "0")}`,
+        date: toIsoDate(purchaseDate),
         operation_date: toIsoDate(purchaseDate),
         competence_month: competenceMonth,
         invoice_month: competenceMonth,
@@ -277,6 +306,8 @@ export function buildContractsAndExpenses(
         type: "DESPESA",
         source: "IMPORT",
         installments_total: line.installmentTotal,
+        installment_current: i,
+        installment_total: line.installmentTotal,
         parent_entry_id: null,
       });
     }

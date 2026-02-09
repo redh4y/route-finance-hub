@@ -115,6 +115,8 @@ export function useInvoiceImport() {
           type: e.type,
           source: e.source,
           installments_total: e.installments_total,
+          installment_current: e.installment_current ?? null,
+          installment_total: e.installment_total ?? null,
           parent_entry_id: e.parent_entry_id,
         };
       });

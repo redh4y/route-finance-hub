@@ -13,7 +13,11 @@ export function formatCurrency(cents: number): string {
  * Format date to Brazilian format (dd/mm/yyyy)
  */
 export function formatDate(date: string | Date): string {
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = typeof date === "string"
+    ? (date.includes("-")
+        ? new Date(Number(date.split("-")[0]), Number(date.split("-")[1]) - 1, Number(date.split("-")[2]))
+        : new Date(date))
+    : date;
   return new Intl.DateTimeFormat("pt-BR").format(d);
 }
 

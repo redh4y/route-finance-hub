@@ -68,6 +68,8 @@ export default function Diagnostics() {
     try {
       const steps = [
         { table: "financial_entries", filter: { column: "id", op: "is", value: null } },
+        { table: "financial_entries", filter: { column: "source", op: "eq", value: "IMPORT" }, key: "invoice_imports" },
+        { table: "installment_contracts", filter: { column: "id", op: "is", value: null }, key: "invoice_imports" },
         { table: "billings", filter: { column: "id", op: "is", value: null } },
         { table: "payers", filter: { column: "id", op: "is", value: null } },
         { table: "import_logs", filter: { column: "id", op: "is", value: null } },
@@ -77,7 +79,7 @@ export default function Diagnostics() {
       const targetSteps =
         collection === "all"
           ? steps
-          : steps.filter((step) => step.table === collection);
+          : steps.filter((step) => (step.key ? step.key === collection : step.table === collection));
 
       if (targetSteps.length === 0) {
         throw new Error("Coleção inválida");
@@ -200,6 +202,7 @@ export default function Diagnostics() {
                       <SelectItem value="payers">payers</SelectItem>
                       <SelectItem value="billings">billings</SelectItem>
                       <SelectItem value="financial_entries">financial_entries</SelectItem>
+                      <SelectItem value="invoice_imports">faturas importadas</SelectItem>
                       <SelectItem value="import_logs">import_logs</SelectItem>
                       <SelectItem value="ceps">ceps</SelectItem>
                     </SelectContent>

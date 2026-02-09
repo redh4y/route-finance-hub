@@ -321,6 +321,7 @@ function ImportInvoicesCard() {
   const [parsedLines, setParsedLines] = useState<ParsedInvoiceLine[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState("manual");
+  const [detectedCardLast4, setDetectedCardLast4] = useState<string | null>(null);
   const [invoiceMonthOverride, setInvoiceMonthOverride] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -338,7 +339,7 @@ function ImportInvoicesCard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cards")
-        .select("id, name, provider, closing_day, due_day, active")
+        .select("id, name, card_last4, provider, closing_day, due_day, active")
         .eq("active", true)
         .order("name", { ascending: true });
       if (error) throw error;
@@ -400,6 +401,14 @@ function ImportInvoicesCard() {
     }
   };
 
+  const handleClear = () => {
+    setFile(null);
+    setParsedLines([]);
+    setPreview([]);
+    setDetectedCardLast4(null);
+    reset();
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -439,10 +448,16 @@ function ImportInvoicesCard() {
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 }) as string[][];
-        const { lines, invoiceDueDate } = parseInvoiceSheet(rows);
+        const { lines, invoiceDueDate, cardLast4 } = parseInvoiceSheet(rows);
         if (invoiceDueDate) {
           const dueMonth = invoiceDueDate.slice(0, 7);
           setInvoiceMonthOverride(dueMonth);
+        }
+        if (cardLast4) {
+          if (import.meta.env.DEV) {
+            console.log("[ImportInvoices] detected card last4 from XLS:", cardLast4);
+          }
+          setDetectedCardLast4(cardLast4);
         }
         const parsed = lines;
         if (!active) return;
@@ -463,6 +478,24 @@ function ImportInvoicesCard() {
       active = false;
     };
   }, [file]);
+
+  useEffect(() => {
+    if (!detectedCardLast4 || !cards || cards.length === 0) return;
+    const matched = cards.find((c) => c.card_last4 === detectedCardLast4);
+    if (import.meta.env.DEV) {
+      const cardSummary = cards.map((c) => ({
+        id: c.id,
+        name: c.name,
+        card_last4: c.card_last4,
+      }));
+      console.log("[ImportInvoices] cards list for match:", cardSummary);
+      console.log("[ImportInvoices] matched card:", matched || null);
+    }
+    if (matched) {
+      setSelectedCardId(matched.id);
+      setProvider((matched.provider as "sicredi" | "generic") || "sicredi");
+    }
+  }, [detectedCardLast4, cards]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -533,6 +566,12 @@ function ImportInvoicesCard() {
           </div>
 
           <div className="flex items-center gap-2">
+            {file && (
+              <Button variant="ghost" onClick={handleClear} disabled={isImporting || isParsing}>
+                <X className="h-4 w-4 mr-2" />
+                Limpar
+              </Button>
+            )}
             <Button
               className="ml-auto"
               onClick={handleImport}

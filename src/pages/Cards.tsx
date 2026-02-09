@@ -13,6 +13,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
+  DialogClose,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -29,17 +31,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { CreditCard, Plus, Trash2, Pencil } from "lucide-react";
@@ -48,7 +39,7 @@ import { toast } from "sonner";
 type CardRecord = {
   id: string;
   name: string;
-  card_number: string | null;
+  card_last4: string | null;
   provider: string;
   closing_day: number | null;
   due_day: number | null;
@@ -78,7 +69,7 @@ export default function Cards() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cards")
-        .select("*")
+        .select("id, name, card_last4, provider, closing_day, due_day, active, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as CardRecord[];
@@ -90,9 +81,11 @@ export default function Cards() {
       if (!name.trim()) throw new Error("Informe o nome do cartao");
       const closing = closingDay ? Number.parseInt(closingDay, 10) : null;
       const due = dueDay ? Number.parseInt(dueDay, 10) : null;
+      const last4 = cardNumber.replace(/\D/g, "").slice(-4) || null;
       const { error } = await supabase.from("cards").insert({
         name: name.trim(),
         card_number: cardNumber.trim() || null,
+        card_last4: last4,
         provider,
         closing_day: Number.isNaN(closing) ? null : closing,
         due_day: Number.isNaN(due) ? null : due,
@@ -151,17 +144,22 @@ export default function Cards() {
       if (!editName.trim()) throw new Error("Informe o nome do cartao");
       const closing = editClosingDay ? Number.parseInt(editClosingDay, 10) : null;
       const due = editDueDay ? Number.parseInt(editDueDay, 10) : null;
+      const cleanNumber = editCardNumber.replace(/\D/g, "");
+      const updatePayload: Record<string, any> = {
+        name: editName.trim(),
+        provider: editProvider,
+        closing_day: Number.isNaN(closing) ? null : closing,
+        due_day: Number.isNaN(due) ? null : due,
+        active: editActive,
+        updated_at: new Date().toISOString(),
+      };
+      if (cleanNumber) {
+        updatePayload.card_number = editCardNumber.trim();
+        updatePayload.card_last4 = cleanNumber.slice(-4);
+      }
       const { error } = await supabase
         .from("cards")
-        .update({
-          name: editName.trim(),
-          card_number: editCardNumber.trim() || null,
-          provider: editProvider,
-          closing_day: Number.isNaN(closing) ? null : closing,
-          due_day: Number.isNaN(due) ? null : due,
-          active: editActive,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", editingCard.id);
       if (error) throw error;
     },
@@ -178,7 +176,7 @@ export default function Cards() {
   const openEdit = (card: CardRecord) => {
     setEditingCard(card);
     setEditName(card.name);
-    setEditCardNumber(card.card_number ?? "");
+    setEditCardNumber("");
     setEditProvider((card.provider as "sicredi" | "generic") || "sicredi");
     setEditClosingDay(card.closing_day ? String(card.closing_day) : "");
     setEditDueDay(card.due_day ? String(card.due_day) : "");
@@ -282,10 +280,10 @@ export default function Cards() {
                         <p className="font-medium truncate">{card.name}</p>
                         <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                           <span>{card.provider}</span>
-                          {card.card_number && (
+                          {card.card_last4 && (
                             <>
                               <span>?</span>
-                              <span>Final {card.card_number.slice(-4)}</span>
+                              <span>Final {card.card_last4}</span>
                             </>
                           )}
                           <span>?</span>
@@ -309,8 +307,8 @@ export default function Cards() {
                         >
                           <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-white" />
                         </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
+                        <Dialog>
+                          <DialogTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -318,23 +316,25 @@ export default function Cards() {
                             >
                               <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Excluir cartao?</AlertDialogTitle>
-                              <AlertDialogDescription>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Excluir cartao?</DialogTitle>
+                              <DialogDescription>
                                 Esta acao nao pode ser desfeita. O cartao "{card.name}"
                                 sera removido.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => deleteCard.mutate(card.id)}>
+                              </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter>
+                              <DialogClose asChild>
+                              <Button variant="outline">Cancelar</Button>
+                            </DialogClose>
+                              <Button variant="destructive" onClick={() => deleteCard.mutate(card.id)}>
                                 Excluir
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     </div>
                   ))}
@@ -359,7 +359,7 @@ export default function Cards() {
                         <TableRow key={card.id}>
                           <TableCell className="font-medium">{card.name}</TableCell>
                           <TableCell>{card.provider}</TableCell>
-                          <TableCell>{card.card_number ? `Final ${card.card_number.slice(-4)}` : "-"}</TableCell>
+                          <TableCell>{card.card_last4 ? `Final ${card.card_last4}` : "-"}</TableCell>
                           <TableCell>{card.closing_day ?? "-"}</TableCell>
                           <TableCell>{card.due_day ?? "-"}</TableCell>
                           <TableCell>
@@ -380,28 +380,30 @@ export default function Cards() {
                               <Button variant="ghost" size="icon" className="group" onClick={() => openEdit(card)}>
                                 <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-white" />
                               </Button>
-                              <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="group">
-                                  <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Excluir cartao?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Esta acao nao pode ser desfeita. O cartao "{card.name}"
-                                    sera removido.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => deleteCard.mutate(card.id)}>
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                              </AlertDialog>
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="group">
+                                    <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Excluir cartao?</DialogTitle>
+                                    <DialogDescription>
+                                      Esta acao nao pode ser desfeita. O cartao "{card.name}"
+                                      sera removido.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <DialogFooter>
+                                    <DialogClose asChild>
+                              <Button variant="outline">Cancelar</Button>
+                            </DialogClose>
+                                    <Button variant="destructive" onClick={() => deleteCard.mutate(card.id)}>
+                                      Excluir
+                                    </Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -438,6 +440,11 @@ export default function Cards() {
                 value={editCardNumber}
                 onChange={(e) => setEditCardNumber(e.target.value)}
               />
+              {editingCard?.card_last4 && (
+                <p className="text-xs text-muted-foreground">
+                  Atual: Final {editingCard.card_last4}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Provider</Label>

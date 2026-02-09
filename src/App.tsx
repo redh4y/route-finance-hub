@@ -16,6 +16,7 @@ import RoutesPage from "./pages/Routes";
 import Diagnostics from "./pages/Diagnostics";
 import Overdue from "./pages/Overdue";
 import Cards from "./pages/Cards";
+import Vehicles from "./pages/Vehicles";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -60,6 +61,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Cards />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/veiculos"
+                element={
+                  <ProtectedRoute>
+                    <Vehicles />
                   </ProtectedRoute>
                 }
               />
