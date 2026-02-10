@@ -72,7 +72,7 @@ export default function Cards() {
         .select("id, name, card_last4, provider, closing_day, due_day, active, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as CardRecord[];
+      return data as unknown as CardRecord[];
     },
   });
 
