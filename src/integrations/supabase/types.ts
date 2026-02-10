@@ -88,6 +88,8 @@ export type Database = {
       cards: {
         Row: {
           active: boolean
+          card_last4: string | null
+          card_number: string | null
           closing_day: number | null
           created_at: string
           due_day: number | null
@@ -98,6 +100,8 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          card_last4?: string | null
+          card_number?: string | null
           closing_day?: number | null
           created_at?: string
           due_day?: number | null
@@ -108,6 +112,8 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          card_last4?: string | null
+          card_number?: string | null
           closing_day?: number | null
           created_at?: string
           due_day?: number | null
@@ -145,6 +151,33 @@ export type Database = {
         }
         Relationships: []
       }
+      cost_centers: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       dre_categories: {
         Row: {
           category: string
@@ -172,66 +205,6 @@ export type Database = {
           id?: string
           subcategory?: string | null
           type?: string
-        }
-        Relationships: []
-      }
-      vehicles: {
-        Row: {
-          id: string
-          name: string
-          plate: string | null
-          model: string | null
-          year: number | null
-          active: boolean
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          name: string
-          plate?: string | null
-          model?: string | null
-          year?: number | null
-          active?: boolean
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          name?: string
-          plate?: string | null
-          model?: string | null
-          year?: number | null
-          active?: boolean
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      cost_centers: {
-        Row: {
-          active: boolean
-          created_at: string
-          id: string
-          name: string
-          type: string
-          updated_at: string
-        }
-        Insert: {
-          active?: boolean
-          created_at?: string
-          id?: string
-          name: string
-          type?: string
-          updated_at?: string
-        }
-        Update: {
-          active?: boolean
-          created_at?: string
-          id?: string
-          name?: string
-          type?: string
-          updated_at?: string
         }
         Relationships: []
       }
@@ -291,51 +264,6 @@ export type Database = {
           },
         ]
       }
-      financial_entry_allocations: {
-        Row: {
-          amount_cents: number
-          created_at: string
-          entry_id: string
-          id: string
-          percent: number | null
-          updated_at: string
-          vehicle_id: string
-        }
-        Insert: {
-          amount_cents: number
-          created_at?: string
-          entry_id: string
-          id?: string
-          percent?: number | null
-          updated_at?: string
-          vehicle_id: string
-        }
-        Update: {
-          amount_cents?: number
-          created_at?: string
-          entry_id?: string
-          id?: string
-          percent?: number | null
-          updated_at?: string
-          vehicle_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "financial_entry_allocations_entry_id_fkey"
-            columns: ["entry_id"]
-            isOneToOne: false
-            referencedRelation: "financial_entries"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "financial_entry_allocations_vehicle_id_fkey"
-            columns: ["vehicle_id"]
-            isOneToOne: false
-            referencedRelation: "vehicles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       financial_entries: {
         Row: {
           amount_cents: number
@@ -345,14 +273,16 @@ export type Database = {
           competence_month: string
           contract_id: string | null
           cost_center_code: string | null
+          cost_center_id: string | null
           cost_type: string | null
           created_at: string
-          cost_center_id: string | null
           date: string
           description: string
           expense_id: string | null
           group_id: string | null
           id: string
+          installment_current: number | null
+          installment_total: number | null
           installments_total: number | null
           invoice_month: string | null
           operation_date: string | null
@@ -375,14 +305,16 @@ export type Database = {
           competence_month: string
           contract_id?: string | null
           cost_center_code?: string | null
+          cost_center_id?: string | null
           cost_type?: string | null
           created_at?: string
-          cost_center_id?: string | null
           date: string
           description: string
           expense_id?: string | null
           group_id?: string | null
           id?: string
+          installment_current?: number | null
+          installment_total?: number | null
           installments_total?: number | null
           invoice_month?: string | null
           operation_date?: string | null
@@ -405,14 +337,16 @@ export type Database = {
           competence_month?: string
           contract_id?: string | null
           cost_center_code?: string | null
+          cost_center_id?: string | null
           cost_type?: string | null
           created_at?: string
-          cost_center_id?: string | null
           date?: string
           description?: string
           expense_id?: string | null
           group_id?: string | null
           id?: string
+          installment_current?: number | null
+          installment_total?: number | null
           installments_total?: number | null
           invoice_month?: string | null
           operation_date?: string | null
@@ -429,17 +363,17 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "financial_entries_cost_center_id_fkey"
-            columns: ["cost_center_id"]
-            isOneToOne: false
-            referencedRelation: "cost_centers"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "financial_entries_billing_id_fkey"
             columns: ["billing_id"]
             isOneToOne: false
             referencedRelation: "billings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entries_cost_center_id_fkey"
+            columns: ["cost_center_id"]
+            isOneToOne: false
+            referencedRelation: "cost_centers"
             referencedColumns: ["id"]
           },
           {
@@ -457,6 +391,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "financial_entries_payer_id_fkey"
+            columns: ["payer_id"]
+            isOneToOne: false
+            referencedRelation: "payers"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "financial_entries_subgroup_id_fkey"
             columns: ["subgroup_id"]
             isOneToOne: false
@@ -464,10 +405,55 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "financial_entries_payer_id_fkey"
-            columns: ["payer_id"]
+            foreignKeyName: "financial_entries_vehicle_id_fkey"
+            columns: ["vehicle_id"]
             isOneToOne: false
-            referencedRelation: "payers"
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_entry_allocations: {
+        Row: {
+          amount_cents: number | null
+          created_at: string
+          entry_id: string
+          id: string
+          percent: number | null
+          updated_at: string
+          vehicle_id: string
+        }
+        Insert: {
+          amount_cents?: number | null
+          created_at?: string
+          entry_id: string
+          id?: string
+          percent?: number | null
+          updated_at?: string
+          vehicle_id: string
+        }
+        Update: {
+          amount_cents?: number | null
+          created_at?: string
+          entry_id?: string
+          id?: string
+          percent?: number | null
+          updated_at?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_entry_allocations_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "financial_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entry_allocations_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
             referencedColumns: ["id"]
           },
         ]
@@ -676,6 +662,39 @@ export type Database = {
           status?: string
           street?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      vehicles: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          model: string | null
+          name: string
+          plate: string | null
+          updated_at: string
+          year: number | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          model?: string | null
+          name: string
+          plate?: string | null
+          updated_at?: string
+          year?: number | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          model?: string | null
+          name?: string
+          plate?: string | null
+          updated_at?: string
+          year?: number | null
         }
         Relationships: []
       }

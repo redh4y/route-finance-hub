@@ -49,6 +49,7 @@ interface FinancialEntry {
   date: string;
   type: string;
   category: string;
+  subcategory: string | null;
   description: string;
   amount_cents: number;
   source: string;

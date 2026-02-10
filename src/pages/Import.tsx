@@ -343,9 +343,10 @@ function ImportInvoicesCard() {
         .eq("active", true)
         .order("name", { ascending: true });
       if (error) throw error;
-      return data as {
+      return data as unknown as {
         id: string;
         name: string;
+        card_last4: string | null;
         provider: string;
         closing_day: number | null;
         due_day: number | null;
