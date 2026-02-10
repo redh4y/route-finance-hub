@@ -17,6 +17,10 @@ import Diagnostics from "./pages/Diagnostics";
 import Overdue from "./pages/Overdue";
 import Cards from "./pages/Cards";
 import Vehicles from "./pages/Vehicles";
+import Excursions from "./pages/Excursions";
+import ExcursionForm from "./pages/ExcursionForm";
+import ExcursionDetail from "./pages/ExcursionDetail";
+import Reports from "./pages/Reports";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -73,6 +77,30 @@ const App = () => (
                 }
               />
               <Route
+                path="/excursoes"
+                element={
+                  <ProtectedRoute>
+                    <Excursions />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/excursoes/nova"
+                element={
+                  <ProtectedRoute>
+                    <ExcursionForm />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/excursoes/:id"
+                element={
+                  <ProtectedRoute>
+                    <ExcursionDetail />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/financeiro"
                 element={
                   <ProtectedRoute>
@@ -93,6 +121,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <FinancialExpenses />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/relatorios"
+                element={
+                  <ProtectedRoute>
+                    <Reports />
                   </ProtectedRoute>
                 }
               />
