@@ -15,6 +15,7 @@ import {
   Bug,
   MessageCircle,
   ChevronDown,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,6 +53,11 @@ const navItems = [
     icon: Truck,
   },
   {
+    label: "Excursões",
+    path: "/excursoes",
+    icon: Bus,
+  },
+  {
     label: "Financeiro",
     path: "/financeiro",
     icon: TrendingUp,
@@ -60,6 +66,11 @@ const navItems = [
       { label: "Entradas", path: "/financeiro/entradas", icon: ArrowUpCircle },
       { label: "Saídas", path: "/financeiro/saidas", icon: ArrowDownCircle },
     ],
+  },
+  {
+    label: "Relatórios",
+    path: "/relatorios",
+    icon: BarChart3,
   },
   {
     label: "Rotas",

@@ -264,6 +264,116 @@ export type Database = {
           },
         ]
       }
+      excursion_seats: {
+        Row: {
+          blocked: boolean
+          created_at: string
+          excursion_id: string
+          id: string
+          seat_number: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          blocked?: boolean
+          created_at?: string
+          excursion_id: string
+          id?: string
+          seat_number: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          blocked?: boolean
+          created_at?: string
+          excursion_id?: string
+          id?: string
+          seat_number?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "excursion_seats_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      excursions: {
+        Row: {
+          boarding_location: string | null
+          cost_center_id: string | null
+          created_at: string
+          departure_at: string
+          destination: string
+          destination_state: string | null
+          drivers: string[] | null
+          id: string
+          name: string
+          notes: string | null
+          return_at: string | null
+          seat_price_cents: number
+          status: string
+          total_seats: number
+          updated_at: string
+          vehicle_id: string | null
+        }
+        Insert: {
+          boarding_location?: string | null
+          cost_center_id?: string | null
+          created_at?: string
+          departure_at: string
+          destination: string
+          destination_state?: string | null
+          drivers?: string[] | null
+          id?: string
+          name: string
+          notes?: string | null
+          return_at?: string | null
+          seat_price_cents?: number
+          status?: string
+          total_seats?: number
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Update: {
+          boarding_location?: string | null
+          cost_center_id?: string | null
+          created_at?: string
+          departure_at?: string
+          destination?: string
+          destination_state?: string | null
+          drivers?: string[] | null
+          id?: string
+          name?: string
+          notes?: string | null
+          return_at?: string | null
+          seat_price_cents?: number
+          status?: string
+          total_seats?: number
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "excursions_cost_center_id_fkey"
+            columns: ["cost_center_id"]
+            isOneToOne: false
+            referencedRelation: "cost_centers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "excursions_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_entries: {
         Row: {
           amount_cents: number
@@ -542,6 +652,36 @@ export type Database = {
         }
         Relationships: []
       }
+      passengers: {
+        Row: {
+          created_at: string
+          document: string | null
+          email: string | null
+          id: string
+          name: string
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          document?: string | null
+          email?: string | null
+          id?: string
+          name: string
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          document?: string | null
+          email?: string | null
+          id?: string
+          name?: string
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       payers: {
         Row: {
           address_base: string | null
@@ -664,6 +804,66 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      ticket_sales: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          excursion_id: string
+          id: string
+          installments: number
+          notes: string | null
+          passenger_id: string
+          payment_method: string
+          payment_status: string
+          seat_ids: string[]
+          seat_numbers: number[]
+          updated_at: string
+        }
+        Insert: {
+          amount_cents?: number
+          created_at?: string
+          excursion_id: string
+          id?: string
+          installments?: number
+          notes?: string | null
+          passenger_id: string
+          payment_method?: string
+          payment_status?: string
+          seat_ids?: string[]
+          seat_numbers?: number[]
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          excursion_id?: string
+          id?: string
+          installments?: number
+          notes?: string | null
+          passenger_id?: string
+          payment_method?: string
+          payment_status?: string
+          seat_ids?: string[]
+          seat_numbers?: number[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_sales_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_sales_passenger_id_fkey"
+            columns: ["passenger_id"]
+            isOneToOne: false
+            referencedRelation: "passengers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vehicles: {
         Row: {
