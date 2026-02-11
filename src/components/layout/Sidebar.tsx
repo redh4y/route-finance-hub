@@ -16,6 +16,7 @@ import {
   MessageCircle,
   ChevronDown,
   BarChart3,
+  Globe,
   Users2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -92,6 +93,11 @@ const navItems = [
     label: "Diagnóstico",
     path: "/diagnostico",
     icon: Bug,
+  },
+  {
+    label: "Landing Page",
+    path: "/landing-settings",
+    icon: Globe,
   },
 ];
 

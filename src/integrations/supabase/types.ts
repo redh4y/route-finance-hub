@@ -803,6 +803,30 @@ export type Database = {
         }
         Relationships: []
       }
+      landing_settings: {
+        Row: {
+          content: Json
+          enabled: boolean
+          id: string
+          section: string
+          updated_at: string
+        }
+        Insert: {
+          content?: Json
+          enabled?: boolean
+          id?: string
+          section: string
+          updated_at?: string
+        }
+        Update: {
+          content?: Json
+          enabled?: boolean
+          id?: string
+          section?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       passengers: {
         Row: {
           created_at: string
