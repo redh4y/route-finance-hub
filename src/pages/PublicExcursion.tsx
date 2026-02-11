@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { TAVARES_WHATSAPP_URL } from "@/lib/contact";
 
 const seatColors: Record<string, string> = {
   DISPONIVEL: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30 cursor-pointer",
@@ -74,7 +75,7 @@ export default function PublicExcursion() {
               Esta excursão não está disponível para venda no momento.
             </p>
             <a
-              href="https://wa.me/5500000000000"
+              href={TAVARES_WHATSAPP_URL}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -162,7 +163,7 @@ export default function PublicExcursion() {
               <p className="text-xs text-muted-foreground">Excursões & Viagens</p>
             </div>
           </div>
-          <a href="https://wa.me/5500000000000" target="_blank" rel="noopener noreferrer">
+          <a href={TAVARES_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" size="sm" className="gap-2">
               <Phone className="h-4 w-4" />
               <span className="hidden sm:inline">WhatsApp</span>

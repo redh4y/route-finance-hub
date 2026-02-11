@@ -193,7 +193,15 @@ export function LandingTrust({ testimonials, indicators }: { testimonials: any; 
 }
 
 /* ─── CTA Final ─── */
-export function LandingCTAFinal({ content, whatsappUrl }: { content: any; whatsappUrl: string }) {
+export function LandingCTAFinal({
+  content,
+  whatsappUrl,
+  budgetUrl,
+}: {
+  content: any;
+  whatsappUrl: string;
+  budgetUrl: string;
+}) {
   const c = content || {};
   return (
     <section className="py-16 sm:py-24 bg-gradient-to-br from-primary via-[hsl(222,47%,15%)] to-primary text-primary-foreground">
@@ -209,15 +217,15 @@ export function LandingCTAFinal({ content, whatsappUrl }: { content: any; whatsa
             <Button
               size="lg"
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-12 px-8"
-              onClick={() => window.open(whatsappUrl, "_blank")}
+              onClick={() => window.open(budgetUrl, "_blank", "noopener,noreferrer")}
             >
               <MessageCircle className="h-5 w-5 mr-2" />
               {c.cta_primary || "Solicitar Orçamento"}
             </Button>
             <Button
               size="lg"
-              variant="outline"
-              className="border-white/30 text-white hover:bg-white/10 hover:text-white h-12 px-8"
+              variant="ghost"
+              className="border border-white/30 !bg-transparent !text-white hover:!bg-white/10 hover:!text-white h-12 px-8"
               onClick={() => window.open(whatsappUrl, "_blank")}
             >
               {c.cta_secondary || "Falar no WhatsApp"}

@@ -5,10 +5,10 @@ import heroImage from "@/assets/landing-hero.jpg";
 
 interface Props {
   content: any;
-  whatsappUrl: string;
+  budgetUrl: string;
 }
 
-export function LandingHero({ content, whatsappUrl }: Props) {
+export function LandingHero({ content, budgetUrl }: Props) {
   const c = content || {};
 
   return (
@@ -60,9 +60,9 @@ export function LandingHero({ content, whatsappUrl }: Props) {
             </Button>
             <Button
               size="lg"
-              variant="outline"
-              className="border-white/30 text-white hover:bg-white/10 hover:text-white text-base h-12"
-              onClick={() => window.open(whatsappUrl, "_blank")}
+              variant="ghost"
+              className="border border-white/30 !bg-transparent !text-white hover:!bg-white/10 hover:!text-white text-base h-12"
+              onClick={() => window.open(budgetUrl, "_blank", "noopener,noreferrer")}
             >
               <MessageCircle className="h-5 w-5 mr-2" />
               {c.cta_secondary || "Solicitar Orçamento"}

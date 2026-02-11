@@ -1,4 +1,11 @@
 import { Bus, Phone, Mail, MapPin, MessageCircle } from "lucide-react";
+import {
+  TAVARES_ADDRESS,
+  TAVARES_WHATSAPP_E164,
+  TAVARES_EMAIL,
+  TAVARES_PHONE_DISPLAY,
+  TAVARES_WHATSAPP_URL,
+} from "@/lib/contact";
 
 interface Props {
   contact: any;
@@ -6,7 +13,11 @@ interface Props {
 
 export function LandingFooter({ contact }: Props) {
   const c = contact || {};
-  const whatsappUrl = `https://wa.me/${c.whatsapp || ""}`;
+  const whatsappDigits = String(c.whatsapp || TAVARES_WHATSAPP_E164).replace(/\D/g, "");
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : TAVARES_WHATSAPP_URL;
+  const phone = c.phone || TAVARES_PHONE_DISPLAY;
+  const email = c.email || TAVARES_EMAIL;
+  const address = c.address || TAVARES_ADDRESS;
 
   return (
     <footer id="contato" className="bg-[hsl(222,47%,8%)] text-white/80">
@@ -32,24 +43,18 @@ export function LandingFooter({ contact }: Props) {
           <div>
             <h4 className="font-semibold text-white mb-4 text-sm uppercase tracking-wider">Contato</h4>
             <ul className="space-y-3 text-sm">
-              {c.phone && (
-                <li className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-emerald-500 shrink-0" />
-                  <span>{c.phone}</span>
-                </li>
-              )}
-              {c.email && (
-                <li className="flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-emerald-500 shrink-0" />
-                  <a href={`mailto:${c.email}`} className="hover:text-white transition-colors">{c.email}</a>
-                </li>
-              )}
-              {c.address && (
-                <li className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-emerald-500 shrink-0" />
-                  <span>{c.address}</span>
-                </li>
-              )}
+              <li className="flex items-center gap-2">
+                <Phone className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>{phone}</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Mail className="h-4 w-4 text-emerald-500 shrink-0" />
+                <a href={`mailto:${email}`} className="hover:text-white transition-colors">{email}</a>
+              </li>
+              <li className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>{address}</span>
+              </li>
             </ul>
           </div>
 
@@ -80,7 +85,7 @@ export function LandingFooter({ contact }: Props) {
 
         <div className="mt-12 pt-8 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-white/40">
           <p>© {new Date().getFullYear()} Tavares Transportes. Todos os direitos reservados.</p>
-          <p>Barretos - SP</p>
+          <p>{address}</p>
         </div>
       </div>
     </footer>

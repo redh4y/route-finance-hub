@@ -117,6 +117,11 @@ export function LandingExcursions({ excursions, isLoading }: Props) {
                           Disponível
                         </Badge>
                       )}
+                      {exc.commercialStatus === "sold_out" && (
+                        <Badge variant="destructive" className="shrink-0 text-xs">
+                          Encerrada
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="space-y-2.5 text-sm text-muted-foreground flex-1">
@@ -143,17 +148,27 @@ export function LandingExcursions({ excursions, isLoading }: Props) {
                           <p className="text-2xl font-bold text-foreground">{formatCurrency(exc.seat_price_cents)}</p>
                         </div>
                       </div>
-                      <Button
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-11"
-                        onClick={() => {
-                          if (exc.public_token) {
-                            navigate(`/public/excursoes/${exc.public_token}`);
-                          }
-                        }}
-                      >
-                        Reservar vaga
-                        <ArrowRight className="h-4 w-4 ml-2" />
-                      </Button>
+                      {exc.commercialStatus === "sold_out" ? (
+                        <Button
+                          className="w-full font-semibold h-11"
+                          variant="outline"
+                          disabled
+                        >
+                          Encerrada
+                        </Button>
+                      ) : (
+                        <Button
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-11"
+                          onClick={() => {
+                            if (exc.public_token) {
+                              navigate(`/public/excursoes/${exc.public_token}`);
+                            }
+                          }}
+                        >
+                          Reservar vaga
+                          <ArrowRight className="h-4 w-4 ml-2" />
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

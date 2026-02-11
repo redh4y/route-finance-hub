@@ -25,6 +25,9 @@ import Affiliates from "./pages/Affiliates";
 import PublicExcursion from "./pages/PublicExcursion";
 import LandingPage from "./pages/LandingPage";
 import LandingSettings from "./pages/LandingSettings";
+import PublicExcursions from "./pages/PublicExcursions";
+import PublicSiteSettings from "./pages/PublicSiteSettings";
+import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -169,6 +172,14 @@ const App = () => (
                 }
               />
               <Route
+                path="/configuracoes"
+                element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/landing-settings"
                 element={
                   <ProtectedRoute>
@@ -176,8 +187,17 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/configuracoes/publico"
+                element={
+                  <ProtectedRoute>
+                    <PublicSiteSettings />
+                  </ProtectedRoute>
+                }
+              />
               {/* Public routes - no auth required */}
               <Route path="/site" element={<LandingPage />} />
+              <Route path="/public/excursoes" element={<PublicExcursions />} />
               <Route path="/public/excursoes/:token" element={<PublicExcursion />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

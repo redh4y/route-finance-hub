@@ -16,8 +16,8 @@ import {
   MessageCircle,
   ChevronDown,
   BarChart3,
-  Globe,
   Users2,
+  Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -65,6 +65,11 @@ const navItems = [
     icon: Users2,
   },
   {
+    label: "Configurações",
+    path: "/configuracoes",
+    icon: Settings2,
+  },
+  {
     label: "Financeiro",
     path: "/financeiro",
     icon: TrendingUp,
@@ -93,11 +98,6 @@ const navItems = [
     label: "Diagnóstico",
     path: "/diagnostico",
     icon: Bug,
-  },
-  {
-    label: "Landing Page",
-    path: "/landing-settings",
-    icon: Globe,
   },
 ];
 
