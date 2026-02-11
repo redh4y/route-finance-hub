@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,6 +91,7 @@ export default function Affiliates() {
 
   return (
     <MainLayout>
+      <PageTransition>
       <div className="page-header">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -281,6 +283,7 @@ export default function Affiliates() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </PageTransition>
     </MainLayout>
   );
 }

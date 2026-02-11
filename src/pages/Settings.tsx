@@ -1,4 +1,5 @@
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
@@ -7,10 +8,11 @@ import { Globe, Settings2, ExternalLink, Database } from "lucide-react";
 export default function Settings() {
   return (
     <MainLayout>
+      <PageTransition>
       <div className="page-header">
-        <h1 className="page-title">Configurações</h1>
+        <h1 className="page-title">Configura??es</h1>
         <p className="page-subtitle">
-          Gerencie os dados que refletem na página pública <code>/site</code> e salvam direto no banco.
+          Gerencie os dados que refletem na p?gina p?blica <code>/site</code> e salvam direto no banco.
         </p>
       </div>
 
@@ -22,7 +24,7 @@ export default function Settings() {
               Landing Page (/site)
             </CardTitle>
             <CardDescription>
-              Edita seções da landing (hero, serviços, frota, diferenciais, depoimentos, contato, SEO e CTA final).
+              Edita se??es da landing (hero, servi?os, frota, diferenciais, depoimentos, contato, SEO e CTA final).
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
@@ -45,10 +47,10 @@ export default function Settings() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Database className="h-5 w-5" />
-              Conteúdo Público Estruturado
+              Conte?do P?blico Estruturado
             </CardTitle>
             <CardDescription>
-              Edita textos, CTAs, imagens e seções dinâmicas da página pública por estrutura de conteúdo.
+              Edita textos, CTAs, imagens e se??es din?micas da p?gina p?blica por estrutura de conte?do.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
@@ -61,13 +63,15 @@ export default function Settings() {
             <a href="/public/excursoes" target="_blank" rel="noopener noreferrer">
               <Button variant="outline">
                 <ExternalLink className="h-4 w-4 mr-2" />
-                Visualizar página
+                Visualizar p?gina
               </Button>
             </a>
           </CardContent>
         </Card>
       </div>
+      </PageTransition>
     </MainLayout>
   );
 }
+
 

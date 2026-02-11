@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,6 +147,7 @@ export default function Vehicles() {
 
   return (
     <MainLayout>
+      <PageTransition>
       <div className="page-header">
         <h1 className="page-title">Veiculos</h1>
         <p className="page-subtitle">
@@ -164,19 +166,35 @@ export default function Vehicles() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Nome</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
+              <Input
+                placeholder="Ex: Onibus 01"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Placa</Label>
-              <Input value={plate} onChange={(e) => setPlate(e.target.value)} />
+              <Input
+                placeholder="Ex: ABC1D23"
+                value={plate}
+                onChange={(e) => setPlate(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Modelo</Label>
-              <Input value={model} onChange={(e) => setModel(e.target.value)} />
+              <Input
+                placeholder="Ex: Mercedes OF-1721"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Ano</Label>
-              <Input value={year} onChange={(e) => setYear(e.target.value)} />
+              <Input
+                placeholder="Ex: 2019"
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+              />
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div>
@@ -292,19 +310,35 @@ export default function Vehicles() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Nome</Label>
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              <Input
+                placeholder="Ex: Onibus 01"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Placa</Label>
-              <Input value={editPlate} onChange={(e) => setEditPlate(e.target.value)} />
+              <Input
+                placeholder="Ex: ABC1D23"
+                value={editPlate}
+                onChange={(e) => setEditPlate(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Modelo</Label>
-              <Input value={editModel} onChange={(e) => setEditModel(e.target.value)} />
+              <Input
+                placeholder="Ex: Mercedes OF-1721"
+                value={editModel}
+                onChange={(e) => setEditModel(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Ano</Label>
-              <Input value={editYear} onChange={(e) => setEditYear(e.target.value)} />
+              <Input
+                placeholder="Ex: 2019"
+                value={editYear}
+                onChange={(e) => setEditYear(e.target.value)}
+              />
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div>
@@ -326,6 +360,7 @@ export default function Vehicles() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </PageTransition>
     </MainLayout>
   );
 }

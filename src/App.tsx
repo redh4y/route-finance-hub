@@ -22,6 +22,7 @@ import ExcursionForm from "./pages/ExcursionForm";
 import ExcursionDetail from "./pages/ExcursionDetail";
 import Reports from "./pages/Reports";
 import Affiliates from "./pages/Affiliates";
+import Leads from "./pages/Leads";
 import PublicExcursion from "./pages/PublicExcursion";
 import LandingPage from "./pages/LandingPage";
 import LandingSettings from "./pages/LandingSettings";
@@ -168,6 +169,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Affiliates />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/leads"
+                element={
+                  <ProtectedRoute>
+                    <Leads />
                   </ProtectedRoute>
                 }
               />

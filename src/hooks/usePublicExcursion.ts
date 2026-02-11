@@ -223,3 +223,102 @@ export function useCreatePublicOrder() {
     onError: (e) => toast.error(`Erro: ${e.message}`),
   });
 }
+
+export function useCapturePublicLead() {
+  return useMutation({
+    mutationFn: async (input: {
+      excursion_id: string;
+      public_token: string;
+      affiliate_id?: string | null;
+      ref_code?: string | null;
+      source?: string;
+      name: string;
+      cpf: string;
+      phone: string;
+      email?: string;
+      address?: string;
+      session_id?: string;
+      user_agent?: string;
+      ip_hash?: string;
+    }) => {
+      const sb = supabase as any;
+      const cpfDigits = (input.cpf || "").replace(/\D/g, "").slice(0, 11);
+      const phoneDigits = (input.phone || "").replace(/\D/g, "").slice(0, 11);
+
+      const payload = {
+        excursion_id: input.excursion_id,
+        affiliate_id: input.affiliate_id || null,
+        source: input.source || "public_excursoes",
+        ref_code: input.ref_code || null,
+        public_token: input.public_token,
+        name: input.name.trim(),
+        cpf_digits: cpfDigits,
+        phone_digits: phoneDigits,
+        email: input.email?.trim() || null,
+        address: input.address?.trim() || null,
+        session_id: input.session_id || null,
+        user_agent: input.user_agent || null,
+        ip_hash: input.ip_hash || null,
+        status: "CAPTURADO",
+        last_step_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await sb
+        .from("public_excursion_leads")
+        .upsert(payload, { onConflict: "excursion_id,cpf_digits,phone_digits" })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      return data as { id: string };
+    },
+  });
+}
+
+export function useUpdatePublicLeadStage() {
+  return useMutation({
+    mutationFn: async (input: {
+      lead_id: string;
+      status:
+        | "CAPTURADO"
+        | "INTERESSE_ASSENTOS"
+        | "PIX_GERADO"
+        | "RESERVADO"
+        | "CONVERTIDO"
+        | "ABANDONADO";
+      seat_count?: number;
+      amount_total_cents?: number;
+      payment_type?: "TOTAL" | "PARCIAL";
+      order_id?: string | null;
+    }) => {
+      const sb = supabase as any;
+      const { data: current, error: currentError } = await sb
+        .from("public_excursion_leads")
+        .select("status_history")
+        .eq("id", input.lead_id)
+        .single();
+      if (currentError) throw currentError;
+
+      const statusHistory = Array.isArray(current?.status_history)
+        ? current.status_history
+        : [];
+      statusHistory.push({ status: input.status, at: new Date().toISOString() });
+
+      const updatePayload: Record<string, any> = {
+        status: input.status,
+        last_step_at: new Date().toISOString(),
+        status_history: statusHistory,
+      };
+      if (typeof input.seat_count === "number") updatePayload.seat_count = input.seat_count;
+      if (typeof input.amount_total_cents === "number") updatePayload.amount_total_cents = input.amount_total_cents;
+      if (input.payment_type) updatePayload.payment_type = input.payment_type;
+      if (input.order_id !== undefined) updatePayload.order_id = input.order_id;
+
+      const { error } = await sb
+        .from("public_excursion_leads")
+        .update(updatePayload)
+        .eq("id", input.lead_id);
+      if (error) throw error;
+    },
+  });
+}

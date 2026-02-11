@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -232,7 +233,7 @@ export default function FinancialExpenses() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
-      toast.success("Lançamento criado com sucesso");
+      toast.success("Lan?amento criado com sucesso");
       // Reset form
       setGroupId("");
       setSubgroupId("");
@@ -242,7 +243,7 @@ export default function FinancialExpenses() {
       setVehicleId("");
     },
     onError: (error) => {
-      toast.error("Erro ao criar lançamento: " + error.message);
+      toast.error("Erro ao criar lan?amento: " + error.message);
     },
   });
 
@@ -258,7 +259,7 @@ export default function FinancialExpenses() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
-      toast.success("Lançamento excluído");
+      toast.success("Lan?amento exclu?do");
     },
     onError: (error) => {
       toast.error("Erro ao excluir: " + error.message);
@@ -366,10 +367,11 @@ export default function FinancialExpenses() {
 
   return (
     <MainLayout>
+      <PageTransition>
       <div className="page-header">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">Saídas</h1>
+            <h1 className="page-title">Sa?das</h1>
             <p className="page-subtitle">Custos e despesas operacionais</p>
           </div>
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
@@ -393,7 +395,7 @@ export default function FinancialExpenses() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Plus className="h-5 w-5" />
-              Novo Lançamento
+              Novo Lan?amento
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -524,9 +526,9 @@ export default function FinancialExpenses() {
             </div>
 
             <div className="space-y-2">
-              <Label>Descrição</Label>
+              <Label>Descri??o</Label>
               <Textarea
-                placeholder="Descrição do lançamento..."
+                placeholder="Descri??o do lan?amento..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -543,7 +545,7 @@ export default function FinancialExpenses() {
               }
             >
               <Plus className="h-4 w-4 mr-2" />
-              Adicionar Lançamento
+              Adicionar Lan?amento
             </Button>
           </CardContent>
         </Card>
@@ -583,7 +585,7 @@ export default function FinancialExpenses() {
           {/* Table */}
           <Card>
             <CardHeader>
-              <CardTitle>Lançamentos - {formatMonthRef(selectedMonth)}</CardTitle>
+              <CardTitle>Lan?amentos - {formatMonthRef(selectedMonth)}</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -600,7 +602,7 @@ export default function FinancialExpenses() {
                       <TableHead>Tipo</TableHead>
                       <TableHead>Grupo</TableHead>
                       <TableHead>Parcelas</TableHead>
-                      <TableHead>Descrição</TableHead>
+                      <TableHead>Descri??o</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
                       <TableHead className="w-[80px]"></TableHead>
                     </TableRow>
@@ -708,7 +710,7 @@ export default function FinancialExpenses() {
                 </Table>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  Nenhum lançamento neste mês
+                  Nenhum lan?amento neste m?s
                 </div>
               )}
             </CardContent>
@@ -741,7 +743,7 @@ export default function FinancialExpenses() {
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  {formatDate(allocationEntry.date)} • {allocationEntry.category}
+                  {formatDate(allocationEntry.date)} ? {allocationEntry.category}
                 </div>
               </div>
               <div className="space-y-3">
@@ -820,9 +822,11 @@ export default function FinancialExpenses() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </MainLayout>
+          </PageTransition>
+</MainLayout>
   );
 }
+
 
 
 

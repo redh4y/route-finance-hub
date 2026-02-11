@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -32,9 +33,10 @@ export default function Reports() {
 
   return (
     <MainLayout>
+      <PageTransition>
       <div className="page-header">
-        <h1 className="page-title">Relatórios</h1>
-        <p className="page-subtitle">Análises financeiras, excursões e veículos</p>
+        <h1 className="page-title">Relat?rios</h1>
+        <p className="page-subtitle">An?lises financeiras, excurs?es e ve?culos</p>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -49,11 +51,11 @@ export default function Reports() {
           </TabsTrigger>
           <TabsTrigger value="excursoes" className="gap-2">
             <Bus className="h-4 w-4" />
-            Excursões
+            Excurs?es
           </TabsTrigger>
           <TabsTrigger value="veiculos" className="gap-2">
             <Truck className="h-4 w-4" />
-            Veículos
+            Ve?culos
           </TabsTrigger>
           <TabsTrigger value="afiliados" className="gap-2">
             <Users2 className="h-4 w-4" />
@@ -67,7 +69,8 @@ export default function Reports() {
         <TabsContent value="veiculos"><VehiclesReport /></TabsContent>
         <TabsContent value="afiliados"><AffiliatesReport /></TabsContent>
       </Tabs>
-    </MainLayout>
+          </PageTransition>
+</MainLayout>
   );
 }
 
@@ -213,7 +216,7 @@ function MonthlyReport() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Mês</TableHead>
+                  <TableHead>M?s</TableHead>
                   <TableHead className="text-right">Receita</TableHead>
                   <TableHead className="text-right">Custos</TableHead>
                   <TableHead className="text-right">Despesas</TableHead>
@@ -286,22 +289,22 @@ function ExcursionsReport() {
   return (
     <div className="space-y-6">
       {reportData.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">Nenhuma excursão cadastrada</div>
+        <div className="text-center py-12 text-muted-foreground">Nenhuma excurs?o cadastrada</div>
       ) : (
         <>
           <Card>
-            <CardHeader><CardTitle>Relatório por Excursão</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Relat?rio por Excurs?o</CardTitle></CardHeader>
             <CardContent className="overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Excursão</TableHead>
+                    <TableHead>Excurs?o</TableHead>
                     <TableHead>Destino</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead className="text-right">Vendidos</TableHead>
-                    <TableHead className="text-right">Ocupação</TableHead>
+                    <TableHead className="text-right">Ocupa??o</TableHead>
                     <TableHead className="text-right">Receita</TableHead>
-                    <TableHead className="text-right">Ticket Médio</TableHead>
+                    <TableHead className="text-right">Ticket M?dio</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -322,7 +325,7 @@ function ExcursionsReport() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Ocupação por Excursão</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Ocupa??o por Excurs?o</CardTitle></CardHeader>
             <CardContent>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -331,7 +334,7 @@ function ExcursionsReport() {
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tickFormatter={(v) => `${v}%`} />
                     <Tooltip formatter={(v: number) => `${v}%`} />
-                    <Bar dataKey="occupancy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Ocupação" />
+                    <Bar dataKey="occupancy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Ocupa??o" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -387,17 +390,17 @@ function VehiclesReport() {
     <div className="space-y-6">
       {reportData.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
-          Nenhum dado de veículo disponível. Vincule lançamentos financeiros a veículos para ver este relatório.
+          Nenhum dado de ve?culo dispon?vel. Vincule lan?amentos financeiros a ve?culos para ver este relat?rio.
         </div>
       ) : (
         <>
           <Card>
-            <CardHeader><CardTitle>Custos e Receitas por Veículo</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Custos e Receitas por Ve?culo</CardTitle></CardHeader>
             <CardContent className="overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Veículo</TableHead>
+                    <TableHead>Ve?culo</TableHead>
                     <TableHead>Placa</TableHead>
                     <TableHead className="text-right">Receita</TableHead>
                     <TableHead className="text-right">Custos</TableHead>
@@ -422,7 +425,7 @@ function VehiclesReport() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Gráfico por Veículo</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Gr?fico por Ve?culo</CardTitle></CardHeader>
             <CardContent>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -491,17 +494,17 @@ function AffiliatesReport() {
     <div className="space-y-6">
       {/* Summary by affiliate */}
       <Card>
-        <CardHeader><CardTitle>Comissões por Afiliado</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Comiss?es por Afiliado</CardTitle></CardHeader>
         <CardContent>
           {byAffiliate.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">Nenhuma comissão registrada</p>
+            <p className="text-center py-8 text-muted-foreground">Nenhuma comiss?o registrada</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Afiliado</TableHead>
                   <TableHead className="text-right">Vendas</TableHead>
-                  <TableHead className="text-right">Comissão Total</TableHead>
+                  <TableHead className="text-right">Comiss?o Total</TableHead>
                   <TableHead className="text-right">Confirmada</TableHead>
                   <TableHead className="text-right">Pendente</TableHead>
                 </TableRow>
@@ -525,16 +528,16 @@ function AffiliatesReport() {
       {/* Detail table */}
       {(commissions || []).length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Detalhamento de Comissões</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Detalhamento de Comiss?es</CardTitle></CardHeader>
           <CardContent className="overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Data</TableHead>
                   <TableHead>Afiliado</TableHead>
-                  <TableHead>Excursão</TableHead>
+                  <TableHead>Excurs?o</TableHead>
                   <TableHead className="text-right">Venda</TableHead>
-                  <TableHead className="text-right">Comissão</TableHead>
+                  <TableHead className="text-right">Comiss?o</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -567,7 +570,7 @@ function AffiliatesReport() {
       {/* Chart */}
       {byAffiliate.length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Comissão por Afiliado</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Comiss?o por Afiliado</CardTitle></CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -588,3 +591,4 @@ function AffiliatesReport() {
     </div>
   );
 }
+

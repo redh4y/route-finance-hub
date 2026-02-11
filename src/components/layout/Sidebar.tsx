@@ -65,6 +65,11 @@ const navItems = [
     icon: Users2,
   },
   {
+    label: "Leads",
+    path: "/leads",
+    icon: Users,
+  },
+  {
     label: "Configurações",
     path: "/configuracoes",
     icon: Settings2,

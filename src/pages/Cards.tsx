@@ -1,5 +1,6 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -185,9 +186,10 @@ export default function Cards() {
 
   return (
     <MainLayout>
+      <PageTransition>
       <div className="page-header">
-        <h1 className="page-title">Cartões</h1>
-        <p className="page-subtitle">Cadastre os cartões para importação de faturas</p>
+        <h1 className="page-title">Cart?es</h1>
+        <p className="page-subtitle">Cadastre os cart?es para importa??o de faturas</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -196,7 +198,7 @@ export default function Cards() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5" />
-              Novo cartão
+              Novo cart?o
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -246,7 +248,7 @@ export default function Cards() {
               <div>
                 <p className="text-sm font-medium">Ativo</p>
                 <p className="text-xs text-muted-foreground">
-                  Disponível para importação
+                  Dispon?vel para importa??o
                 </p>
               </div>
               <Switch checked={active} onCheckedChange={setActive} />
@@ -257,7 +259,7 @@ export default function Cards() {
               disabled={createCard.isPending}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Cadastrar cartão
+              Cadastrar cart?o
             </Button>
           </CardContent>
         </Card>
@@ -265,7 +267,7 @@ export default function Cards() {
         {/* Card list - full width on mobile, 2/3 on desktop */}
         <Card className="order-1 lg:order-2 lg:col-span-2">
           <CardHeader>
-            <CardTitle>Cartões cadastrados</CardTitle>
+            <CardTitle>Cart?es cadastrados</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -351,7 +353,7 @@ export default function Cards() {
                         <TableHead>Fechamento</TableHead>
                         <TableHead>Vencimento</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="w-[70px]">Ações</TableHead>
+                        <TableHead className="w-[70px]">A??es</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -415,7 +417,7 @@ export default function Cards() {
             ) : (
               <div className="text-sm text-muted-foreground py-8 text-center">
                 <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-40" />
-                <p>Nenhum cartão cadastrado.</p>
+                <p>Nenhum cart?o cadastrado.</p>
               </div>
             )}
           </CardContent>
@@ -498,6 +500,9 @@ export default function Cards() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </PageTransition>
     </MainLayout>
   );
 }
+
+

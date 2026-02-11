@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageTransition } from "@/components/ui/page-transition";
 import { usePayers, PayersFilters } from "@/hooks/usePayers";
 import { StatusBadge, mapPayerStatus } from "@/components/ui/status-badge";
 import { formatCEP } from "@/lib/formatters";
@@ -88,10 +89,11 @@ export default function Routes() {
 
   return (
     <MainLayout>
+      <PageTransition>
       <div className="page-header">
         <h1 className="page-title">Rotas</h1>
         <p className="page-subtitle">
-          Organização de pagadores por endereço e rota
+          Organiza??o de pagadores por endere?o e rota
         </p>
       </div>
 
@@ -125,7 +127,7 @@ export default function Routes() {
           <CardContent className="pt-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-success">{matchStats.matched}</p>
-              <p className="text-xs text-muted-foreground">Endereço OK</p>
+              <p className="text-xs text-muted-foreground">Endere?o OK</p>
             </div>
           </CardContent>
         </Card>
@@ -133,7 +135,7 @@ export default function Routes() {
           <CardContent className="pt-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-destructive">{matchStats.unmatched}</p>
-              <p className="text-xs text-muted-foreground">Não Validado</p>
+              <p className="text-xs text-muted-foreground">N?o Validado</p>
             </div>
           </CardContent>
         </Card>
@@ -141,7 +143,7 @@ export default function Routes() {
           <CardContent className="pt-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-review">{matchStats.needsReview}</p>
-              <p className="text-xs text-muted-foreground">Revisão</p>
+              <p className="text-xs text-muted-foreground">Revis?o</p>
             </div>
           </CardContent>
         </Card>
@@ -187,9 +189,9 @@ export default function Routes() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="matched">Endereço OK</SelectItem>
-            <SelectItem value="unmatched">Não Validado</SelectItem>
-            <SelectItem value="review">Precisa Revisão</SelectItem>
+            <SelectItem value="matched">Endere?o OK</SelectItem>
+            <SelectItem value="unmatched">N?o Validado</SelectItem>
+            <SelectItem value="review">Precisa Revis?o</SelectItem>
           </SelectContent>
         </Select>
 
@@ -291,6 +293,8 @@ export default function Routes() {
           )}
         </CardContent>
       </Card>
-    </MainLayout>
+          </PageTransition>
+</MainLayout>
   );
 }
+

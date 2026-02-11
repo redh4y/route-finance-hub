@@ -5,7 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
-import { usePublicExcursionByToken, usePublicSeats, useCreatePublicOrder } from "@/hooks/usePublicExcursion";
+import {
+  usePublicExcursionByToken,
+  usePublicSeats,
+  useCreatePublicOrder,
+  useCapturePublicLead,
+  useUpdatePublicLeadStage,
+} from "@/hooks/usePublicExcursion";
 import { formatCurrency } from "@/lib/formatters";
 import { Bus, CheckCircle2, Copy, Phone, Clock, ShieldCheck, ArrowLeft, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -47,6 +53,8 @@ export default function PublicExcursion() {
   const { data: excursion, isLoading } = usePublicExcursionByToken(token);
   const { data: seats } = usePublicSeats(excursion?.id);
   const createOrder = useCreatePublicOrder();
+  const captureLead = useCapturePublicLead();
+  const updateLeadStage = useUpdatePublicLeadStage();
 
   const { data: affiliateLink } = useQuery({
     queryKey: ["affiliate-ref", refCode, excursion?.id],
@@ -67,6 +75,7 @@ export default function PublicExcursion() {
   const [form, setForm] = useState({ name: "", document: "", phone: "", email: "", address: "" });
   const [paymentType, setPaymentType] = useState<"TOTAL" | "PARCIAL">("TOTAL");
   const [orderResult, setOrderResult] = useState<any>(null);
+  const [leadId, setLeadId] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -134,7 +143,7 @@ export default function PublicExcursion() {
     return true;
   };
 
-  const handleSubmitOrder = () => {
+  const handleSubmitOrder = async () => {
     if (!form.name || !form.document || !form.phone) {
       toast.error("Preencha nome, CPF e telefone");
       return;
@@ -142,6 +151,19 @@ export default function PublicExcursion() {
     if (selectedSeats.length === 0) {
       toast.error("Selecione ao menos um assento");
       return;
+    }
+    if (leadId) {
+      try {
+        await updateLeadStage.mutateAsync({
+          lead_id: leadId,
+          status: "PIX_GERADO",
+          seat_count: selectedSeats.length,
+          amount_total_cents: totalAmount,
+          payment_type: paymentType,
+        });
+      } catch (e: any) {
+        toast.error(`Falha ao atualizar lead: ${e.message || "tente novamente"}`);
+      }
     }
     createOrder.mutate(
       {
@@ -158,7 +180,17 @@ export default function PublicExcursion() {
         pix_expiration_minutes: excursion.pix_expiration_minutes || 30,
       },
       {
-        onSuccess: (data) => {
+        onSuccess: async (data) => {
+          if (leadId) {
+            await updateLeadStage.mutateAsync({
+              lead_id: leadId,
+              status: paymentType === "TOTAL" ? "CONVERTIDO" : "RESERVADO",
+              seat_count: selectedSeats.length,
+              amount_total_cents: totalAmount,
+              payment_type: paymentType,
+              order_id: (data as any)?.id || null,
+            });
+          }
           setOrderResult(data);
           setStep("confirmation");
         },
@@ -317,10 +349,47 @@ export default function PublicExcursion() {
 
                 <div className="flex justify-end mt-6">
                   <Button
-                    onClick={() => {
-                      if (validateInfo()) setStep("seats");
+                    onClick={async () => {
+                      if (!validateInfo()) return;
+                      if (!excursion?.id || !token) return;
+
+                      try {
+                        const sidKey = "public_excursion_session_id";
+                        let sessionId = sessionStorage.getItem(sidKey);
+                        if (!sessionId) {
+                          sessionId = crypto.randomUUID();
+                          sessionStorage.setItem(sidKey, sessionId);
+                        }
+
+                        const lead = await captureLead.mutateAsync({
+                          excursion_id: excursion.id,
+                          public_token: token,
+                          affiliate_id: affiliateLink?.affiliate_id || null,
+                          ref_code: refCode,
+                          source: refCode ? "affiliate" : "public_excursoes",
+                          name: form.name,
+                          cpf: form.document,
+                          phone: form.phone,
+                          email: form.email || undefined,
+                          address: form.address || undefined,
+                          session_id: sessionId,
+                          user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+                        });
+
+                        setLeadId(lead.id);
+                        await updateLeadStage.mutateAsync({
+                          lead_id: lead.id,
+                          status: "INTERESSE_ASSENTOS",
+                          seat_count: 0,
+                          amount_total_cents: 0,
+                        });
+                        setStep("seats");
+                      } catch (e: any) {
+                        toast.error(`Erro ao capturar lead: ${e.message || "tente novamente"}`);
+                      }
                     }}
                     className="gap-2"
+                    disabled={captureLead.isPending || updateLeadStage.isPending}
                   >
                     Escolher assentos
                     <ArrowRight className="h-4 w-4" />
@@ -365,15 +434,23 @@ export default function PublicExcursion() {
                     <ArrowLeft className="h-4 w-4" />
                     Voltar
                   </Button>
-                  <Button
-                    onClick={() => {
-                      if (selectedSeats.length === 0) {
-                        toast.error("Selecione ao menos um assento");
-                        return;
-                      }
-                      setStep("payment");
-                    }}
-                    className="gap-2"
+                <Button
+                  onClick={async () => {
+                    if (selectedSeats.length === 0) {
+                      toast.error("Selecione ao menos um assento");
+                      return;
+                    }
+                    if (leadId) {
+                      await updateLeadStage.mutateAsync({
+                        lead_id: leadId,
+                        status: "INTERESSE_ASSENTOS",
+                        seat_count: selectedSeats.length,
+                        amount_total_cents: totalAmount,
+                      });
+                    }
+                    setStep("payment");
+                  }}
+                  className="gap-2"
                   >
                     Pagamento
                     <ArrowRight className="h-4 w-4" />
