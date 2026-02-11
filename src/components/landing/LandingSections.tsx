@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { PartyPopper, Music, MapPin, Shield, CheckCircle2, GraduationCap, ArrowRight, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { openWhatsAppTracked } from "@/lib/publicMarketing";
 
 const iconMap: Record<string, any> = { PartyPopper, Music, MapPin, Shield };
 
@@ -117,7 +118,7 @@ export function LandingUniversity({ content, whatsappUrl }: { content: any; what
             <Button
               size="lg"
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-12 px-8"
-              onClick={() => window.open(whatsappUrl, "_blank")}
+              onClick={() => openWhatsAppTracked(whatsappUrl, "/site")}
             >
               <MessageCircle className="h-5 w-5 mr-2" />
               {c.cta || "Quero transporte universitário"}
@@ -226,7 +227,7 @@ export function LandingCTAFinal({
               size="lg"
               variant="ghost"
               className="border border-white/30 !bg-transparent !text-white hover:!bg-white/10 hover:!text-white h-12 px-8"
-              onClick={() => window.open(whatsappUrl, "_blank")}
+              onClick={() => openWhatsAppTracked(whatsappUrl, "/site")}
             >
               {c.cta_secondary || "Falar no WhatsApp"}
               <ArrowRight className="h-5 w-5 ml-2" />

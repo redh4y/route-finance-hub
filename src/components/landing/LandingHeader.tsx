@@ -3,6 +3,7 @@ import { Bus, Menu, X, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { openWhatsAppTracked } from "@/lib/publicMarketing";
 
 interface Props {
   whatsappUrl: string;
@@ -65,7 +66,7 @@ export function LandingHeader({ whatsappUrl }: Props) {
             <Button
               size="sm"
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={() => window.open(whatsappUrl, "_blank")}
+              onClick={() => openWhatsAppTracked(whatsappUrl, "/site")}
             >
               <MessageCircle className="h-4 w-4 mr-1.5" />
               WhatsApp
@@ -108,7 +109,10 @@ export function LandingHeader({ whatsappUrl }: Props) {
                 </Button>
                 <Button
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => { setOpen(false); window.open(whatsappUrl, "_blank"); }}
+                  onClick={() => {
+                    setOpen(false);
+                    openWhatsAppTracked(whatsappUrl, "/site");
+                  }}
                 >
                   <MessageCircle className="h-4 w-4 mr-1.5" />
                   Falar no WhatsApp

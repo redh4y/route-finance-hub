@@ -12,13 +12,18 @@ import {
   LandingCTAFinal,
 } from "@/components/landing/LandingSections";
 import { LandingFooter } from "@/components/landing/LandingFooter";
+import { TAVARES_BUDGET_TEXT, TAVARES_WHATSAPP_E164, TAVARES_WHATSAPP_URL } from "@/lib/contact";
+import { submitPublicLead, trackPublicEvent } from "@/lib/publicMarketing";
+import { toast } from "sonner";
 
 export default function LandingPage() {
   const { data: settings } = useLandingSettings();
   const { data: excursions, isLoading: excLoading } = usePublicExcursions();
 
   const contact = settings?.contact?.content || {};
-  const whatsappUrl = `https://wa.me/${contact.whatsapp || "5517999999999"}`;
+  const whatsappDigits = String(contact.whatsapp || TAVARES_WHATSAPP_E164).replace(/\D/g, "");
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : TAVARES_WHATSAPP_URL;
+  const budgetUrl = `${whatsappUrl}?text=${encodeURIComponent(TAVARES_BUDGET_TEXT)}`;
 
   // SEO meta tags
   useEffect(() => {
@@ -49,15 +54,37 @@ export default function LandingPage() {
     if (seo.og_image) setOg("og:image", seo.og_image);
   }, [settings]);
 
+  useEffect(() => {
+    trackPublicEvent("view_site", { source_page: "/site" });
+  }, []);
+
   const s = (key: string) => settings?.[key];
   const enabled = (key: string) => s(key)?.enabled !== false;
+
+  const handleLeadSubmit = async (lead: { name: string; phone: string; interest_type: string }) => {
+    try {
+      await submitPublicLead({
+        source_page: "/site",
+        name: lead.name,
+        phone: lead.phone,
+        interest_type: lead.interest_type,
+      });
+      toast.success("Recebemos seus dados. Vamos entrar em contato.");
+    } catch (e: any) {
+      toast.error(`Não foi possível enviar agora: ${e.message}`);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <LandingHeader whatsappUrl={whatsappUrl} />
 
       {enabled("hero") && (
-        <LandingHero content={s("hero")?.content} whatsappUrl={whatsappUrl} />
+        <LandingHero
+          content={s("hero")?.content}
+          budgetUrl={budgetUrl}
+          onLeadSubmit={handleLeadSubmit}
+        />
       )}
 
       {enabled("university") && s("university")?.content && (
@@ -86,7 +113,7 @@ export default function LandingPage() {
       )}
 
       {enabled("cta_final") && (
-        <LandingCTAFinal content={s("cta_final")?.content} whatsappUrl={whatsappUrl} />
+        <LandingCTAFinal content={s("cta_final")?.content} whatsappUrl={whatsappUrl} budgetUrl={budgetUrl} />
       )}
 
       <LandingFooter contact={contact} />

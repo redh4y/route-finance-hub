@@ -1,15 +1,36 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import heroImage from "@/assets/landing-hero.jpg";
 
 interface Props {
   content: any;
   budgetUrl: string;
+  onLeadSubmit?: (data: { name: string; phone: string; interest_type: string }) => Promise<void>;
 }
 
-export function LandingHero({ content, budgetUrl }: Props) {
+export function LandingHero({ content, budgetUrl, onLeadSubmit }: Props) {
   const c = content || {};
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [interest, setInterest] = useState("EXCURSAO");
+  const [savingLead, setSavingLead] = useState(false);
+
+  const submitLead = async () => {
+    if (!onLeadSubmit) return;
+    if (!name.trim() || !phone.trim()) return;
+    setSavingLead(true);
+    try {
+      await onLeadSubmit({ name: name.trim(), phone: phone.trim(), interest_type: interest });
+      setName("");
+      setPhone("");
+      setInterest("EXCURSAO");
+    } finally {
+      setSavingLead(false);
+    }
+  };
 
   return (
     <section id="inicio" className="relative min-h-[90vh] sm:min-h-screen flex items-center overflow-hidden">
@@ -66,6 +87,40 @@ export function LandingHero({ content, budgetUrl }: Props) {
             >
               <MessageCircle className="h-5 w-5 mr-2" />
               {c.cta_secondary || "Solicitar Orçamento"}
+            </Button>
+          </div>
+
+          <div className="mt-6 rounded-xl border border-white/20 bg-white/10 backdrop-blur-sm p-3 sm:p-4">
+            <p className="text-white text-sm font-semibold mb-3">Receba atendimento rápido</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Seu nome"
+                className="bg-white/95 text-foreground placeholder:text-muted-foreground"
+              />
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="WhatsApp"
+                className="bg-white/95 text-foreground placeholder:text-muted-foreground"
+              />
+              <select
+                value={interest}
+                onChange={(e) => setInterest(e.target.value)}
+                className="h-10 rounded-md border border-input bg-white/95 px-3 text-sm text-foreground"
+              >
+                <option value="EXCURSAO">Excursão</option>
+                <option value="UNIVERSITARIO">Universitário</option>
+                <option value="EVENTO">Evento/Casamento</option>
+              </select>
+            </div>
+            <Button
+              className="mt-3 w-full sm:w-auto bg-primary text-primary-foreground"
+              onClick={submitLead}
+              disabled={savingLead || !name.trim() || !phone.trim()}
+            >
+              {savingLead ? "Enviando..." : "Quero receber contato"}
             </Button>
           </div>
         </motion.div>

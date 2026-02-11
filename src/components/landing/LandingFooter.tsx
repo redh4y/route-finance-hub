@@ -6,6 +6,7 @@ import {
   TAVARES_PHONE_DISPLAY,
   TAVARES_WHATSAPP_URL,
 } from "@/lib/contact";
+import { trackPublicEvent } from "@/lib/publicMarketing";
 
 interface Props {
   contact: any;
@@ -75,6 +76,7 @@ export function LandingFooter({ contact }: Props) {
               href={whatsappUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackPublicEvent("whatsapp_click", { source_page: "/site" })}
               className="inline-flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm transition-colors"
             >
               <MessageCircle className="h-4 w-4" />
