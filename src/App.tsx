@@ -21,6 +21,8 @@ import Excursions from "./pages/Excursions";
 import ExcursionForm from "./pages/ExcursionForm";
 import ExcursionDetail from "./pages/ExcursionDetail";
 import Reports from "./pages/Reports";
+import Affiliates from "./pages/Affiliates";
+import PublicExcursion from "./pages/PublicExcursion";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -156,6 +158,16 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/afiliados"
+                element={
+                  <ProtectedRoute>
+                    <Affiliates />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Public route - no auth required */}
+              <Route path="/public/excursoes/:token" element={<PublicExcursion />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
