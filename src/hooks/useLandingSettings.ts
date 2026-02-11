@@ -28,7 +28,8 @@ export function usePublicExcursions() {
         .from("excursions")
         .select("id, name, destination, destination_state, departure_at, return_at, boarding_location, seat_price_cents, status, public_token, public_enabled, total_seats")
         .eq("public_enabled", true)
-        .in("status", ["ABERTA", "PUBLICADA"])
+        .not("public_token", "is", null)
+        .in("status", ["EM_VENDA", "LOTADA", "ABERTA", "PUBLICADA"])
         .order("departure_at", { ascending: true });
       if (error) throw error;
 
@@ -51,7 +52,7 @@ export function usePublicExcursions() {
         })
       );
 
-      return excursionsWithAvailability.filter(e => e.commercialStatus !== "sold_out");
+      return excursionsWithAvailability;
     },
   });
 }
