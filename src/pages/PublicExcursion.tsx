@@ -24,6 +24,26 @@ const seatColors: Record<string, string> = {
 
 type Step = "info" | "seats" | "payment" | "confirmation";
 
+const formatCpf = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  return digits
+    .replace(/^(\d{3})(\d)/, "$1.$2")
+    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1-$2");
+};
+
+const formatPhoneBr = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 10) {
+    return digits
+      .replace(/^(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  }
+  return digits
+    .replace(/^(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d)/, "$1-$2");
+};
+
 export default function PublicExcursion() {
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
@@ -248,11 +268,23 @@ export default function PublicExcursion() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>CPF *</Label>
-                  <Input value={form.document} onChange={(e) => setForm((f) => ({ ...f, document: e.target.value }))} placeholder="000.000.000-00" />
+                  <Input
+                    value={form.document}
+                    onChange={(e) => setForm((f) => ({ ...f, document: formatCpf(e.target.value) }))}
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
+                    maxLength={14}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>WhatsApp *</Label>
-                  <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="(00) 00000-0000" />
+                  <Input
+                    value={form.phone}
+                    onChange={(e) => setForm((f) => ({ ...f, phone: formatPhoneBr(e.target.value) }))}
+                    placeholder="(00) 00000-0000"
+                    inputMode="numeric"
+                    maxLength={15}
+                  />
                 </div>
               </div>
               <div className="space-y-2">
