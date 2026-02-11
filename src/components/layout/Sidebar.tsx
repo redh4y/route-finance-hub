@@ -16,6 +16,7 @@ import {
   MessageCircle,
   ChevronDown,
   BarChart3,
+  Users2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -56,6 +57,11 @@ const navItems = [
     label: "Excursões",
     path: "/excursoes",
     icon: Bus,
+  },
+  {
+    label: "Afiliados",
+    path: "/afiliados",
+    icon: Users2,
   },
   {
     label: "Financeiro",

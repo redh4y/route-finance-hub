@@ -14,6 +14,148 @@ export type Database = {
   }
   public: {
     Tables: {
+      affiliate_commissions: {
+        Row: {
+          affiliate_id: string
+          amount_sold_cents: number
+          commission_cents: number
+          created_at: string
+          excursion_id: string
+          id: string
+          order_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          affiliate_id: string
+          amount_sold_cents?: number
+          commission_cents?: number
+          created_at?: string
+          excursion_id: string
+          id?: string
+          order_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          affiliate_id?: string
+          amount_sold_cents?: number
+          commission_cents?: number
+          created_at?: string
+          excursion_id?: string
+          id?: string
+          order_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "affiliate_commissions_affiliate_id_fkey"
+            columns: ["affiliate_id"]
+            isOneToOne: false
+            referencedRelation: "affiliates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_commissions_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_commissions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "public_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      affiliate_excursions: {
+        Row: {
+          affiliate_id: string
+          affiliate_token: string
+          commission_type_override: string | null
+          commission_value_override: number | null
+          created_at: string
+          excursion_id: string
+          id: string
+        }
+        Insert: {
+          affiliate_id: string
+          affiliate_token: string
+          commission_type_override?: string | null
+          commission_value_override?: number | null
+          created_at?: string
+          excursion_id: string
+          id?: string
+        }
+        Update: {
+          affiliate_id?: string
+          affiliate_token?: string
+          commission_type_override?: string | null
+          commission_value_override?: number | null
+          created_at?: string
+          excursion_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "affiliate_excursions_affiliate_id_fkey"
+            columns: ["affiliate_id"]
+            isOneToOne: false
+            referencedRelation: "affiliates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_excursions_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      affiliates: {
+        Row: {
+          commission_type: string
+          commission_value: number
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          responsible: string | null
+          status: string
+          updated_at: string
+          whatsapp: string | null
+        }
+        Insert: {
+          commission_type?: string
+          commission_value?: number
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          responsible?: string | null
+          status?: string
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Update: {
+          commission_type?: string
+          commission_value?: number
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          responsible?: string | null
+          status?: string
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Relationships: []
+      }
       billings: {
         Row: {
           amount_expected_cents: number
@@ -314,6 +456,9 @@ export type Database = {
           id: string
           name: string
           notes: string | null
+          pix_expiration_minutes: number
+          public_enabled: boolean
+          public_token: string | null
           return_at: string | null
           seat_price_cents: number
           status: string
@@ -332,6 +477,9 @@ export type Database = {
           id?: string
           name: string
           notes?: string | null
+          pix_expiration_minutes?: number
+          public_enabled?: boolean
+          public_token?: string | null
           return_at?: string | null
           seat_price_cents?: number
           status?: string
@@ -350,6 +498,9 @@ export type Database = {
           id?: string
           name?: string
           notes?: string | null
+          pix_expiration_minutes?: number
+          public_enabled?: boolean
+          public_token?: string | null
           return_at?: string | null
           seat_price_cents?: number
           status?: string
@@ -804,6 +955,93 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      public_orders: {
+        Row: {
+          affiliate_id: string | null
+          amount_paid_cents: number
+          amount_pending_cents: number
+          amount_total_cents: number
+          created_at: string
+          excursion_id: string
+          id: string
+          lock_expires_at: string | null
+          passenger_address: string | null
+          passenger_document: string
+          passenger_email: string | null
+          passenger_name: string
+          passenger_phone: string
+          payment_type: string
+          pix_code: string | null
+          pix_expires_at: string | null
+          pix_qr_data: string | null
+          seat_ids: string[]
+          seat_numbers: number[]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          affiliate_id?: string | null
+          amount_paid_cents?: number
+          amount_pending_cents?: number
+          amount_total_cents?: number
+          created_at?: string
+          excursion_id: string
+          id?: string
+          lock_expires_at?: string | null
+          passenger_address?: string | null
+          passenger_document: string
+          passenger_email?: string | null
+          passenger_name: string
+          passenger_phone: string
+          payment_type?: string
+          pix_code?: string | null
+          pix_expires_at?: string | null
+          pix_qr_data?: string | null
+          seat_ids?: string[]
+          seat_numbers?: number[]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          affiliate_id?: string | null
+          amount_paid_cents?: number
+          amount_pending_cents?: number
+          amount_total_cents?: number
+          created_at?: string
+          excursion_id?: string
+          id?: string
+          lock_expires_at?: string | null
+          passenger_address?: string | null
+          passenger_document?: string
+          passenger_email?: string | null
+          passenger_name?: string
+          passenger_phone?: string
+          payment_type?: string
+          pix_code?: string | null
+          pix_expires_at?: string | null
+          pix_qr_data?: string | null
+          seat_ids?: string[]
+          seat_numbers?: number[]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "public_orders_affiliate_id_fkey"
+            columns: ["affiliate_id"]
+            isOneToOne: false
+            referencedRelation: "affiliates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "public_orders_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ticket_sales: {
         Row: {

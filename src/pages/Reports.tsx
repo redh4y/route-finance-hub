@@ -22,7 +22,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency, formatMonthRef, getCurrentMonthRef } from "@/lib/formatters";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
-import { Download, FileText, BarChart3, Bus, Truck } from "lucide-react";
+import { Download, FileText, BarChart3, Bus, Truck, Users2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const COLORS = ["hsl(var(--primary))", "hsl(var(--accent))", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899"];
 
@@ -54,12 +55,17 @@ export default function Reports() {
             <Truck className="h-4 w-4" />
             Veículos
           </TabsTrigger>
+          <TabsTrigger value="afiliados" className="gap-2">
+            <Users2 className="h-4 w-4" />
+            Afiliados
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="dre"><DREReport /></TabsContent>
         <TabsContent value="mensal"><MonthlyReport /></TabsContent>
         <TabsContent value="excursoes"><ExcursionsReport /></TabsContent>
         <TabsContent value="veiculos"><VehiclesReport /></TabsContent>
+        <TabsContent value="afiliados"><AffiliatesReport /></TabsContent>
       </Tabs>
     </MainLayout>
   );
@@ -434,6 +440,150 @@ function VehiclesReport() {
             </CardContent>
           </Card>
         </>
+      )}
+    </div>
+  );
+}
+
+function AffiliatesReport() {
+  const { data: commissions } = useQuery({
+    queryKey: ["report-affiliate-commissions"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("affiliate_commissions")
+        .select("*, affiliates(name)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
+  const { data: excursions } = useQuery({
+    queryKey: ["report-affiliate-excursions"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("excursions")
+        .select("id, name");
+      if (error) throw error;
+      return data as { id: string; name: string }[];
+    },
+  });
+
+  const byAffiliate = useMemo(() => {
+    const map = new Map<string, { name: string; total: number; confirmed: number; pending: number; count: number }>();
+    (commissions || []).forEach((c: any) => {
+      const name = c.affiliates?.name || "Desconhecido";
+      if (!map.has(c.affiliate_id)) {
+        map.set(c.affiliate_id, { name, total: 0, confirmed: 0, pending: 0, count: 0 });
+      }
+      const row = map.get(c.affiliate_id)!;
+      row.total += c.commission_cents;
+      row.count += 1;
+      if (c.status === "CONFIRMADA" || c.status === "PAGA") row.confirmed += c.commission_cents;
+      else row.pending += c.commission_cents;
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [commissions]);
+
+  const excursionName = (id: string) => excursions?.find((e) => e.id === id)?.name || "-";
+
+  return (
+    <div className="space-y-6">
+      {/* Summary by affiliate */}
+      <Card>
+        <CardHeader><CardTitle>Comissões por Afiliado</CardTitle></CardHeader>
+        <CardContent>
+          {byAffiliate.length === 0 ? (
+            <p className="text-center py-8 text-muted-foreground">Nenhuma comissão registrada</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Afiliado</TableHead>
+                  <TableHead className="text-right">Vendas</TableHead>
+                  <TableHead className="text-right">Comissão Total</TableHead>
+                  <TableHead className="text-right">Confirmada</TableHead>
+                  <TableHead className="text-right">Pendente</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {byAffiliate.map((row) => (
+                  <TableRow key={row.name}>
+                    <TableCell className="font-medium">{row.name}</TableCell>
+                    <TableCell className="text-right">{row.count}</TableCell>
+                    <TableCell className="text-right font-mono">{formatCurrency(row.total)}</TableCell>
+                    <TableCell className="text-right font-mono text-primary">{formatCurrency(row.confirmed)}</TableCell>
+                    <TableCell className="text-right font-mono text-amber-400">{formatCurrency(row.pending)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Detail table */}
+      {(commissions || []).length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Detalhamento de Comissões</CardTitle></CardHeader>
+          <CardContent className="overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Afiliado</TableHead>
+                  <TableHead>Excursão</TableHead>
+                  <TableHead className="text-right">Venda</TableHead>
+                  <TableHead className="text-right">Comissão</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(commissions || []).slice(0, 50).map((c: any) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="text-sm">{new Date(c.created_at).toLocaleDateString("pt-BR")}</TableCell>
+                    <TableCell className="font-medium">{c.affiliates?.name}</TableCell>
+                    <TableCell className="text-sm">{excursionName(c.excursion_id)}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">{formatCurrency(c.amount_sold_cents)}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">{formatCurrency(c.commission_cents)}</TableCell>
+                    <TableCell>
+                      <span className={cn(
+                        "text-xs px-2 py-0.5 rounded-full",
+                        c.status === "CONFIRMADA" ? "bg-primary/20 text-primary" :
+                        c.status === "PAGA" ? "bg-emerald-500/20 text-emerald-400" :
+                        "bg-amber-500/20 text-amber-400"
+                      )}>
+                        {c.status}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Chart */}
+      {byAffiliate.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Comissão por Afiliado</CardTitle></CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={byAffiliate}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={(v) => `R$${(v / 100).toFixed(0)}`} />
+                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Legend />
+                  <Bar dataKey="confirmed" fill="hsl(var(--primary))" name="Confirmada" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="pending" fill="#f59e0b" name="Pendente" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

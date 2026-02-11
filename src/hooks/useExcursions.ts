@@ -17,6 +17,9 @@ export interface Excursion {
   notes: string | null;
   status: string;
   cost_center_id: string | null;
+  public_token: string | null;
+  public_enabled: boolean;
+  pix_expiration_minutes: number;
   created_at: string;
   updated_at: string;
   vehicles?: { name: string } | null;
