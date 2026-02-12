@@ -23,6 +23,7 @@ import ExcursionDetail from "./pages/ExcursionDetail";
 import Reports from "./pages/Reports";
 import Affiliates from "./pages/Affiliates";
 import Leads from "./pages/Leads";
+import Audit from "./pages/Audit";
 import PublicExcursion from "./pages/PublicExcursion";
 import LandingPage from "./pages/LandingPage";
 import LandingSettings from "./pages/LandingSettings";
@@ -153,6 +154,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Overdue />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/auditoria"
+                element={
+                  <ProtectedRoute>
+                    <Audit />
                   </ProtectedRoute>
                 }
               />

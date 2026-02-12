@@ -100,6 +100,11 @@ const navItems = [
     icon: MessageCircle,
   },
   {
+    label: "Auditoria",
+    path: "/auditoria",
+    icon: FileText,
+  },
+  {
     label: "Diagnóstico",
     path: "/diagnostico",
     icon: Bug,
