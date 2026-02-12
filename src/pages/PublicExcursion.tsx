@@ -167,7 +167,7 @@ export default function PublicExcursion() {
     }
     createOrder.mutate(
       {
-        excursion_id: excursion.id,
+        excursion_token: token!,
         affiliate_id: affiliateLink?.affiliate_id,
         passenger_name: form.name,
         passenger_document: form.document,
@@ -175,9 +175,7 @@ export default function PublicExcursion() {
         passenger_email: form.email || undefined,
         passenger_address: form.address || undefined,
         seat_numbers: selectedSeats,
-        amount_total_cents: totalAmount,
         payment_type: paymentType,
-        pix_expiration_minutes: excursion.pix_expiration_minutes || 30,
       },
       {
         onSuccess: async (data) => {
@@ -188,7 +186,7 @@ export default function PublicExcursion() {
               seat_count: selectedSeats.length,
               amount_total_cents: totalAmount,
               payment_type: paymentType,
-              order_id: (data as any)?.id || null,
+              order_id: data?.order_id || null,
             });
           }
           setOrderResult(data);
