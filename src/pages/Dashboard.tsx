@@ -1,8 +1,10 @@
+import { useState, useCallback } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { StatCard } from "@/components/ui/stat-card";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { useEnhancedDashboard, getDefaultRange } from "@/hooks/useEnhancedDashboard";
 import { PageTransition, StaggeredList, StaggeredItem } from "@/components/ui/page-transition";
-import { formatCurrency, formatMonthRef, getCurrentMonthRef } from "@/lib/formatters";
+import { formatCurrency, formatMonthRef, getCurrentMonthRef, formatDate } from "@/lib/formatters";
 import {
   Users,
   Receipt,
@@ -12,11 +14,21 @@ import {
   Clock,
   XCircle,
   HelpCircle,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  ArrowDownCircle,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Link } from "react-router-dom";
+import { DashboardDateFilter } from "@/components/dashboard/DashboardDateFilter";
+import { DashboardCharts } from "@/components/dashboard/DashboardCharts";
+import { DashboardBillingBlock } from "@/components/dashboard/DashboardBillingBlock";
+import { DashboardOperationBlock } from "@/components/dashboard/DashboardOperationBlock";
+import { DashboardCommercialBlock } from "@/components/dashboard/DashboardCommercialBlock";
+import { DashboardAlerts } from "@/components/dashboard/DashboardAlerts";
 
 function DashboardSkeleton() {
   return (
@@ -34,6 +46,27 @@ function DashboardSkeleton() {
   );
 }
 
+function EnhancedSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {[...Array(6)].map((_, i) => (
+          <Skeleton key={i} className="h-32" />
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Skeleton className="h-80" />
+        <Skeleton className="h-80" />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Skeleton className="h-64" />
+        <Skeleton className="h-64" />
+        <Skeleton className="h-64" />
+      </div>
+    </div>
+  );
+}
+
 const STATUS_LINKS = {
   paid: { label: "Pagos", status: "PAID" },
   open: { label: "Em Aberto", status: "OPEN" },
@@ -41,9 +74,20 @@ const STATUS_LINKS = {
   review: { label: "Revisão", status: "NEEDS_REVIEW" },
 } as const;
 
+function formatPeriodLabel(startDate: string, endDate: string): string {
+  const s = startDate.split("-");
+  const e = endDate.split("-");
+  return `${s[2]}/${s[1]}/${s[0]} – ${e[2]}/${e[1]}/${e[0]}`;
+}
+
 export default function Dashboard() {
   const { data: stats, isLoading, error } = useDashboardStats();
   const currentMonth = getCurrentMonthRef();
+
+  const [range, setRange] = useState(getDefaultRange);
+  const handleResetMonth = useCallback(() => setRange(getDefaultRange()), []);
+
+  const enhanced = useEnhancedDashboard(range);
 
   if (error) {
     return (
@@ -65,15 +109,20 @@ export default function Dashboard() {
         <div className="page-header">
           <h1 className="page-title">Dashboard</h1>
           <p className="page-subtitle">
-            Visão geral do mês de {formatMonthRef(currentMonth)}
+            Visão geral do seu negócio no período {formatPeriodLabel(range.startDate, range.endDate)}
           </p>
+        </div>
+
+        {/* Date Filter */}
+        <div className="mb-6">
+          <DashboardDateFilter range={range} onChange={setRange} onResetToCurrentMonth={handleResetMonth} />
         </div>
 
         {isLoading ? (
           <DashboardSkeleton />
         ) : (
           <StaggeredList className="space-y-8">
-            {/* Main stats */}
+            {/* Original main stats */}
             <StaggeredItem>
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                 <StatCard
@@ -107,7 +156,56 @@ export default function Dashboard() {
               </div>
             </StaggeredItem>
 
-            {/* Secondary stats */}
+            {/* Enhanced KPIs */}
+            <StaggeredItem>
+              {enhanced.isLoading ? (
+                <EnhancedSkeleton />
+              ) : (
+                <div className="space-y-8">
+                  {/* Financial KPIs */}
+                  <div className="grid gap-4 sm:gap-6 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                    <StatCard title="Receita do Período" value={formatCurrency(enhanced.financialKPIs.revenueCents)} icon={TrendingUp} variant="positive" />
+                    <StatCard title="Custos do Período" value={formatCurrency(enhanced.financialKPIs.costsCents)} icon={TrendingDown} variant="negative" />
+                    <StatCard title="Despesas do Período" value={formatCurrency(enhanced.financialKPIs.expensesCents)} icon={Wallet} variant="negative" />
+                    <StatCard
+                      title="Resultado"
+                      value={formatCurrency(enhanced.financialKPIs.resultCents)}
+                      icon={DollarSign}
+                      variant={enhanced.financialKPIs.resultCents >= 0 ? "positive" : "negative"}
+                    />
+                    <StatCard
+                      title="Boletos em Aberto"
+                      value={enhanced.billingKPIs.openCount}
+                      subtitle={formatCurrency(enhanced.billingKPIs.openValueCents)}
+                      icon={Clock}
+                      variant="warning"
+                    />
+                    <StatCard
+                      title="Boletos Vencidos"
+                      value={enhanced.billingKPIs.overdueCount}
+                      subtitle={formatCurrency(enhanced.billingKPIs.overdueValueCents)}
+                      icon={ArrowDownCircle}
+                      variant="negative"
+                    />
+                  </div>
+
+                  {/* Charts */}
+                  <DashboardCharts dailyFlow={enhanced.dailyFlow} dreDistribution={enhanced.dreDistribution} />
+
+                  {/* Billing Block */}
+                  <DashboardBillingBlock billingKPIs={enhanced.billingKPIs} />
+
+                  {/* Operation + Commercial + Alerts */}
+                  <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
+                    <DashboardOperationBlock stats={enhanced.operationStats} />
+                    <DashboardCommercialBlock stats={enhanced.commercialStats} />
+                    <DashboardAlerts alerts={enhanced.smartAlerts} />
+                  </div>
+                </div>
+              )}
+            </StaggeredItem>
+
+            {/* Original secondary stats */}
             <StaggeredItem>
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {/* Billing status breakdown */}
