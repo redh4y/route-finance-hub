@@ -31,6 +31,7 @@ import PublicExcursions from "./pages/PublicExcursions";
 import PublicSiteSettings from "./pages/PublicSiteSettings";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
+import AdminPanel from "./pages/AdminPanel";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -210,6 +211,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <PublicSiteSettings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute>
+                    <AdminPanel />
                   </ProtectedRoute>
                 }
               />

@@ -18,6 +18,7 @@ import {
   BarChart3,
   Users2,
   Settings2,
+  LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,6 +34,11 @@ const navItems = [
     label: "Dashboard",
     path: "/",
     icon: LayoutDashboard,
+  },
+  {
+    label: "Painel Admin",
+    path: "/admin",
+    icon: LayoutGrid,
   },
   {
     label: "Pagadores",
