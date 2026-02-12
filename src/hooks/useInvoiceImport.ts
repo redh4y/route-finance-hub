@@ -79,24 +79,54 @@ export function useInvoiceImport() {
       const expenseIds = expenses.map((e) => e.expense_id);
       const { data: existing } = await supabase
         .from("financial_entries")
-        .select("expense_id, status")
+        .select("expense_id, status, group_id, subgroup_id, type, category, subcategory, needs_classification")
         .in("expense_id", expenseIds);
 
-      const existingMap = new Map<string, string>(
+      const existingMap = new Map<string, {
+        status: string;
+        group_id: string | null;
+        subgroup_id: string | null;
+        type: string | null;
+        category: string | null;
+        subcategory: string | null;
+        needs_classification: boolean | null;
+      }>(
         (existing || [])
-          .filter((e): e is { expense_id: string; status: string } => !!e.expense_id && !!e.status)
-          .map((e) => [e.expense_id, e.status])
+          .filter((e): e is {
+            expense_id: string;
+            status: string;
+            group_id: string | null;
+            subgroup_id: string | null;
+            type: string | null;
+            category: string | null;
+            subcategory: string | null;
+            needs_classification: boolean | null;
+          } => !!e.expense_id && !!e.status)
+          .map((e) => [
+            e.expense_id,
+            {
+              status: e.status,
+              group_id: e.group_id ?? null,
+              subgroup_id: e.subgroup_id ?? null,
+              type: e.type ?? null,
+              category: e.category ?? null,
+              subcategory: e.subcategory ?? null,
+              needs_classification: e.needs_classification ?? null,
+            },
+          ])
       );
 
       setProgress(60);
 
       // Prepare expenses, preserving REAL status
       const finalExpenses = expenses.map((e) => {
-        const existingStatus = existingMap.get(e.expense_id);
+        const existingEntry = existingMap.get(e.expense_id);
         // Never downgrade REAL to PREVISTO
-        const finalStatus = existingStatus === "REAL" && e.status === "PREVISTO" 
+        const finalStatus = existingEntry?.status === "REAL" && e.status === "PREVISTO" 
           ? "REAL" 
           : e.status;
+
+        const hasClassification = !!existingEntry?.group_id;
 
         return {
           expense_id: e.expense_id,
@@ -110,14 +140,20 @@ export function useInvoiceImport() {
           invoice_month: e.invoice_month,
           card_id: e.card_id,
           cost_center_code: e.cost_center_code,
-          category: e.category,
-          subcategory: e.subcategory,
-          type: e.type,
-          source: e.source,
+          category: hasClassification ? (existingEntry?.category || e.category) : e.category,
+          subcategory: hasClassification ? (existingEntry?.subcategory || e.subcategory) : e.subcategory,
+          type: hasClassification ? ((existingEntry?.type as "RECEITA" | "CUSTO" | "DESPESA" | "OUTRAS" | null) || e.type) : e.type,
+          source: "FATURA",
+          group_id: hasClassification ? existingEntry?.group_id : null,
+          subgroup_id: hasClassification ? existingEntry?.subgroup_id : null,
+          needs_classification: hasClassification ? false : true,
+          needs_review: hasClassification ? false : true,
+          review_reasons: hasClassification ? [] : ["MISSING_GROUP"],
           installments_total: e.installments_total,
           installment_current: e.installment_current ?? null,
           installment_total: e.installment_total ?? null,
           parent_entry_id: e.parent_entry_id,
+          payment_method: "CARTAO_CREDITO",
         };
       });
 

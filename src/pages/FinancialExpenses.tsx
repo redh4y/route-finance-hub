@@ -26,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowDownCircle, Plus, DollarSign, Trash2, PieChart } from "lucide-react";
+import { ArrowDownCircle, Plus, DollarSign, Trash2, SlidersHorizontal, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -54,6 +54,12 @@ interface FinancialEntry {
   source: string;
   created_at: string;
   vehicle_id?: string | null;
+  payment_method?: string | null;
+  group_id?: string | null;
+  subgroup_id?: string | null;
+  needs_classification?: boolean | null;
+  needs_review?: boolean | null;
+  review_reasons?: string[] | null;
 }
 interface AllocationRow {
   id: string;
@@ -65,6 +71,30 @@ type AllocationDraft = {
   vehicleId: string;
   amount: string;
 };
+
+const PAYMENT_METHOD_OPTIONS = [
+  { value: "PIX", label: "PIX" },
+  { value: "CARTAO_CREDITO", label: "Cartao de credito" },
+  { value: "CARTAO_DEBITO", label: "Cartao de debito" },
+  { value: "BOLETO", label: "Boleto" },
+  { value: "TRANSFERENCIA", label: "Transferencia" },
+  { value: "DINHEIRO", label: "Dinheiro" },
+  { value: "DEBITO_AUTOMATICO", label: "Debito automatico" },
+  { value: "OUTRO", label: "Outro" },
+] as const;
+
+const REVIEW_REASON_LABELS: Record<string, string> = {
+  MISSING_GROUP: "Falta grupo DRE",
+  MISSING_SUBGROUP: "Falta subgrupo DRE",
+  COST_WITHOUT_VEHICLE: "Custo sem veiculo",
+  MISSING_PAYMENT_METHOD: "Falta forma de pagamento",
+};
+
+function formatReviewReasons(reasons?: string[] | null): string {
+  if (!reasons || reasons.length === 0) return "";
+  return reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(", " );
+}
+
 export default function FinancialExpenses() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef());
   const [entryType, setEntryType] = useState<"CUSTO" | "DESPESA">("CUSTO");
@@ -74,9 +104,13 @@ export default function FinancialExpenses() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [paymentMethod, setPaymentMethod] = useState("PIX");
   const [vehicleId, setVehicleId] = useState("");
   const [allocationEntry, setAllocationEntry] = useState<FinancialEntry | null>(null);
   const [allocationRows, setAllocationRows] = useState<AllocationDraft[]>([]);
+  const [classEntryType, setClassEntryType] = useState<"CUSTO" | "DESPESA">("DESPESA");
+  const [classGroupId, setClassGroupId] = useState("");
+  const [classSubgroupId, setClassSubgroupId] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -124,6 +158,34 @@ export default function FinancialExpenses() {
         .from("dre_subgroups")
         .select("id, name, group_id")
         .eq("group_id", groupId)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; group_id: string }[];
+    },
+  });
+
+  const { data: classDreGroups } = useQuery({
+    queryKey: ["dre-groups-classification", classEntryType],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_groups")
+        .select("id, name, nature")
+        .eq("nature", classEntryType)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; nature: string }[];
+    },
+    enabled: !!allocationEntry,
+  });
+
+  const { data: classDreSubgroups } = useQuery({
+    queryKey: ["dre-subgroups-classification", classGroupId],
+    enabled: !!allocationEntry && !!classGroupId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_subgroups")
+        .select("id, name, group_id")
+        .eq("group_id", classGroupId)
         .order("name", { ascending: true });
       if (error) throw error;
       return data as { id: string; name: string; group_id: string }[];
@@ -200,9 +262,6 @@ export default function FinancialExpenses() {
 
   const createEntry = useMutation({
     mutationFn: async () => {
-      if (entryType === "CUSTO" && !vehicleId) {
-        throw new Error("Selecione um veiculo para custos operacionais.");
-      }
       if (!groupId) {
         throw new Error("Selecione um grupo.");
       }
@@ -212,8 +271,13 @@ export default function FinancialExpenses() {
       const amountCents = Math.round(parseFloat(amount.replace(",", ".")) * 100);
       const group = groupById.get(groupId);
       const subgroup = subgroupId ? subgroupById.get(subgroupId) : null;
-      
-      const { error } = await supabase.from("financial_entries").insert({
+      const reviewReasons: string[] = [];
+      if (!groupId) reviewReasons.push("MISSING_GROUP");
+      if ((dreSubgroups?.length || 0) > 0 && !subgroupId) reviewReasons.push("MISSING_SUBGROUP");
+      if (entryType === "CUSTO" && !vehicleId) reviewReasons.push("COST_WITHOUT_VEHICLE");
+      const needsReview = reviewReasons.length > 0;
+
+      const payload: any = {
         competence_month: selectedMonth,
         date,
         type: entryType,
@@ -226,7 +290,12 @@ export default function FinancialExpenses() {
         group_id: groupId,
         subgroup_id: subgroupId || null,
         cost_center_id: costCenterId || null,
-      });
+        payment_method: paymentMethod || null,
+        needs_review: needsReview,
+        review_reasons: reviewReasons,
+      };
+
+      const { error } = await supabase.from("financial_entries").insert(payload);
 
       if (error) throw error;
     },
@@ -241,6 +310,7 @@ export default function FinancialExpenses() {
       setDescription("");
       setAmount("");
       setVehicleId("");
+      setPaymentMethod("PIX");
     },
     onError: (error) => {
       toast.error("Erro ao criar lan?amento: " + error.message);
@@ -269,22 +339,29 @@ export default function FinancialExpenses() {
   const saveAllocations = useMutation({
     mutationFn: async () => {
       if (!allocationEntry) return;
-      if (allocationRows.length === 0) {
-        throw new Error("Adicione ao menos um veiculo no rateio.");
+      if (!classGroupId) {
+        throw new Error("Selecione o grupo para classificar o lancamento.");
+      }
+      const hasClassSubgroups = (classDreSubgroups?.length || 0) > 0;
+      if (hasClassSubgroups && !classSubgroupId) {
+        throw new Error("Selecione o subgrupo para classificar o lancamento.");
+      }
+      const parsed = allocationRows
+        .filter((row) => row.vehicleId && row.amount)
+        .map((row) => ({
+          vehicleId: row.vehicleId,
+          amountCents: Math.round(parseFloat(row.amount.replace(",", ".")) * 100),
+        }));
+
+      if (parsed.some((row) => Number.isNaN(row.amountCents) || row.amountCents <= 0)) {
+        throw new Error("Preencha os valores de rateio corretamente.");
       }
 
-      const parsed = allocationRows.map((row) => ({
-        vehicleId: row.vehicleId,
-        amountCents: Math.round(parseFloat(row.amount.replace(",", ".")) * 100),
-      }));
-
-      if (parsed.some((row) => !row.vehicleId || Number.isNaN(row.amountCents) || row.amountCents <= 0)) {
-        throw new Error("Preencha todos os veiculos e valores corretamente.");
-      }
-
-      const total = parsed.reduce((sum, row) => sum + row.amountCents, 0);
-      if (total !== allocationEntry.amount_cents) {
-        throw new Error("A soma do rateio deve ser igual ao valor do lancamento.");
+      if (parsed.length > 0) {
+        const total = parsed.reduce((sum, row) => sum + row.amountCents, 0);
+        if (total !== allocationEntry.amount_cents) {
+          throw new Error("A soma do rateio deve ser igual ao valor do lancamento.");
+        }
       }
 
       const { error: deleteError } = await supabase
@@ -293,32 +370,57 @@ export default function FinancialExpenses() {
         .eq("entry_id", allocationEntry.id);
       if (deleteError) throw deleteError;
 
-      const { error: insertError } = await supabase
-        .from("financial_entry_allocations")
-        .insert(
-          parsed.map((row) => ({
-            entry_id: allocationEntry.id,
-            vehicle_id: row.vehicleId,
-            amount_cents: row.amountCents,
-          }))
-        );
-      if (insertError) throw insertError;
+      if (parsed.length > 0) {
+        const { error: insertError } = await supabase
+          .from("financial_entry_allocations")
+          .insert(
+            parsed.map((row) => ({
+              entry_id: allocationEntry.id,
+              vehicle_id: row.vehicleId,
+              amount_cents: row.amountCents,
+            }))
+          );
+        if (insertError) throw insertError;
+      }
+
+      const selectedGroup = classDreGroups?.find((g) => g.id === classGroupId);
+      const selectedSubgroup = classDreSubgroups?.find((sg) => sg.id === classSubgroupId);
+      const reviewReasons: string[] = [];
+      if (!classGroupId) reviewReasons.push("MISSING_GROUP");
+      if (hasClassSubgroups && !classSubgroupId) reviewReasons.push("MISSING_SUBGROUP");
+      if (classEntryType === "CUSTO" && parsed.length === 0) reviewReasons.push("COST_WITHOUT_VEHICLE");
+      const needsReview = reviewReasons.length > 0;
+
+      const updatePayload: any = {
+        vehicle_id: null,
+        type: classEntryType,
+        group_id: classGroupId,
+        subgroup_id: classSubgroupId || null,
+        category: selectedGroup?.name || allocationEntry.category,
+        subcategory: selectedSubgroup?.name || null,
+        needs_classification: false,
+        needs_review: needsReview,
+        review_reasons: reviewReasons,
+      };
 
       const { error: updateError } = await supabase
         .from("financial_entries")
-        .update({ vehicle_id: null })
+        .update(updatePayload)
         .eq("id", allocationEntry.id);
       if (updateError) throw updateError;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["financial-entry-allocations"] });
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
-      toast.success("Rateio salvo com sucesso");
+      queryClient.invalidateQueries({ queryKey: ["dre"] });
+      toast.success("Classificacao e rateio salvos com sucesso");
       setAllocationEntry(null);
       setAllocationRows([]);
+      setClassGroupId("");
+      setClassSubgroupId("");
     },
     onError: (error) => {
-      toast.error("Erro ao salvar rateio: " + error.message);
+      toast.error("Erro ao salvar classificacao: " + error.message);
     },
   });
   const hasSubgroups = (dreSubgroups?.length || 0) > 0;
@@ -357,6 +459,10 @@ export default function FinancialExpenses() {
         },
       ]);
     }
+    const normalizedType = entry.type === "CUSTO" ? "CUSTO" : "DESPESA";
+    setClassEntryType(normalizedType);
+    setClassGroupId(entry.group_id || "");
+    setClassSubgroupId(entry.subgroup_id || "");
     setAllocationEntry(entry);
   };
 
@@ -364,6 +470,9 @@ export default function FinancialExpenses() {
     const parsed = Math.round(parseFloat(row.amount.replace(",", ".")) * 100);
     return sum + (Number.isNaN(parsed) ? 0 : parsed);
   }, 0);
+  const allocationRemainingCents = allocationEntry
+    ? allocationEntry.amount_cents - allocationTotalCents
+    : 0;
 
   return (
     <MainLayout>
@@ -429,9 +538,7 @@ export default function FinancialExpenses() {
                     <SelectValue placeholder={entryType === "CUSTO" ? "Selecione o veiculo" : "Sem veiculo"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {entryType !== "CUSTO" && (
-                      <SelectItem value="__none__">Sem veiculo</SelectItem>
-                    )}
+                    <SelectItem value="__none__">Sem veiculo</SelectItem>
                     {activeVehicles.map((vehicle) => (
                       <SelectItem key={vehicle.id} value={vehicle.id}>
                         {vehicle.name}{vehicle.plate ? ` - ${vehicle.plate}` : ""}
@@ -440,8 +547,8 @@ export default function FinancialExpenses() {
                   </SelectContent>
                 </Select>
                 {entryType === "CUSTO" && !vehicleId && (
-                  <p className="text-xs text-muted-foreground">
-                    Custos operacionais precisam de um veiculo vinculado.
+                  <p className="text-xs text-amber-600">
+                    Custo sem veiculo vinculado. Revise quando possivel.
                   </p>
                 )}
               </div>
@@ -526,6 +633,22 @@ export default function FinancialExpenses() {
             </div>
 
             <div className="space-y-2">
+              <Label>Forma de pagamento</Label>
+              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHOD_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
               <Label>Descri??o</Label>
               <Textarea
                 placeholder="Descri??o do lan?amento..."
@@ -540,8 +663,7 @@ export default function FinancialExpenses() {
                 (hasSubgroups && !subgroupId) ||
                 !amount ||
                 !description ||
-                createEntry.isPending ||
-                (entryType === "CUSTO" && !vehicleId)
+                createEntry.isPending
               }
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -602,6 +724,7 @@ export default function FinancialExpenses() {
                       <TableHead>Tipo</TableHead>
                       <TableHead>Grupo</TableHead>
                       <TableHead>Parcelas</TableHead>
+                      <TableHead>Pagamento</TableHead>
                       <TableHead>Descri??o</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
                       <TableHead className="w-[80px]"></TableHead>
@@ -612,9 +735,29 @@ export default function FinancialExpenses() {
                       <TableRow key={entry.id}>
                         <TableCell>{formatDate(entry.date)}</TableCell>
                         <TableCell>
-                          <Badge variant={entry.type === "CUSTO" ? "destructive" : "secondary"}>
-                            {entry.type}
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge variant={entry.type === "CUSTO" ? "destructive" : "secondary"}>
+                              {entry.type}
+                            </Badge>
+                            {(() => {
+                              const allocation = allocationsByEntry.get(entry.id);
+                              const vehicleIds = allocation?.length
+                                ? allocation.map((row) => row.vehicle_id)
+                                : entry.vehicle_id
+                                  ? [entry.vehicle_id]
+                                  : [];
+                              const hasVehicle = vehicleIds.length > 0;
+                              if (entry.needs_review || entry.needs_classification || !entry.group_id || (entry.type === "CUSTO" && !hasVehicle)) {
+                                return (
+                                  <AlertTriangle
+                                    className="h-4 w-4 text-review"
+                                    title={formatReviewReasons(entry.review_reasons) || "Lancamento com pendencia de revisao"}
+                                  />
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                           {(() => {
                             const allocation = allocationsByEntry.get(entry.id);
                             const vehicleIds = allocation?.length
@@ -637,6 +780,18 @@ export default function FinancialExpenses() {
                         </TableCell>
                         <TableCell>
                           {entry.category}
+                          {(entry.needs_review || entry.needs_classification || !entry.group_id) && (
+                            <div className="mt-1">
+                              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/5">
+                                Revisao DRE
+                              </Badge>
+                              {entry.review_reasons && entry.review_reasons.length > 0 && (
+                                <div className="text-[10px] text-amber-700 mt-1">
+                                  {formatReviewReasons(entry.review_reasons)}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {entry.subcategory && (
                             <div className="text-xs text-muted-foreground mt-1">
                               {entry.subcategory}
@@ -656,6 +811,13 @@ export default function FinancialExpenses() {
                             {getInstallmentLabel(entry)}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {PAYMENT_METHOD_OPTIONS.find((option) => option.value === entry.payment_method)?.label ||
+                              entry.payment_method ||
+                              "-"}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="max-w-[200px] truncate">
                           {getCleanDescription(entry.description)}
                         </TableCell>
@@ -668,9 +830,10 @@ export default function FinancialExpenses() {
                               variant="ghost"
                               size="icon"
                               className="group"
+                              title="Classificar lancamento"
                               onClick={() => openAllocation(entry)}
                             >
-                              <PieChart className="h-4 w-4 text-muted-foreground group-hover:text-white" />
+                              <SlidersHorizontal className="h-4 w-4 text-muted-foreground group-hover:text-white" />
                             </Button>
                             <Dialog>
                               <DialogTrigger asChild>
@@ -723,14 +886,16 @@ export default function FinancialExpenses() {
           if (!open) {
             setAllocationEntry(null);
             setAllocationRows([]);
+            setClassGroupId("");
+            setClassSubgroupId("");
           }
         }}
       >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Rateio por veiculo</DialogTitle>
+            <DialogTitle>Classificar lancamento</DialogTitle>
             <DialogDescription>
-              Divida o valor do lancamento entre um ou mais veiculos.
+              Defina tipo, grupo, subgrupo e rateio por veiculo do lancamento.
             </DialogDescription>
           </DialogHeader>
           {allocationEntry && (
@@ -744,6 +909,61 @@ export default function FinancialExpenses() {
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
                   {formatDate(allocationEntry.date)} ? {allocationEntry.category}
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Tipo</Label>
+                  <Select value={classEntryType} onValueChange={(value) => {
+                    setClassEntryType(value as "CUSTO" | "DESPESA");
+                    setClassGroupId("");
+                    setClassSubgroupId("");
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CUSTO">Custo</SelectItem>
+                      <SelectItem value="DESPESA">Despesa</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Grupo</Label>
+                  <Select value={classGroupId} onValueChange={(value) => {
+                    setClassGroupId(value);
+                    setClassSubgroupId("");
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classDreGroups?.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Subgrupo</Label>
+                  <Select
+                    value={classSubgroupId || ""}
+                    onValueChange={setClassSubgroupId}
+                    disabled={!classGroupId || (classDreSubgroups?.length || 0) === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={(classDreSubgroups?.length || 0) === 0 ? "Sem subgrupo" : "Selecione..."} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classDreSubgroups?.map((subgroup) => (
+                        <SelectItem key={subgroup.id} value={subgroup.id}>
+                          {subgroup.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="space-y-3">
@@ -799,16 +1019,32 @@ export default function FinancialExpenses() {
                   Adicionar veiculo
                 </Button>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Total rateado</span>
-                <span className={cn(
-                  "font-mono",
-                  allocationEntry.amount_cents === allocationTotalCents
-                    ? "text-emerald-600"
-                    : "text-amber-600"
-                )}>
-                  {formatCurrency(allocationTotalCents)}
-                </span>
+              <div className="space-y-1 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Total rateado</span>
+                  <span className={cn(
+                    "font-mono",
+                    allocationEntry.amount_cents === allocationTotalCents
+                      ? "text-emerald-600"
+                      : "text-amber-600"
+                  )}>
+                    {formatCurrency(allocationTotalCents)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Falta ratear</span>
+                  <span className={cn(
+                    "font-mono",
+                    allocationRemainingCents === 0
+                      ? "text-emerald-600"
+                      : allocationRemainingCents > 0
+                        ? "text-amber-600"
+                        : "text-destructive"
+                  )}>
+                    {formatCurrency(Math.abs(allocationRemainingCents))}
+                    {allocationRemainingCents < 0 ? " (excedente)" : ""}
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -817,7 +1053,7 @@ export default function FinancialExpenses() {
               Cancelar
             </Button>
             <Button onClick={() => saveAllocations.mutate()} disabled={saveAllocations.isPending}>
-              Salvar rateio
+              Salvar classificacao
             </Button>
           </DialogFooter>
         </DialogContent>
