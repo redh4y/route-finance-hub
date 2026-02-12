@@ -149,8 +149,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         animate={{ opacity: 1, y: 0 }}
         className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border shrink-0"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-primary">
-          <Bus className="h-5 w-5 text-sidebar-primary-foreground" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg overflow-hidden">
+          <img src="/favicon.png" alt="Tavares" className="h-10 w-10 object-cover" />
         </div>
         <div className="min-w-0">
           <h1 className="text-lg font-bold text-sidebar-foreground truncate">Tavares</h1>
