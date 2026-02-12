@@ -598,10 +598,13 @@ export type Database = {
           installment_total: number | null
           installments_total: number | null
           invoice_month: string | null
+          needs_classification: boolean
+          needs_review: boolean
           operation_date: string | null
           parent_entry_id: string | null
           payer_id: string | null
           payment_method: string | null
+          review_reasons: string[]
           source: string
           status: string | null
           subcategory: string | null
@@ -630,10 +633,13 @@ export type Database = {
           installment_total?: number | null
           installments_total?: number | null
           invoice_month?: string | null
+          needs_classification?: boolean
+          needs_review?: boolean
           operation_date?: string | null
           parent_entry_id?: string | null
           payer_id?: string | null
           payment_method?: string | null
+          review_reasons?: string[]
           source?: string
           status?: string | null
           subcategory?: string | null
@@ -662,10 +668,13 @@ export type Database = {
           installment_total?: number | null
           installments_total?: number | null
           invoice_month?: string | null
+          needs_classification?: boolean
+          needs_review?: boolean
           operation_date?: string | null
           parent_entry_id?: string | null
           payer_id?: string | null
           payment_method?: string | null
+          review_reasons?: string[]
           source?: string
           status?: string | null
           subcategory?: string | null

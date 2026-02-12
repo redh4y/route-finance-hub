@@ -26,7 +26,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowDownCircle, Plus, DollarSign, Trash2, SlidersHorizontal, AlertTriangle } from "lucide-react";
+import {
+  ArrowDownCircle,
+  Plus,
+  DollarSign,
+  Trash2,
+  SlidersHorizontal,
+  AlertTriangle,
+  Filter,
+  CheckCircle2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -39,6 +48,12 @@ import {
   DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface FinancialEntry {
   id: string;
@@ -72,28 +87,49 @@ type AllocationDraft = {
   amount: string;
 };
 
+type QuickFilter = "ALL" | "REVIEW" | "NO_GROUP" | "COST_NO_VEHICLE" | "CUSTO" | "DESPESA";
+
 const PAYMENT_METHOD_OPTIONS = [
   { value: "PIX", label: "PIX" },
-  { value: "CARTAO_CREDITO", label: "Cartao de credito" },
-  { value: "CARTAO_DEBITO", label: "Cartao de debito" },
+  { value: "CARTAO_CREDITO", label: "Cartão de crédito" },
+  { value: "CARTAO_DEBITO", label: "Cartão de débito" },
   { value: "BOLETO", label: "Boleto" },
-  { value: "TRANSFERENCIA", label: "Transferencia" },
+  { value: "TRANSFERENCIA", label: "Transferência" },
   { value: "DINHEIRO", label: "Dinheiro" },
-  { value: "DEBITO_AUTOMATICO", label: "Debito automatico" },
+  { value: "DEBITO_AUTOMATICO", label: "Débito automático" },
   { value: "OUTRO", label: "Outro" },
 ] as const;
 
 const REVIEW_REASON_LABELS: Record<string, string> = {
   MISSING_GROUP: "Falta grupo DRE",
   MISSING_SUBGROUP: "Falta subgrupo DRE",
-  COST_WITHOUT_VEHICLE: "Custo sem veiculo",
+  COST_WITHOUT_VEHICLE: "Custo sem veículo",
   MISSING_PAYMENT_METHOD: "Falta forma de pagamento",
+  INCONSISTENT_TYPE_GROUP: "Tipo inconsistente com grupo",
 };
 
 function formatReviewReasons(reasons?: string[] | null): string {
   if (!reasons || reasons.length === 0) return "";
-  return reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(", " );
+  return reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(", ");
 }
+
+function isEntryNeedsReview(entry: FinancialEntry, allocationsByEntry: Map<string, AllocationRow[]>): boolean {
+  if (entry.needs_review || entry.needs_classification) return true;
+  if (!entry.group_id) return true;
+  const allocation = allocationsByEntry.get(entry.id);
+  const hasVehicle = (allocation?.length ?? 0) > 0 || !!entry.vehicle_id;
+  if (entry.type === "CUSTO" && !hasVehicle) return true;
+  return false;
+}
+
+const QUICK_FILTERS: { value: QuickFilter; label: string; icon?: React.ReactNode }[] = [
+  { value: "ALL", label: "Todos" },
+  { value: "REVIEW", label: "Revisão", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+  { value: "NO_GROUP", label: "Sem grupo" },
+  { value: "COST_NO_VEHICLE", label: "Custo s/ veículo" },
+  { value: "CUSTO", label: "Custos" },
+  { value: "DESPESA", label: "Despesas" },
+];
 
 export default function FinancialExpenses() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef());
@@ -111,6 +147,8 @@ export default function FinancialExpenses() {
   const [classEntryType, setClassEntryType] = useState<"CUSTO" | "DESPESA">("DESPESA");
   const [classGroupId, setClassGroupId] = useState("");
   const [classSubgroupId, setClassSubgroupId] = useState("");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("ALL");
+  const [paymentFilter, setPaymentFilter] = useState<string>("ALL");
 
   const queryClient = useQueryClient();
 
@@ -205,13 +243,48 @@ export default function FinancialExpenses() {
     },
   });
 
+  // All DRE groups for display (both CUSTO and DESPESA)
+  const { data: allDreGroups } = useQuery({
+    queryKey: ["dre-groups-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_groups")
+        .select("id, name, nature")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; nature: string }[];
+    },
+  });
+
+  const { data: allDreSubgroups } = useQuery({
+    queryKey: ["dre-subgroups-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("dre_subgroups")
+        .select("id, name, group_id")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; group_id: string }[];
+    },
+  });
+
   const groupById = useMemo(() => {
     const map = new Map<string, { name: string }>();
-    (dreGroups || []).forEach((group) => {
-      map.set(group.id, { name: group.name });
-    });
+    (dreGroups || []).forEach((g) => map.set(g.id, { name: g.name }));
     return map;
   }, [dreGroups]);
+
+  const allGroupById = useMemo(() => {
+    const map = new Map<string, { name: string; nature: string }>();
+    (allDreGroups || []).forEach((g) => map.set(g.id, { name: g.name, nature: g.nature }));
+    return map;
+  }, [allDreGroups]);
+
+  const allSubgroupById = useMemo(() => {
+    const map = new Map<string, { name: string }>();
+    (allDreSubgroups || []).forEach((sg) => map.set(sg.id, { name: sg.name }));
+    return map;
+  }, [allDreSubgroups]);
 
   const subgroupById = useMemo(() => {
     const map = new Map<string, { name: string }>();
@@ -260,6 +333,49 @@ export default function FinancialExpenses() {
     return map;
   }, [allocations]);
 
+  // Filtered entries
+  const filteredEntries = useMemo(() => {
+    if (!entries) return [];
+    let filtered = entries;
+
+    // Quick filter
+    switch (quickFilter) {
+      case "REVIEW":
+        filtered = filtered.filter((e) => isEntryNeedsReview(e, allocationsByEntry));
+        break;
+      case "NO_GROUP":
+        filtered = filtered.filter((e) => !e.group_id);
+        break;
+      case "COST_NO_VEHICLE": {
+        filtered = filtered.filter((e) => {
+          if (e.type !== "CUSTO") return false;
+          const alloc = allocationsByEntry.get(e.id);
+          return !e.vehicle_id && (!alloc || alloc.length === 0);
+        });
+        break;
+      }
+      case "CUSTO":
+        filtered = filtered.filter((e) => e.type === "CUSTO");
+        break;
+      case "DESPESA":
+        filtered = filtered.filter((e) => e.type === "DESPESA");
+        break;
+    }
+
+    // Payment filter
+    if (paymentFilter !== "ALL") {
+      filtered = filtered.filter((e) => e.payment_method === paymentFilter);
+    }
+
+    return filtered;
+  }, [entries, quickFilter, paymentFilter, allocationsByEntry]);
+
+  // Review counts
+  const reviewCount = useMemo(() => {
+    if (!entries) return 0;
+    return entries.filter((e) => isEntryNeedsReview(e, allocationsByEntry)).length;
+  }, [entries, allocationsByEntry]);
+
   const createEntry = useMutation({
     mutationFn: async () => {
       if (!groupId) {
@@ -275,6 +391,7 @@ export default function FinancialExpenses() {
       if (!groupId) reviewReasons.push("MISSING_GROUP");
       if ((dreSubgroups?.length || 0) > 0 && !subgroupId) reviewReasons.push("MISSING_SUBGROUP");
       if (entryType === "CUSTO" && !vehicleId) reviewReasons.push("COST_WITHOUT_VEHICLE");
+      if (!paymentMethod) reviewReasons.push("MISSING_PAYMENT_METHOD");
       const needsReview = reviewReasons.length > 0;
 
       const payload: any = {
@@ -296,14 +413,12 @@ export default function FinancialExpenses() {
       };
 
       const { error } = await supabase.from("financial_entries").insert(payload);
-
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
-      toast.success("Lan?amento criado com sucesso");
-      // Reset form
+      toast.success("Lançamento criado com sucesso");
       setGroupId("");
       setSubgroupId("");
       setCostCenterId("");
@@ -313,7 +428,7 @@ export default function FinancialExpenses() {
       setPaymentMethod("PIX");
     },
     onError: (error) => {
-      toast.error("Erro ao criar lan?amento: " + error.message);
+      toast.error("Erro ao criar lançamento: " + error.message);
     },
   });
 
@@ -323,13 +438,12 @@ export default function FinancialExpenses() {
         .from("financial_entries")
         .delete()
         .eq("id", id);
-
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
-      toast.success("Lan?amento exclu?do");
+      toast.success("Lançamento excluído");
     },
     onError: (error) => {
       toast.error("Erro ao excluir: " + error.message);
@@ -340,11 +454,11 @@ export default function FinancialExpenses() {
     mutationFn: async () => {
       if (!allocationEntry) return;
       if (!classGroupId) {
-        throw new Error("Selecione o grupo para classificar o lancamento.");
+        throw new Error("Selecione o grupo para classificar o lançamento.");
       }
       const hasClassSubgroups = (classDreSubgroups?.length || 0) > 0;
       if (hasClassSubgroups && !classSubgroupId) {
-        throw new Error("Selecione o subgrupo para classificar o lancamento.");
+        throw new Error("Selecione o subgrupo para classificar o lançamento.");
       }
       const parsed = allocationRows
         .filter((row) => row.vehicleId && row.amount)
@@ -360,7 +474,7 @@ export default function FinancialExpenses() {
       if (parsed.length > 0) {
         const total = parsed.reduce((sum, row) => sum + row.amountCents, 0);
         if (total !== allocationEntry.amount_cents) {
-          throw new Error("A soma do rateio deve ser igual ao valor do lancamento.");
+          throw new Error("A soma do rateio deve ser igual ao valor do lançamento.");
         }
       }
 
@@ -413,14 +527,14 @@ export default function FinancialExpenses() {
       queryClient.invalidateQueries({ queryKey: ["financial-entry-allocations"] });
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
-      toast.success("Classificacao e rateio salvos com sucesso");
+      toast.success("Classificação e rateio salvos com sucesso");
       setAllocationEntry(null);
       setAllocationRows([]);
       setClassGroupId("");
       setClassSubgroupId("");
     },
     onError: (error) => {
-      toast.error("Erro ao salvar classificacao: " + error.message);
+      toast.error("Erro ao salvar classificação: " + error.message);
     },
   });
   const hasSubgroups = (dreSubgroups?.length || 0) > 0;
@@ -477,593 +591,747 @@ export default function FinancialExpenses() {
   return (
     <MainLayout>
       <PageTransition>
-      <div className="page-header">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="page-title">Sa?das</h1>
-            <p className="page-subtitle">Custos e despesas operacionais</p>
-          </div>
-          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {months.map((month) => (
-                <SelectItem key={month} value={month}>
-                  {formatMonthRef(month)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Form */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" />
-              Novo Lan?amento
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Tipo</Label>
-                <Select value={entryType} onValueChange={(v) => {
-                  setEntryType(v as "CUSTO" | "DESPESA");
-                  setGroupId("");
-                  setSubgroupId("");
-                  setCostCenterId("");
-                }}>
-                  <SelectTrigger>
+        <TooltipProvider>
+          <div className="page-header">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h1 className="page-title">Saídas</h1>
+                <p className="page-subtitle">Custos e despesas operacionais</p>
+              </div>
+              <div className="flex items-center gap-3">
+                {reviewCount > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-review/30 text-review hover:bg-review/10"
+                    onClick={() => setQuickFilter("REVIEW")}
+                  >
+                    <AlertTriangle className="h-4 w-4 mr-1.5" />
+                    {reviewCount} pendência{reviewCount > 1 ? "s" : ""}
+                  </Button>
+                )}
+                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                  <SelectTrigger className="w-[180px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="CUSTO">Custo Operacional</SelectItem>
-                    <SelectItem value="DESPESA">Despesa Administrativa</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>
-                  Veiculo {entryType === "CUSTO" ? "(obrigatorio)" : "(opcional)"}
-                </Label>
-                <Select
-                  value={vehicleId || ""}
-                  onValueChange={(value) => setVehicleId(value === "__none__" ? "" : value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={entryType === "CUSTO" ? "Selecione o veiculo" : "Sem veiculo"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Sem veiculo</SelectItem>
-                    {activeVehicles.map((vehicle) => (
-                      <SelectItem key={vehicle.id} value={vehicle.id}>
-                        {vehicle.name}{vehicle.plate ? ` - ${vehicle.plate}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {entryType === "CUSTO" && !vehicleId && (
-                  <p className="text-xs text-amber-600">
-                    Custo sem veiculo vinculado. Revise quando possivel.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Grupo</Label>
-                <Select value={groupId} onValueChange={(v) => {
-                  setGroupId(v);
-                  setSubgroupId("");
-                }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dreGroups?.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
+                    {months.map((month) => (
+                      <SelectItem key={month} value={month}>
+                        {formatMonthRef(month)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-
-              {hasSubgroups ? (
-                <div className="space-y-2">
-                  <Label>Subgrupo</Label>
-                  <Select value={subgroupId} onValueChange={setSubgroupId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {dreSubgroups?.map((subgroup) => (
-                        <SelectItem key={subgroup.id} value={subgroup.id}>
-                          {subgroup.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div />
-              )}
             </div>
-
-            <div className="space-y-2">
-              <Label>Centro de custo (opcional)</Label>
-              <Select
-                value={costCenterId || ""}
-                onValueChange={(value) => setCostCenterId(value === "__none__" ? "" : value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Sem centro de custo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Sem centro de custo</SelectItem>
-                  {costCenters?.map((center) => (
-                    <SelectItem key={center.id} value={center.id}>
-                      {center.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Data</Label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Valor (R$)</Label>
-                <Input
-                  type="text"
-                  placeholder="0,00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Forma de pagamento</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_METHOD_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Descri??o</Label>
-              <Textarea
-                placeholder="Descri??o do lan?amento..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div><Button
-              className="w-full"
-              onClick={() => createEntry.mutate()}
-              disabled={
-                !groupId ||
-                (hasSubgroups && !subgroupId) ||
-                !amount ||
-                !description ||
-                createEntry.isPending
-              }
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Adicionar Lan?amento
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* List */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Summary */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card className="finance-card-negative">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="stat-label">Total Custos</p>
-                    <p className="stat-value text-destructive">
-                      {formatCurrency(totalCustos)}
-                    </p>
-                  </div>
-                  <ArrowDownCircle className="h-10 w-10 text-destructive/20" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="finance-card-warning">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="stat-label">Total Despesas</p>
-                    <p className="stat-value text-warning">
-                      {formatCurrency(totalDespesas)}
-                    </p>
-                  </div>
-                  <DollarSign className="h-10 w-10 text-warning/20" />
-                </div>
-              </CardContent>
-            </Card>
           </div>
 
-          {/* Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Lan?amentos - {formatMonthRef(selectedMonth)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="space-y-3">
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-12" />
-                  ))}
-                </div>
-              ) : entries && entries.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Data</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Grupo</TableHead>
-                      <TableHead>Parcelas</TableHead>
-                      <TableHead>Pagamento</TableHead>
-                      <TableHead>Descri??o</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="w-[80px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {entries.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell>{formatDate(entry.date)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Badge variant={entry.type === "CUSTO" ? "destructive" : "secondary"}>
-                              {entry.type}
-                            </Badge>
-                            {(() => {
-                              const allocation = allocationsByEntry.get(entry.id);
-                              const vehicleIds = allocation?.length
-                                ? allocation.map((row) => row.vehicle_id)
-                                : entry.vehicle_id
-                                  ? [entry.vehicle_id]
-                                  : [];
-                              const hasVehicle = vehicleIds.length > 0;
-                              if (entry.needs_review || entry.needs_classification || !entry.group_id || (entry.type === "CUSTO" && !hasVehicle)) {
-                                return (
-                                  <AlertTriangle
-                                    className="h-4 w-4 text-review"
-                                    title={formatReviewReasons(entry.review_reasons) || "Lancamento com pendencia de revisao"}
-                                  />
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
-                          {(() => {
-                            const allocation = allocationsByEntry.get(entry.id);
-                            const vehicleIds = allocation?.length
-                              ? allocation.map((row) => row.vehicle_id)
-                              : entry.vehicle_id
-                                ? [entry.vehicle_id]
-                                : [];
-                            if (vehicleIds.length === 0) return null;
-                            const labels = vehicleIds
-                              .map((id) => vehicleById.get(id))
-                              .filter(Boolean)
-                              .map((v) => `${v!.name}${v!.plate ? ` - ${v!.plate}` : ""}`);
-                            if (labels.length === 0) return null;
-                            return (
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {labels.join(", ")}
-                              </div>
-                            );
-                          })()}
-                        </TableCell>
-                        <TableCell>
-                          {entry.category}
-                          {(entry.needs_review || entry.needs_classification || !entry.group_id) && (
-                            <div className="mt-1">
-                              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/5">
-                                Revisao DRE
-                              </Badge>
-                              {entry.review_reasons && entry.review_reasons.length > 0 && (
-                                <div className="text-[10px] text-amber-700 mt-1">
-                                  {formatReviewReasons(entry.review_reasons)}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {entry.subcategory && (
-                            <div className="text-xs text-muted-foreground mt-1">
-                              {entry.subcategory}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-xs",
-                              entry.installment_total && entry.installment_total > 1
-                                ? "border-sky-500/40 text-sky-600 bg-sky-500/5"
-                                : "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
-                            )}
-                          >
-                            {getInstallmentLabel(entry)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {PAYMENT_METHOD_OPTIONS.find((option) => option.value === entry.payment_method)?.label ||
-                              entry.payment_method ||
-                              "-"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {getCleanDescription(entry.description)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-destructive">
-                          -{formatCurrency(entry.amount_cents)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="group"
-                              title="Classificar lancamento"
-                              onClick={() => openAllocation(entry)}
-                            >
-                              <SlidersHorizontal className="h-4 w-4 text-muted-foreground group-hover:text-white" />
-                            </Button>
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="group"
-                                >
-                                  <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Excluir lancamento?</DialogTitle>
-                                  <DialogDescription>
-                                    Esta acao nao pode ser desfeita. O lancamento sera removido.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <DialogFooter>
-                                  <DialogClose asChild>
-                                    <Button variant="outline">Cancelar</Button>
-                                  </DialogClose>
-                                  <Button
-                                    variant="destructive"
-                                    onClick={() => deleteEntry.mutate(entry.id)}
-                                  >
-                                    Excluir
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  Nenhum lan?amento neste m?s
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-      <Dialog
-        open={!!allocationEntry}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAllocationEntry(null);
-            setAllocationRows([]);
-            setClassGroupId("");
-            setClassSubgroupId("");
-          }
-        }}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Classificar lancamento</DialogTitle>
-            <DialogDescription>
-              Defina tipo, grupo, subgrupo e rateio por veiculo do lancamento.
-            </DialogDescription>
-          </DialogHeader>
-          {allocationEntry && (
-            <div className="space-y-4">
-              <div className="rounded-lg border p-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">{getCleanDescription(allocationEntry.description)}</div>
-                  <div className="font-mono text-destructive">
-                    -{formatCurrency(allocationEntry.amount_cents)}
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {formatDate(allocationEntry.date)} ? {allocationEntry.category}
-                </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label>Tipo</Label>
-                  <Select value={classEntryType} onValueChange={(value) => {
-                    setClassEntryType(value as "CUSTO" | "DESPESA");
-                    setClassGroupId("");
-                    setClassSubgroupId("");
-                  }}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="CUSTO">Custo</SelectItem>
-                      <SelectItem value="DESPESA">Despesa</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Grupo</Label>
-                  <Select value={classGroupId} onValueChange={(value) => {
-                    setClassGroupId(value);
-                    setClassSubgroupId("");
-                  }}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {classDreGroups?.map((group) => (
-                        <SelectItem key={group.id} value={group.id}>
-                          {group.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Subgrupo</Label>
-                  <Select
-                    value={classSubgroupId || ""}
-                    onValueChange={setClassSubgroupId}
-                    disabled={!classGroupId || (classDreSubgroups?.length || 0) === 0}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={(classDreSubgroups?.length || 0) === 0 ? "Sem subgrupo" : "Selecione..."} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {classDreSubgroups?.map((subgroup) => (
-                        <SelectItem key={subgroup.id} value={subgroup.id}>
-                          {subgroup.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {allocationRows.map((row, index) => (
-                  <div key={`${row.vehicleId}-${index}`} className="grid gap-2 md:grid-cols-[2fr_1fr_40px] items-center">
-                    <Select
-                      value={row.vehicleId || ""}
-                      onValueChange={(value) => {
-                        setAllocationRows((prev) =>
-                          prev.map((item, i) => (i === index ? { ...item, vehicleId: value } : item))
-                        );
-                      }}
-                    >
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Form */}
+            <Card className="lg:col-span-1">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Plus className="h-5 w-5" />
+                  Novo Lançamento
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Tipo</Label>
+                    <Select value={entryType} onValueChange={(v) => {
+                      setEntryType(v as "CUSTO" | "DESPESA");
+                      setGroupId("");
+                      setSubgroupId("");
+                      setCostCenterId("");
+                    }}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione o veiculo" />
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {vehicles?.map((vehicle) => (
+                        <SelectItem value="CUSTO">Custo Operacional</SelectItem>
+                        <SelectItem value="DESPESA">Despesa Administrativa</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Veículo {entryType === "CUSTO" ? "" : "(opcional)"}
+                    </Label>
+                    <Select
+                      value={vehicleId || ""}
+                      onValueChange={(value) => setVehicleId(value === "__none__" ? "" : value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={entryType === "CUSTO" ? "Selecione o veículo" : "Sem veículo"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sem veículo</SelectItem>
+                        {activeVehicles.map((vehicle) => (
                           <SelectItem key={vehicle.id} value={vehicle.id}>
                             {vehicle.name}{vehicle.plate ? ` - ${vehicle.plate}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Input
-                      placeholder="0,00"
-                      value={row.amount}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setAllocationRows((prev) =>
-                          prev.map((item, i) => (i === index ? { ...item, amount: value } : item))
-                        );
-                      }}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="group"
-                      onClick={() =>
-                        setAllocationRows((prev) => prev.filter((_, i) => i !== index))
-                      }
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
-                    </Button>
+                    {entryType === "CUSTO" && !vehicleId && (
+                      <p className="text-xs text-warning flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        Custo sem veículo — ficará em revisão
+                      </p>
+                    )}
                   </div>
-                ))}
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Grupo</Label>
+                    <Select value={groupId} onValueChange={(v) => {
+                      setGroupId(v);
+                      setSubgroupId("");
+                    }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {dreGroups?.map((group) => (
+                          <SelectItem key={group.id} value={group.id}>
+                            {group.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {hasSubgroups ? (
+                    <div className="space-y-2">
+                      <Label>Subgrupo</Label>
+                      <Select value={subgroupId} onValueChange={setSubgroupId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {dreSubgroups?.map((subgroup) => (
+                            <SelectItem key={subgroup.id} value={subgroup.id}>
+                              {subgroup.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div />
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Centro de custo (opcional)</Label>
+                  <Select
+                    value={costCenterId || ""}
+                    onValueChange={(value) => setCostCenterId(value === "__none__" ? "" : value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sem centro de custo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sem centro de custo</SelectItem>
+                      {costCenters?.map((center) => (
+                        <SelectItem key={center.id} value={center.id}>
+                          {center.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Data</Label>
+                    <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Valor (R$)</Label>
+                    <Input
+                      type="text"
+                      placeholder="0,00"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Forma de pagamento</Label>
+                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAYMENT_METHOD_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Descrição</Label>
+                  <Textarea
+                    placeholder="Descrição do lançamento..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
                 <Button
-                  variant="outline"
-                  onClick={() =>
-                    setAllocationRows((prev) => [...prev, { vehicleId: "", amount: "" }])
+                  className="w-full"
+                  onClick={() => createEntry.mutate()}
+                  disabled={
+                    !groupId ||
+                    (hasSubgroups && !subgroupId) ||
+                    !amount ||
+                    !description ||
+                    createEntry.isPending
                   }
                 >
-                  Adicionar veiculo
+                  <Plus className="h-4 w-4 mr-2" />
+                  Adicionar Lançamento
                 </Button>
+              </CardContent>
+            </Card>
+
+            {/* List */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* Summary */}
+              <div className="grid gap-4 md:grid-cols-3">
+                <Card className="finance-card-negative">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="stat-label">Total Custos</p>
+                        <p className="stat-value text-destructive">
+                          {formatCurrency(totalCustos)}
+                        </p>
+                      </div>
+                      <ArrowDownCircle className="h-10 w-10 text-destructive/20" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="finance-card-warning">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="stat-label">Total Despesas</p>
+                        <p className="stat-value text-warning">
+                          {formatCurrency(totalDespesas)}
+                        </p>
+                      </div>
+                      <DollarSign className="h-10 w-10 text-warning/20" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className={cn("border-l-4", reviewCount > 0 ? "border-l-review" : "border-l-success")}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="stat-label">Pendências</p>
+                        <p className={cn("stat-value", reviewCount > 0 ? "text-review" : "text-success")}>
+                          {reviewCount}
+                        </p>
+                      </div>
+                      {reviewCount > 0 ? (
+                        <AlertTriangle className="h-10 w-10 text-review/20" />
+                      ) : (
+                        <CheckCircle2 className="h-10 w-10 text-success/20" />
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-              <div className="space-y-1 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Total rateado</span>
-                  <span className={cn(
-                    "font-mono",
-                    allocationEntry.amount_cents === allocationTotalCents
-                      ? "text-emerald-600"
-                      : "text-amber-600"
-                  )}>
-                    {formatCurrency(allocationTotalCents)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Falta ratear</span>
-                  <span className={cn(
-                    "font-mono",
-                    allocationRemainingCents === 0
-                      ? "text-emerald-600"
-                      : allocationRemainingCents > 0
-                        ? "text-amber-600"
-                        : "text-destructive"
-                  )}>
-                    {formatCurrency(Math.abs(allocationRemainingCents))}
-                    {allocationRemainingCents < 0 ? " (excedente)" : ""}
-                  </span>
-                </div>
-              </div>
+
+              {/* Filters */}
+              <Card>
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    {QUICK_FILTERS.map((f) => (
+                      <Button
+                        key={f.value}
+                        variant={quickFilter === f.value ? "default" : "outline"}
+                        size="sm"
+                        className={cn(
+                          "h-8 text-xs",
+                          quickFilter === f.value && f.value === "REVIEW" && "bg-review hover:bg-review/90"
+                        )}
+                        onClick={() => setQuickFilter(f.value)}
+                      >
+                        {f.icon && <span className="mr-1">{f.icon}</span>}
+                        {f.label}
+                        {f.value === "REVIEW" && reviewCount > 0 && (
+                          <span className="ml-1 bg-white/20 rounded-full px-1.5 text-[10px]">
+                            {reviewCount}
+                          </span>
+                        )}
+                      </Button>
+                    ))}
+                    <div className="ml-auto">
+                      <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                        <SelectTrigger className="h-8 w-[160px] text-xs">
+                          <SelectValue placeholder="Pagamento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ALL">Todos pagamentos</SelectItem>
+                          {PAYMENT_METHOD_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Table */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">
+                      Lançamentos — {formatMonthRef(selectedMonth)}
+                    </CardTitle>
+                    <span className="text-xs text-muted-foreground">
+                      {filteredEntries.length} de {entries?.length || 0} lançamentos
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? (
+                    <div className="space-y-3">
+                      {[...Array(5)].map((_, i) => (
+                        <Skeleton key={i} className="h-12" />
+                      ))}
+                    </div>
+                  ) : filteredEntries.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[90px]">Data</TableHead>
+                            <TableHead className="w-[120px]">Tipo</TableHead>
+                            <TableHead>Grupo / Subgrupo</TableHead>
+                            <TableHead className="w-[70px]">Parc.</TableHead>
+                            <TableHead className="w-[120px]">Pagamento</TableHead>
+                            <TableHead>Descrição</TableHead>
+                            <TableHead className="text-right w-[110px]">Valor</TableHead>
+                            <TableHead className="w-[80px]"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredEntries.map((entry) => {
+                            const needsReview = isEntryNeedsReview(entry, allocationsByEntry);
+                            const allocation = allocationsByEntry.get(entry.id);
+                            const vehicleIds = allocation?.length
+                              ? allocation.map((row) => row.vehicle_id)
+                              : entry.vehicle_id
+                                ? [entry.vehicle_id]
+                                : [];
+                            const groupInfo = entry.group_id ? allGroupById.get(entry.group_id) : null;
+                            const subgroupInfo = entry.subgroup_id ? allSubgroupById.get(entry.subgroup_id) : null;
+
+                            return (
+                              <TableRow
+                                key={entry.id}
+                                className={cn(needsReview && "bg-review/[0.03]")}
+                              >
+                                <TableCell className="text-xs tabular-nums">
+                                  {formatDate(entry.date)}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1.5">
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-[11px] font-semibold",
+                                        entry.type === "CUSTO"
+                                          ? "border-destructive/40 text-destructive bg-destructive/5"
+                                          : "border-warning/40 text-warning bg-warning/5"
+                                      )}
+                                    >
+                                      {entry.type}
+                                    </Badge>
+                                    {needsReview && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" />
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-[220px]">
+                                          <p className="font-medium text-xs mb-1">Pendências:</p>
+                                          <p className="text-xs">
+                                            {formatReviewReasons(entry.review_reasons) || "Classificação incompleta"}
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                  </div>
+                                  {vehicleIds.length > 0 && (
+                                    <div className="text-[11px] text-muted-foreground mt-1 truncate max-w-[120px]">
+                                      {vehicleIds
+                                        .map((id) => vehicleById.get(id))
+                                        .filter(Boolean)
+                                        .map((v) => v!.name)
+                                        .join(", ")}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="space-y-0.5">
+                                    {groupInfo ? (
+                                      <span className="text-sm font-medium">{groupInfo.name}</span>
+                                    ) : (
+                                      <span className="text-sm text-muted-foreground italic">Sem grupo</span>
+                                    )}
+                                    {subgroupInfo && (
+                                      <div className="text-xs text-muted-foreground">{subgroupInfo.name}</div>
+                                    )}
+                                    {needsReview && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] border-review/30 text-review bg-review/5 mt-0.5"
+                                      >
+                                        Revisão DRE
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-xs",
+                                      entry.installment_total && entry.installment_total > 1
+                                        ? "border-accent/40 text-accent bg-accent/5"
+                                        : "border-success/40 text-success bg-success/5"
+                                    )}
+                                  >
+                                    {getInstallmentLabel(entry)}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className="text-xs">
+                                    {PAYMENT_METHOD_OPTIONS.find((o) => o.value === entry.payment_method)?.label ||
+                                      entry.payment_method ||
+                                      "—"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="max-w-[200px]">
+                                  <span className="truncate block text-sm">
+                                    {getCleanDescription(entry.description)}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-sm text-destructive font-medium">
+                                  -{formatCurrency(entry.amount_cents)}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center justify-end gap-0.5">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 hover:bg-accent hover:text-accent-foreground"
+                                          onClick={() => openAllocation(entry)}
+                                        >
+                                          <SlidersHorizontal className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Classificar</TooltipContent>
+                                    </Tooltip>
+                                    <Dialog>
+                                      <DialogTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 hover:bg-destructive hover:text-destructive-foreground"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </DialogTrigger>
+                                      <DialogContent>
+                                        <DialogHeader>
+                                          <DialogTitle>Excluir lançamento?</DialogTitle>
+                                          <DialogDescription>
+                                            Esta ação não pode ser desfeita. O lançamento será removido.
+                                          </DialogDescription>
+                                        </DialogHeader>
+                                        <DialogFooter>
+                                          <DialogClose asChild>
+                                            <Button variant="outline">Cancelar</Button>
+                                          </DialogClose>
+                                          <Button
+                                            variant="destructive"
+                                            onClick={() => deleteEntry.mutate(entry.id)}
+                                          >
+                                            Excluir
+                                          </Button>
+                                        </DialogFooter>
+                                      </DialogContent>
+                                    </Dialog>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <div className="text-muted-foreground mb-2">
+                        {quickFilter !== "ALL" || paymentFilter !== "ALL"
+                          ? "Nenhum lançamento encontrado com os filtros aplicados"
+                          : "Nenhum lançamento neste mês"}
+                      </div>
+                      {(quickFilter !== "ALL" || paymentFilter !== "ALL") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setQuickFilter("ALL");
+                            setPaymentFilter("ALL");
+                          }}
+                        >
+                          Limpar filtros
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAllocationEntry(null)}>
-              Cancelar
-            </Button>
-            <Button onClick={() => saveAllocations.mutate()} disabled={saveAllocations.isPending}>
-              Salvar classificacao
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-          </PageTransition>
-</MainLayout>
+          </div>
+
+          {/* Classification Modal */}
+          <Dialog
+            open={!!allocationEntry}
+            onOpenChange={(open) => {
+              if (!open) {
+                setAllocationEntry(null);
+                setAllocationRows([]);
+                setClassGroupId("");
+                setClassSubgroupId("");
+              }
+            }}
+          >
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Classificar lançamento</DialogTitle>
+                <DialogDescription>
+                  Defina tipo, grupo, subgrupo e rateio por veículo.
+                </DialogDescription>
+              </DialogHeader>
+              {allocationEntry && (
+                <div className="space-y-5">
+                  {/* Entry summary */}
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="font-medium text-sm">{getCleanDescription(allocationEntry.description)}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {formatDate(allocationEntry.date)} · {allocationEntry.category}
+                          {allocationEntry.subcategory && ` / ${allocationEntry.subcategory}`}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono text-lg font-bold text-destructive">
+                          -{formatCurrency(allocationEntry.amount_cents)}
+                        </div>
+                      </div>
+                    </div>
+                    {allocationEntry.review_reasons && allocationEntry.review_reasons.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {allocationEntry.review_reasons.map((reason) => (
+                          <Badge key={reason} variant="outline" className="text-[10px] border-review/30 text-review bg-review/5">
+                            {REVIEW_REASON_LABELS[reason] || reason}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Classification fields */}
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Tipo</Label>
+                      <Select value={classEntryType} onValueChange={(value) => {
+                        setClassEntryType(value as "CUSTO" | "DESPESA");
+                        setClassGroupId("");
+                        setClassSubgroupId("");
+                      }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CUSTO">Custo</SelectItem>
+                          <SelectItem value="DESPESA">Despesa</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Grupo</Label>
+                      <Select value={classGroupId} onValueChange={(value) => {
+                        setClassGroupId(value);
+                        setClassSubgroupId("");
+                      }}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {classDreGroups?.map((group) => (
+                            <SelectItem key={group.id} value={group.id}>
+                              {group.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Subgrupo</Label>
+                      <Select
+                        value={classSubgroupId || ""}
+                        onValueChange={setClassSubgroupId}
+                        disabled={!classGroupId || (classDreSubgroups?.length || 0) === 0}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={(classDreSubgroups?.length || 0) === 0 ? "Sem subgrupo" : "Selecione..."} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {classDreSubgroups?.map((subgroup) => (
+                            <SelectItem key={subgroup.id} value={subgroup.id}>
+                              {subgroup.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Vehicle allocation */}
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">Rateio por veículo</Label>
+                    {allocationRows.map((row, index) => (
+                      <div key={`${row.vehicleId}-${index}`} className="grid gap-2 md:grid-cols-[2fr_1fr_40px] items-center">
+                        <Select
+                          value={row.vehicleId || ""}
+                          onValueChange={(value) => {
+                            setAllocationRows((prev) =>
+                              prev.map((item, i) => (i === index ? { ...item, vehicleId: value } : item))
+                            );
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o veículo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {vehicles?.map((vehicle) => (
+                              <SelectItem key={vehicle.id} value={vehicle.id}>
+                                {vehicle.name}{vehicle.plate ? ` - ${vehicle.plate}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          placeholder="0,00"
+                          value={row.amount}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAllocationRows((prev) =>
+                              prev.map((item, i) => (i === index ? { ...item, amount: value } : item))
+                            );
+                          }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 hover:bg-destructive hover:text-destructive-foreground"
+                          onClick={() =>
+                            setAllocationRows((prev) => prev.filter((_, i) => i !== index))
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setAllocationRows((prev) => [...prev, { vehicleId: "", amount: "" }])
+                      }
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      Adicionar veículo
+                    </Button>
+                  </div>
+
+                  {/* Rateio summary */}
+                  <div className="rounded-lg border bg-muted/20 p-3 space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Total do lançamento</span>
+                      <span className="font-mono font-medium">
+                        {formatCurrency(allocationEntry.amount_cents)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Total rateado</span>
+                      <span className={cn(
+                        "font-mono font-medium",
+                        allocationEntry.amount_cents === allocationTotalCents
+                          ? "text-success"
+                          : "text-warning"
+                      )}>
+                        {formatCurrency(allocationTotalCents)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm border-t pt-1.5">
+                      <span className="text-muted-foreground font-medium">
+                        {allocationRemainingCents > 0 ? "Falta ratear" : allocationRemainingCents < 0 ? "Excedente" : "Rateio completo"}
+                      </span>
+                      <span className={cn(
+                        "font-mono font-bold",
+                        allocationRemainingCents === 0
+                          ? "text-success"
+                          : allocationRemainingCents > 0
+                            ? "text-warning"
+                            : "text-destructive"
+                      )}>
+                        {allocationRemainingCents === 0 ? (
+                          <span className="flex items-center gap-1">
+                            <CheckCircle2 className="h-4 w-4" />
+                            OK
+                          </span>
+                        ) : (
+                          formatCurrency(Math.abs(allocationRemainingCents))
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAllocationEntry(null)}>
+                  Cancelar
+                </Button>
+                <Button onClick={() => saveAllocations.mutate()} disabled={saveAllocations.isPending}>
+                  Salvar classificação
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TooltipProvider>
+      </PageTransition>
+    </MainLayout>
   );
 }
-
-
-
-
-
