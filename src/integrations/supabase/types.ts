@@ -1413,7 +1413,21 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      release_expired_locks: { Args: never; Returns: number }
+      reserve_seats: {
+        Args: {
+          p_affiliate_id?: string
+          p_excursion_token: string
+          p_passenger_address?: string
+          p_passenger_document: string
+          p_passenger_email?: string
+          p_passenger_name: string
+          p_passenger_phone: string
+          p_payment_type?: string
+          p_seat_numbers: number[]
+        }
+        Returns: Json
+      }
     }
     Enums: {
       public_lead_status:
