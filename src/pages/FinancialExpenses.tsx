@@ -35,6 +35,8 @@ import {
   AlertTriangle,
   Filter,
   CheckCircle2,
+  Paperclip,
+  ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -75,6 +77,7 @@ interface FinancialEntry {
   needs_classification?: boolean | null;
   needs_review?: boolean | null;
   review_reasons?: string[] | null;
+  attachment_url?: string | null;
 }
 interface AllocationRow {
   id: string;
@@ -149,8 +152,28 @@ export default function FinancialExpenses() {
   const [classSubgroupId, setClassSubgroupId] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("ALL");
   const [paymentFilter, setPaymentFilter] = useState<string>("ALL");
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
+
+  const uploadAttachment = async (entryId: string, file: File) => {
+    setUploadingId(entryId);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `${entryId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("financial-attachments").upload(path, file);
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from("financial-attachments").getPublicUrl(path);
+      const { error: dbErr } = await supabase.from("financial_entries").update({ attachment_url: urlData.publicUrl } as any).eq("id", entryId);
+      if (dbErr) throw dbErr;
+      queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
+      toast.success("Comprovante anexado");
+    } catch (err: any) {
+      toast.error("Erro ao anexar: " + err.message);
+    } finally {
+      setUploadingId(null);
+    }
+  };
 
   const { data: vehicles } = useQuery({
     queryKey: ["vehicles"],
@@ -915,7 +938,53 @@ export default function FinancialExpenses() {
                       ))}
                     </div>
                   ) : filteredEntries.length > 0 ? (
-                    <div className="overflow-x-auto">
+                    <>
+                      {/* Mobile: Card list */}
+                      <div className="lg:hidden space-y-3">
+                        {filteredEntries.map((entry) => {
+                          const needsReview = isEntryNeedsReview(entry, allocationsByEntry);
+                          const groupInfo = entry.group_id ? allGroupById.get(entry.group_id) : null;
+                          return (
+                            <div key={entry.id} className={cn("p-3 rounded-lg border bg-card space-y-2", needsReview && "border-review/30 bg-review/[0.03]")}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Badge variant="outline" className={cn("text-[11px] font-semibold shrink-0", entry.type === "CUSTO" ? "border-destructive/40 text-destructive bg-destructive/5" : "border-warning/40 text-warning bg-warning/5")}>{entry.type}</Badge>
+                                  {needsReview && <AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" />}
+                                </div>
+                                <span className="font-mono text-sm text-destructive font-medium shrink-0">-{formatCurrency(entry.amount_cents)}</span>
+                              </div>
+                              <p className="text-sm truncate">{getCleanDescription(entry.description)}</p>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <span>{formatDate(entry.date)}</span>
+                                <span>·</span>
+                                <span>{groupInfo?.name || "Sem grupo"}</span>
+                                <span>·</span>
+                                <Badge variant="outline" className="text-[10px]">{PAYMENT_METHOD_OPTIONS.find((o) => o.value === entry.payment_method)?.label || entry.payment_method || "—"}</Badge>
+                                <Badge variant="outline" className={cn("text-[10px]", entry.installment_total && entry.installment_total > 1 ? "border-accent/40 text-accent" : "border-success/40 text-success")}>{getInstallmentLabel(entry)}</Badge>
+                              </div>
+                              <div className="flex items-center gap-1 pt-1">
+                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => openAllocation(entry)}>
+                                  <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />Classificar
+                                </Button>
+                                <label className="cursor-pointer">
+                                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAttachment(entry.id, f); }} />
+                                  <Button variant="ghost" size="sm" className="h-7 text-xs pointer-events-none" tabIndex={-1}>
+                                    <Paperclip className="h-3.5 w-3.5 mr-1" />{entry.attachment_url ? "Trocar" : "Anexar"}
+                                  </Button>
+                                </label>
+                                {entry.attachment_url && (
+                                  <a href={entry.attachment_url} target="_blank" rel="noopener noreferrer">
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs"><ExternalLink className="h-3.5 w-3.5 mr-1" />Ver</Button>
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Desktop: Table */}
+                      <div className="hidden lg:block overflow-x-auto">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -926,7 +995,7 @@ export default function FinancialExpenses() {
                             <TableHead className="w-[120px]">Pagamento</TableHead>
                             <TableHead>Descrição</TableHead>
                             <TableHead className="text-right w-[110px]">Valor</TableHead>
-                            <TableHead className="w-[80px]"></TableHead>
+                            <TableHead className="w-[110px]"></TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -942,139 +1011,84 @@ export default function FinancialExpenses() {
                             const subgroupInfo = entry.subgroup_id ? allSubgroupById.get(entry.subgroup_id) : null;
 
                             return (
-                              <TableRow
-                                key={entry.id}
-                                className={cn(needsReview && "bg-review/[0.03]")}
-                              >
-                                <TableCell className="text-xs tabular-nums">
-                                  {formatDate(entry.date)}
-                                </TableCell>
+                              <TableRow key={entry.id} className={cn(needsReview && "bg-review/[0.03]")}>
+                                <TableCell className="text-xs tabular-nums">{formatDate(entry.date)}</TableCell>
                                 <TableCell>
                                   <div className="flex items-center gap-1.5">
-                                    <Badge
-                                      variant="outline"
-                                      className={cn(
-                                        "text-[11px] font-semibold",
-                                        entry.type === "CUSTO"
-                                          ? "border-destructive/40 text-destructive bg-destructive/5"
-                                          : "border-warning/40 text-warning bg-warning/5"
-                                      )}
-                                    >
-                                      {entry.type}
-                                    </Badge>
+                                    <Badge variant="outline" className={cn("text-[11px] font-semibold", entry.type === "CUSTO" ? "border-destructive/40 text-destructive bg-destructive/5" : "border-warning/40 text-warning bg-warning/5")}>{entry.type}</Badge>
                                     {needsReview && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" />
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="max-w-[220px]">
-                                          <p className="font-medium text-xs mb-1">Pendências:</p>
-                                          <p className="text-xs">
-                                            {formatReviewReasons(entry.review_reasons) || "Classificação incompleta"}
-                                          </p>
-                                        </TooltipContent>
+                                      <Tooltip><TooltipTrigger asChild><AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" /></TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-[220px]"><p className="font-medium text-xs mb-1">Pendências:</p><p className="text-xs">{formatReviewReasons(entry.review_reasons) || "Classificação incompleta"}</p></TooltipContent>
                                       </Tooltip>
                                     )}
                                   </div>
                                   {vehicleIds.length > 0 && (
                                     <div className="text-[11px] text-muted-foreground mt-1 truncate max-w-[120px]">
-                                      {vehicleIds
-                                        .map((id) => vehicleById.get(id))
-                                        .filter(Boolean)
-                                        .map((v) => v!.name)
-                                        .join(", ")}
+                                      {vehicleIds.map((id) => vehicleById.get(id)).filter(Boolean).map((v) => v!.name).join(", ")}
                                     </div>
                                   )}
                                 </TableCell>
                                 <TableCell>
                                   <div className="space-y-0.5">
-                                    {groupInfo ? (
-                                      <span className="text-sm font-medium">{groupInfo.name}</span>
-                                    ) : (
-                                      <span className="text-sm text-muted-foreground italic">Sem grupo</span>
-                                    )}
-                                    {subgroupInfo && (
-                                      <div className="text-xs text-muted-foreground">{subgroupInfo.name}</div>
-                                    )}
-                                    {needsReview && (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[10px] border-review/30 text-review bg-review/5 mt-0.5"
-                                      >
-                                        Revisão DRE
-                                      </Badge>
-                                    )}
+                                    {groupInfo ? <span className="text-sm font-medium">{groupInfo.name}</span> : <span className="text-sm text-muted-foreground italic">Sem grupo</span>}
+                                    {subgroupInfo && <div className="text-xs text-muted-foreground">{subgroupInfo.name}</div>}
+                                    {needsReview && <Badge variant="outline" className="text-[10px] border-review/30 text-review bg-review/5 mt-0.5">Revisão DRE</Badge>}
                                   </div>
                                 </TableCell>
                                 <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      "text-xs",
-                                      entry.installment_total && entry.installment_total > 1
-                                        ? "border-accent/40 text-accent bg-accent/5"
-                                        : "border-success/40 text-success bg-success/5"
-                                    )}
-                                  >
-                                    {getInstallmentLabel(entry)}
-                                  </Badge>
+                                  <Badge variant="outline" className={cn("text-xs", entry.installment_total && entry.installment_total > 1 ? "border-accent/40 text-accent bg-accent/5" : "border-success/40 text-success bg-success/5")}>{getInstallmentLabel(entry)}</Badge>
                                 </TableCell>
                                 <TableCell>
-                                  <Badge variant="outline" className="text-xs">
-                                    {PAYMENT_METHOD_OPTIONS.find((o) => o.value === entry.payment_method)?.label ||
-                                      entry.payment_method ||
-                                      "—"}
-                                  </Badge>
+                                  <Badge variant="outline" className="text-xs">{PAYMENT_METHOD_OPTIONS.find((o) => o.value === entry.payment_method)?.label || entry.payment_method || "—"}</Badge>
                                 </TableCell>
                                 <TableCell className="max-w-[200px]">
-                                  <span className="truncate block text-sm">
-                                    {getCleanDescription(entry.description)}
-                                  </span>
+                                  <span className="truncate block text-sm">{getCleanDescription(entry.description)}</span>
                                 </TableCell>
-                                <TableCell className="text-right font-mono text-sm text-destructive font-medium">
-                                  -{formatCurrency(entry.amount_cents)}
-                                </TableCell>
+                                <TableCell className="text-right font-mono text-sm text-destructive font-medium">-{formatCurrency(entry.amount_cents)}</TableCell>
                                 <TableCell>
                                   <div className="flex items-center justify-end gap-0.5">
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 hover:bg-accent hover:text-accent-foreground"
-                                          onClick={() => openAllocation(entry)}
-                                        >
-                                          <SlidersHorizontal className="h-4 w-4" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Classificar</TooltipContent>
-                                    </Tooltip>
+                                    {entry.attachment_url ? (
+                                      <Tooltip><TooltipTrigger asChild>
+                                        <a href={entry.attachment_url} target="_blank" rel="noopener noreferrer">
+                                          <Button variant="ghost" size="icon" className="h-8 w-8 text-success hover:bg-success/10"><Paperclip className="h-4 w-4" /></Button>
+                                        </a>
+                                      </TooltipTrigger><TooltipContent>Ver comprovante</TooltipContent></Tooltip>
+                                    ) : (
+                                      <Tooltip><TooltipTrigger asChild>
+                                        <label className="cursor-pointer">
+                                          <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAttachment(entry.id, f); }} />
+                                          <Button variant="ghost" size="icon" className={cn("h-8 w-8 pointer-events-none", uploadingId === entry.id && "animate-pulse")} tabIndex={-1}>
+                                            <Paperclip className="h-4 w-4" />
+                                          </Button>
+                                        </label>
+                                      </TooltipTrigger><TooltipContent>Anexar comprovante</TooltipContent></Tooltip>
+                                    )}
+                                    <Tooltip><TooltipTrigger asChild>
+                                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-accent hover:text-accent-foreground" onClick={() => openAllocation(entry)}>
+                                        <SlidersHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger><TooltipContent>Classificar</TooltipContent></Tooltip>
                                     <Dialog>
                                       <DialogTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 hover:bg-destructive hover:text-destructive-foreground"
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-destructive hover:text-destructive-foreground"><Trash2 className="h-4 w-4" /></Button>
                                       </DialogTrigger>
                                       <DialogContent>
-                                        <DialogHeader>
-                                          <DialogTitle>Excluir lançamento?</DialogTitle>
-                                          <DialogDescription>
-                                            Esta ação não pode ser desfeita. O lançamento será removido.
-                                          </DialogDescription>
-                                        </DialogHeader>
+                                        <DialogHeader><DialogTitle>Excluir lançamento?</DialogTitle><DialogDescription>Esta ação não pode ser desfeita.</DialogDescription></DialogHeader>
                                         <DialogFooter>
-                                          <DialogClose asChild>
-                                            <Button variant="outline">Cancelar</Button>
-                                          </DialogClose>
-                                          <Button
-                                            variant="destructive"
-                                            onClick={() => deleteEntry.mutate(entry.id)}
-                                          >
-                                            Excluir
+                                          <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+                                          <Button variant="destructive" onClick={() => deleteEntry.mutate(entry.id)}>Excluir</Button>
+                                        </DialogFooter>
+                                      </DialogContent>
+                                    </Dialog>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                      </div>
+                    </>
                                           </Button>
                                         </DialogFooter>
                                       </DialogContent>

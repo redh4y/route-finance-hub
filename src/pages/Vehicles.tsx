@@ -82,44 +82,14 @@ export default function Vehicles() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      toast.success("Veículo cadastrado");
       setName("");
       setPlate("");
       setModel("");
       setYear("");
       setActive(true);
-      toast.success("Veiculo cadastrado");
     },
-    onError: (error) => {
-      toast.error(`Erro ao cadastrar: ${error.message}`);
-    },
-  });
-
-  const updateVehicle = useMutation({
-    mutationFn: async () => {
-      if (!editingVehicle) return;
-      if (!editName.trim()) throw new Error("Informe o nome do veiculo");
-      const parsedYear = editYear ? Number.parseInt(editYear, 10) : null;
-      const { error } = await supabase
-        .from("vehicles")
-        .update({
-          name: editName.trim(),
-          plate: editPlate.trim() || null,
-          model: editModel.trim() || null,
-          year: Number.isNaN(parsedYear) ? null : parsedYear,
-          active: editActive,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editingVehicle.id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      setEditingVehicle(null);
-      toast.success("Veiculo atualizado");
-    },
-    onError: (error) => {
-      toast.error(`Erro ao atualizar: ${error.message}`);
-    },
+    onError: (error) => toast.error("Erro: " + error.message),
   });
 
   const deleteVehicle = useMutation({
@@ -129,237 +99,226 @@ export default function Vehicles() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      toast.success("Veiculo removido");
+      toast.success("Veículo excluído");
     },
-    onError: (error) => {
-      toast.error(`Erro ao remover: ${error.message}`);
+    onError: (error) => toast.error("Erro: " + error.message),
+  });
+
+  const updateVehicle = useMutation({
+    mutationFn: async () => {
+      if (!editingVehicle) return;
+      const parsedYear = editYear ? Number.parseInt(editYear, 10) : null;
+      const { error } = await supabase
+        .from("vehicles")
+        .update({
+          name: editName.trim(),
+          plate: editPlate.trim() || null,
+          model: editModel.trim() || null,
+          year: Number.isNaN(parsedYear) ? null : parsedYear,
+          active: editActive,
+        })
+        .eq("id", editingVehicle.id);
+      if (error) throw error;
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      toast.success("Veículo atualizado");
+      setEditingVehicle(null);
+    },
+    onError: (error) => toast.error("Erro: " + error.message),
   });
 
   const openEdit = (vehicle: VehicleRecord) => {
     setEditingVehicle(vehicle);
     setEditName(vehicle.name);
-    setEditPlate(vehicle.plate ?? "");
-    setEditModel(vehicle.model ?? "");
-    setEditYear(vehicle.year ? String(vehicle.year) : "");
+    setEditPlate(vehicle.plate || "");
+    setEditModel(vehicle.model || "");
+    setEditYear(vehicle.year?.toString() || "");
     setEditActive(vehicle.active);
   };
 
   return (
     <MainLayout>
       <PageTransition>
-      <div className="page-header">
-        <h1 className="page-title">Veiculos</h1>
-        <p className="page-subtitle">
-          Cadastre veiculos para vincular gastos e acompanhar custos
-        </p>
-      </div>
+        <div className="page-header">
+          <h1 className="page-title">Veículos</h1>
+          <p className="page-subtitle">Cadastre veículos para vincular gastos e acompanhar custos</p>
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="order-2 lg:order-1">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Truck className="h-5 w-5" />
-              Novo veiculo
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nome</Label>
-              <Input
-                placeholder="Ex: Onibus 01"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Placa</Label>
-              <Input
-                placeholder="Ex: ABC1D23"
-                value={plate}
-                onChange={(e) => setPlate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Modelo</Label>
-              <Input
-                placeholder="Ex: Mercedes OF-1721"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Ano</Label>
-              <Input
-                placeholder="Ex: 2019"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div>
-                <p className="text-sm font-medium">Ativo</p>
-                <p className="text-xs text-muted-foreground">
-                  Disponivel para vinculos
-                </p>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Card className="order-2 lg:order-1">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5" />
+                Novo veículo
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input placeholder="Ex: Ônibus 01" value={name} onChange={(e) => setName(e.target.value)} />
               </div>
-              <Switch checked={active} onCheckedChange={setActive} />
-            </div>
-            <Button
-              className="w-full"
-              onClick={() => createVehicle.mutate()}
-              disabled={createVehicle.isPending}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Cadastrar veiculo
-            </Button>
-          </CardContent>
-        </Card>
+              <div className="space-y-2">
+                <Label>Placa</Label>
+                <Input placeholder="Ex: ABC1D23" value={plate} onChange={(e) => setPlate(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Modelo</Label>
+                <Input placeholder="Ex: Mercedes OF-1721" value={model} onChange={(e) => setModel(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Ano</Label>
+                <Input placeholder="Ex: 2019" value={year} onChange={(e) => setYear(e.target.value)} />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">Ativo</p>
+                  <p className="text-xs text-muted-foreground">Disponível para vínculos</p>
+                </div>
+                <Switch checked={active} onCheckedChange={setActive} />
+              </div>
+              <Button className="w-full" onClick={() => createVehicle.mutate()} disabled={createVehicle.isPending}>
+                <Plus className="h-4 w-4 mr-2" />
+                Cadastrar veículo
+              </Button>
+            </CardContent>
+          </Card>
 
-        <Card className="order-1 lg:order-2 lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Veiculos cadastrados</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="text-sm text-muted-foreground">Carregando...</div>
-            ) : vehicles && vehicles.length > 0 ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nome</TableHead>
-                      <TableHead>Placa</TableHead>
-                      <TableHead>Modelo</TableHead>
-                      <TableHead>Ano</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-[90px]">Acoes</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+          <Card className="order-1 lg:order-2 lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Veículos cadastrados</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="text-sm text-muted-foreground">Carregando...</div>
+              ) : vehicles && vehicles.length > 0 ? (
+                <>
+                  {/* Mobile: Card list */}
+                  <div className="lg:hidden space-y-3">
                     {vehicles.map((vehicle) => (
-                      <TableRow key={vehicle.id}>
-                        <TableCell className="font-medium">{vehicle.name}</TableCell>
-                        <TableCell>{vehicle.plate || "-"}</TableCell>
-                        <TableCell>{vehicle.model || "-"}</TableCell>
-                        <TableCell>{vehicle.year || "-"}</TableCell>
-                        <TableCell>
-                          <Badge variant={vehicle.active ? "secondary" : "outline"}>
+                      <div key={vehicle.id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium truncate">{vehicle.name}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted-foreground">
+                            {vehicle.plate && <span>{vehicle.plate}</span>}
+                            {vehicle.model && <><span>·</span><span>{vehicle.model}</span></>}
+                            {vehicle.year && <><span>·</span><span>{vehicle.year}</span></>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 ml-2">
+                          <Badge variant={vehicle.active ? "secondary" : "outline"} className="text-xs">
                             {vehicle.active ? "Ativo" : "Inativo"}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="group"
-                              onClick={() => openEdit(vehicle)}
-                            >
-                              <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-white" />
-                            </Button>
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="group">
-                                  <Trash2 className="h-4 w-4 text-muted-foreground group-hover:text-white" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Excluir veiculo?</DialogTitle>
-                                  <DialogDescription>
-                                    Esta acao nao pode ser desfeita. O veiculo sera removido.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <DialogFooter>
-                                  <DialogClose asChild>
-                                    <Button variant="outline">Cancelar</Button>
-                                  </DialogClose>
-                                  <Button
-                                    variant="destructive"
-                                    onClick={() => deleteVehicle.mutate(vehicle.id)}
-                                  >
-                                    Excluir
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                          <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => openEdit(vehicle)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Excluir veículo?</DialogTitle>
+                                <DialogDescription>Esta ação não pode ser desfeita.</DialogDescription>
+                              </DialogHeader>
+                              <DialogFooter>
+                                <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+                                <Button variant="destructive" onClick={() => deleteVehicle.mutate(vehicle.id)}>Excluir</Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
+                        </div>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground py-8 text-center">
-                <Truck className="h-10 w-10 mx-auto mb-3 opacity-40" />
-                <p>Nenhum veiculo cadastrado.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                  </div>
 
-      <Dialog open={!!editingVehicle} onOpenChange={(open) => !open && setEditingVehicle(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar veiculo</DialogTitle>
-            <DialogDescription>Atualize os dados do veiculo.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nome</Label>
-              <Input
-                placeholder="Ex: Onibus 01"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Placa</Label>
-              <Input
-                placeholder="Ex: ABC1D23"
-                value={editPlate}
-                onChange={(e) => setEditPlate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Modelo</Label>
-              <Input
-                placeholder="Ex: Mercedes OF-1721"
-                value={editModel}
-                onChange={(e) => setEditModel(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Ano</Label>
-              <Input
-                placeholder="Ex: 2019"
-                value={editYear}
-                onChange={(e) => setEditYear(e.target.value)}
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div>
-                <p className="text-sm font-medium">Ativo</p>
-                <p className="text-xs text-muted-foreground">
-                  Disponivel para vinculos
-                </p>
+                  {/* Desktop: Table */}
+                  <div className="hidden lg:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Placa</TableHead>
+                          <TableHead>Modelo</TableHead>
+                          <TableHead>Ano</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="w-[90px]">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {vehicles.map((vehicle) => (
+                          <TableRow key={vehicle.id}>
+                            <TableCell className="font-medium">{vehicle.name}</TableCell>
+                            <TableCell>{vehicle.plate || "-"}</TableCell>
+                            <TableCell>{vehicle.model || "-"}</TableCell>
+                            <TableCell>{vehicle.year || "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant={vehicle.active ? "secondary" : "outline"}>
+                                {vehicle.active ? "Ativo" : "Inativo"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button variant="ghost" size="icon" onClick={() => openEdit(vehicle)}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button variant="ghost" size="icon"><Trash2 className="h-4 w-4" /></Button>
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle>Excluir veículo?</DialogTitle>
+                                      <DialogDescription>Esta ação não pode ser desfeita.</DialogDescription>
+                                    </DialogHeader>
+                                    <DialogFooter>
+                                      <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+                                      <Button variant="destructive" onClick={() => deleteVehicle.mutate(vehicle.id)}>Excluir</Button>
+                                    </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-muted-foreground py-8 text-center">
+                  <Truck className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                  <p>Nenhum veículo cadastrado.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Dialog open={!!editingVehicle} onOpenChange={(open) => !open && setEditingVehicle(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar veículo</DialogTitle>
+              <DialogDescription>Atualize os dados do veículo.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2"><Label>Nome</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Placa</Label><Input value={editPlate} onChange={(e) => setEditPlate(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Modelo</Label><Input value={editModel} onChange={(e) => setEditModel(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Ano</Label><Input value={editYear} onChange={(e) => setEditYear(e.target.value)} /></div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div><p className="text-sm font-medium">Ativo</p><p className="text-xs text-muted-foreground">Disponível para vínculos</p></div>
+                <Switch checked={editActive} onCheckedChange={setEditActive} />
               </div>
-              <Switch checked={editActive} onCheckedChange={setEditActive} />
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingVehicle(null)}>
-              Cancelar
-            </Button>
-            <Button onClick={() => updateVehicle.mutate()} disabled={updateVehicle.isPending}>
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingVehicle(null)}>Cancelar</Button>
+              <Button onClick={() => updateVehicle.mutate()} disabled={updateVehicle.isPending}>Salvar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </PageTransition>
     </MainLayout>
   );

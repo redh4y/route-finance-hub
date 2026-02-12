@@ -580,6 +580,7 @@ export type Database = {
       financial_entries: {
         Row: {
           amount_cents: number
+          attachment_url: string | null
           billing_id: string | null
           card_id: string | null
           category: string
@@ -615,6 +616,7 @@ export type Database = {
         }
         Insert: {
           amount_cents: number
+          attachment_url?: string | null
           billing_id?: string | null
           card_id?: string | null
           category: string
@@ -650,6 +652,7 @@ export type Database = {
         }
         Update: {
           amount_cents?: number
+          attachment_url?: string | null
           billing_id?: string | null
           card_id?: string | null
           category?: string
