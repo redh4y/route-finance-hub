@@ -477,38 +477,44 @@ export default function FinancialRevenue() {
                   </div>
                 ) : filteredBillings && filteredBillings.length > 0 ? (
                   <div className="max-h-[400px] overflow-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Vencimento</TableHead>
-                          <TableHead>Pagador</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Valor</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredBillings.slice(0, 20).map(billing => (
-                          <TableRow key={billing.id}>
-                            <TableCell>
-                              {billing.due_date
-                                ? formatDate(billing.due_date)
-                                : '-'}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {billing.payers?.name || billing.payer_id}
-                            </TableCell>
-                            <TableCell>
-                              <StatusBadge
-                                status={mapBillingStatus(billing.status)}
-                              />
-                            </TableCell>
-                            <TableCell className="text-right font-mono">
-                              {formatCurrency(billing.amount_expected_cents)}
-                            </TableCell>
+                    {/* Mobile: Card list */}
+                    <div className="lg:hidden space-y-2 p-1">
+                      {filteredBillings.slice(0, 20).map(billing => (
+                        <div key={billing.id} className="p-3 rounded-lg border bg-card flex items-center justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{billing.payers?.name || billing.payer_id}</p>
+                            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                              <span>{billing.due_date ? formatDate(billing.due_date) : '-'}</span>
+                              <StatusBadge status={mapBillingStatus(billing.status)} />
+                            </div>
+                          </div>
+                          <span className="font-mono text-sm ml-2 shrink-0">{formatCurrency(billing.amount_expected_cents)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Desktop: Table */}
+                    <div className="hidden lg:block">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Vencimento</TableHead>
+                            <TableHead>Pagador</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Valor</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredBillings.slice(0, 20).map(billing => (
+                            <TableRow key={billing.id}>
+                              <TableCell>{billing.due_date ? formatDate(billing.due_date) : '-'}</TableCell>
+                              <TableCell className="text-sm">{billing.payers?.name || billing.payer_id}</TableCell>
+                              <TableCell><StatusBadge status={mapBillingStatus(billing.status)} /></TableCell>
+                              <TableCell className="text-right font-mono">{formatCurrency(billing.amount_expected_cents)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                     {filteredBillings.length > 20 && (
                       <p className="text-sm text-muted-foreground text-center py-2">
                         ... e mais {filteredBillings.length - 20} boletos
@@ -530,35 +536,47 @@ export default function FinancialRevenue() {
                   <CardTitle>Receitas Manuais</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Data</TableHead>
-                        <TableHead>Grupo</TableHead>
-                        <TableHead>Descri??o</TableHead>
-                        <TableHead className="text-right">Valor</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {entries.map(entry => (
-                        <TableRow key={entry.id}>
-                          <TableCell>{formatDate(entry.date)}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{entry.category}</Badge>
-                            {entry.subcategory && (
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {entry.subcategory}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell>{entry.description}</TableCell>
-                          <TableCell className="text-right font-mono text-success">
-                            +{formatCurrency(entry.amount_cents)}
-                          </TableCell>
+                  {/* Mobile: Card list */}
+                  <div className="lg:hidden space-y-2">
+                    {entries.map(entry => (
+                      <div key={entry.id} className="p-3 rounded-lg border bg-card">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium truncate">{entry.description}</span>
+                          <span className="font-mono text-sm text-success shrink-0 ml-2">+{formatCurrency(entry.amount_cents)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                          <span>{formatDate(entry.date)}</span>
+                          <Badge variant="outline" className="text-xs">{entry.category}</Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop: Table */}
+                  <div className="hidden lg:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Grupo</TableHead>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead className="text-right">Valor</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {entries.map(entry => (
+                          <TableRow key={entry.id}>
+                            <TableCell>{formatDate(entry.date)}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{entry.category}</Badge>
+                              {entry.subcategory && <div className="text-xs text-muted-foreground mt-1">{entry.subcategory}</div>}
+                            </TableCell>
+                            <TableCell>{entry.description}</TableCell>
+                            <TableCell className="text-right font-mono text-success">+{formatCurrency(entry.amount_cents)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             )}
