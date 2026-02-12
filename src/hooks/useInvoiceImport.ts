@@ -79,7 +79,7 @@ export function useInvoiceImport() {
       const expenseIds = expenses.map((e) => e.expense_id);
       const { data: existing } = await supabase
         .from("financial_entries")
-        .select("expense_id, status, group_id, subgroup_id, type, category, subcategory, needs_classification")
+        .select("expense_id, status, group_id, subgroup_id, type, category, subcategory")
         .in("expense_id", expenseIds);
 
       const existingMap = new Map<string, {
@@ -89,7 +89,6 @@ export function useInvoiceImport() {
         type: string | null;
         category: string | null;
         subcategory: string | null;
-        needs_classification: boolean | null;
       }>(
         (existing || [])
           .filter((e): e is {
@@ -100,7 +99,6 @@ export function useInvoiceImport() {
             type: string | null;
             category: string | null;
             subcategory: string | null;
-            needs_classification: boolean | null;
           } => !!e.expense_id && !!e.status)
           .map((e) => [
             e.expense_id,
@@ -111,7 +109,6 @@ export function useInvoiceImport() {
               type: e.type ?? null,
               category: e.category ?? null,
               subcategory: e.subcategory ?? null,
-              needs_classification: e.needs_classification ?? null,
             },
           ])
       );
