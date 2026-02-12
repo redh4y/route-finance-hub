@@ -1089,18 +1089,6 @@ export default function FinancialExpenses() {
                       </Table>
                       </div>
                     </>
-                                          </Button>
-                                        </DialogFooter>
-                                      </DialogContent>
-                                    </Dialog>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
                   ) : (
                     <div className="text-center py-12">
                       <div className="text-muted-foreground mb-2">
