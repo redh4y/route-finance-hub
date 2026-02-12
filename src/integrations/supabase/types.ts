@@ -67,6 +67,13 @@ export type Database = {
             foreignKeyName: "affiliate_commissions_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "excursion_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_commissions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "public_orders"
             referencedColumns: ["id"]
           },
@@ -153,6 +160,51 @@ export type Database = {
           status?: string
           updated_at?: string
           whatsapp?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs: {
+        Row: {
+          actor_email: string | null
+          actor_user_id: string | null
+          changed_fields: string[]
+          created_at: string
+          id: string
+          new_data: Json | null
+          old_data: Json | null
+          operation: string
+          record_id: string | null
+          request_meta: Json | null
+          request_path: string | null
+          table_name: string
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_user_id?: string | null
+          changed_fields?: string[]
+          created_at?: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          operation: string
+          record_id?: string | null
+          request_meta?: Json | null
+          request_path?: string | null
+          table_name: string
+        }
+        Update: {
+          actor_email?: string | null
+          actor_user_id?: string | null
+          changed_fields?: string[]
+          created_at?: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          operation?: string
+          record_id?: string | null
+          request_meta?: Json | null
+          request_path?: string | null
+          table_name?: string
         }
         Relationships: []
       }
@@ -980,6 +1032,116 @@ export type Database = {
         }
         Relationships: []
       }
+      public_excursion_leads: {
+        Row: {
+          address: string | null
+          affiliate_id: string | null
+          amount_total_cents: number
+          cpf_digits: string
+          created_at: string
+          email: string | null
+          excursion_id: string
+          first_captured_at: string
+          id: string
+          ip_hash: string | null
+          last_step_at: string
+          name: string
+          order_id: string | null
+          payment_type: string | null
+          phone_digits: string
+          public_token: string
+          ref_code: string | null
+          seat_count: number
+          session_id: string | null
+          source: string
+          status: Database["public"]["Enums"]["public_lead_status"]
+          status_history: Json
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          address?: string | null
+          affiliate_id?: string | null
+          amount_total_cents?: number
+          cpf_digits: string
+          created_at?: string
+          email?: string | null
+          excursion_id: string
+          first_captured_at?: string
+          id?: string
+          ip_hash?: string | null
+          last_step_at?: string
+          name: string
+          order_id?: string | null
+          payment_type?: string | null
+          phone_digits: string
+          public_token: string
+          ref_code?: string | null
+          seat_count?: number
+          session_id?: string | null
+          source?: string
+          status?: Database["public"]["Enums"]["public_lead_status"]
+          status_history?: Json
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          address?: string | null
+          affiliate_id?: string | null
+          amount_total_cents?: number
+          cpf_digits?: string
+          created_at?: string
+          email?: string | null
+          excursion_id?: string
+          first_captured_at?: string
+          id?: string
+          ip_hash?: string | null
+          last_step_at?: string
+          name?: string
+          order_id?: string | null
+          payment_type?: string | null
+          phone_digits?: string
+          public_token?: string
+          ref_code?: string | null
+          seat_count?: number
+          session_id?: string | null
+          source?: string
+          status?: Database["public"]["Enums"]["public_lead_status"]
+          status_history?: Json
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "public_excursion_leads_affiliate_id_fkey"
+            columns: ["affiliate_id"]
+            isOneToOne: false
+            referencedRelation: "affiliates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "public_excursion_leads_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "public_excursion_leads_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "excursion_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "public_excursion_leads_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "public_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       public_orders: {
         Row: {
           affiliate_id: string | null
@@ -1162,13 +1324,105 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      excursion_orders: {
+        Row: {
+          affiliate_id: string | null
+          amount_paid_cents: number | null
+          amount_pending_cents: number | null
+          amount_total_cents: number | null
+          created_at: string | null
+          excursion_id: string | null
+          id: string | null
+          lock_expires_at: string | null
+          passenger_address: string | null
+          passenger_document: string | null
+          passenger_email: string | null
+          passenger_name: string | null
+          passenger_phone: string | null
+          payment_type: string | null
+          pix_code: string | null
+          pix_expires_at: string | null
+          pix_qr_data: string | null
+          seat_ids: string[] | null
+          seat_numbers: number[] | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          affiliate_id?: string | null
+          amount_paid_cents?: number | null
+          amount_pending_cents?: number | null
+          amount_total_cents?: number | null
+          created_at?: string | null
+          excursion_id?: string | null
+          id?: string | null
+          lock_expires_at?: string | null
+          passenger_address?: string | null
+          passenger_document?: string | null
+          passenger_email?: string | null
+          passenger_name?: string | null
+          passenger_phone?: string | null
+          payment_type?: string | null
+          pix_code?: string | null
+          pix_expires_at?: string | null
+          pix_qr_data?: string | null
+          seat_ids?: string[] | null
+          seat_numbers?: number[] | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          affiliate_id?: string | null
+          amount_paid_cents?: number | null
+          amount_pending_cents?: number | null
+          amount_total_cents?: number | null
+          created_at?: string | null
+          excursion_id?: string | null
+          id?: string | null
+          lock_expires_at?: string | null
+          passenger_address?: string | null
+          passenger_document?: string | null
+          passenger_email?: string | null
+          passenger_name?: string | null
+          passenger_phone?: string | null
+          payment_type?: string | null
+          pix_code?: string | null
+          pix_expires_at?: string | null
+          pix_qr_data?: string | null
+          seat_ids?: string[] | null
+          seat_numbers?: number[] | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "public_orders_affiliate_id_fkey"
+            columns: ["affiliate_id"]
+            isOneToOne: false
+            referencedRelation: "affiliates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "public_orders_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      public_lead_status:
+        | "CAPTURADO"
+        | "INTERESSE_ASSENTOS"
+        | "PIX_GERADO"
+        | "RESERVADO"
+        | "CONVERTIDO"
+        | "ABANDONADO"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1295,6 +1549,15 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      public_lead_status: [
+        "CAPTURADO",
+        "INTERESSE_ASSENTOS",
+        "PIX_GERADO",
+        "RESERVADO",
+        "CONVERTIDO",
+        "ABANDONADO",
+      ],
+    },
   },
 } as const
