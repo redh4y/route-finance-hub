@@ -33,6 +33,9 @@ import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import AdminPanel from "./pages/AdminPanel";
 import NotFound from "./pages/NotFound";
+import Maintenance from "./pages/Maintenance";
+import DriversPage from "./pages/Drivers";
+import InspectionChecklists from "./pages/InspectionChecklists";
 
 const queryClient = new QueryClient();
 
@@ -219,6 +222,30 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AdminPanel />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/manutencao"
+                element={
+                  <ProtectedRoute>
+                    <Maintenance />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/manutencao/motoristas"
+                element={
+                  <ProtectedRoute>
+                    <DriversPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/manutencao/inspecao"
+                element={
+                  <ProtectedRoute>
+                    <InspectionChecklists />
                   </ProtectedRoute>
                 }
               />
