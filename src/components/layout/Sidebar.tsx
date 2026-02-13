@@ -74,6 +74,9 @@ const navItems = [
     ],
   },
   {
+    label: "Excursões",
+    path: "/excursoes",
+    icon: Bus,
   },
   {
     label: "Afiliados",

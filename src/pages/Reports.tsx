@@ -23,8 +23,10 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency, formatMonthRef, getCurrentMonthRef } from "@/lib/formatters";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
-import { Download, FileText, BarChart3, Bus, Truck, Users2 } from "lucide-react";
+import { Download, FileText, BarChart3, Bus, Truck, Users2, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { format, differenceInHours } from "date-fns";
 
 const COLORS = ["hsl(var(--primary))", "hsl(var(--accent))", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899"];
 
@@ -35,8 +37,8 @@ export default function Reports() {
     <MainLayout>
       <PageTransition>
       <div className="page-header">
-        <h1 className="page-title">Relat?rios</h1>
-        <p className="page-subtitle">An?lises financeiras, excurs?es e ve?culos</p>
+        <h1 className="page-title">Relatórios</h1>
+        <p className="page-subtitle">Análises financeiras, excursões, veículos e manutenção</p>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -51,11 +53,15 @@ export default function Reports() {
           </TabsTrigger>
           <TabsTrigger value="excursoes" className="gap-2">
             <Bus className="h-4 w-4" />
-            Excurs?es
+            Excursões
           </TabsTrigger>
           <TabsTrigger value="veiculos" className="gap-2">
             <Truck className="h-4 w-4" />
-            Ve?culos
+            Veículos
+          </TabsTrigger>
+          <TabsTrigger value="manutencao" className="gap-2">
+            <Wrench className="h-4 w-4" />
+            Manutenção
           </TabsTrigger>
           <TabsTrigger value="afiliados" className="gap-2">
             <Users2 className="h-4 w-4" />
@@ -67,6 +73,7 @@ export default function Reports() {
         <TabsContent value="mensal"><MonthlyReport /></TabsContent>
         <TabsContent value="excursoes"><ExcursionsReport /></TabsContent>
         <TabsContent value="veiculos"><VehiclesReport /></TabsContent>
+        <TabsContent value="manutencao"><MaintenanceReport /></TabsContent>
         <TabsContent value="afiliados"><AffiliatesReport /></TabsContent>
       </Tabs>
           </PageTransition>
@@ -216,7 +223,7 @@ function MonthlyReport() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>M?s</TableHead>
+                  <TableHead>Mês</TableHead>
                   <TableHead className="text-right">Receita</TableHead>
                   <TableHead className="text-right">Custos</TableHead>
                   <TableHead className="text-right">Despesas</TableHead>
@@ -289,22 +296,22 @@ function ExcursionsReport() {
   return (
     <div className="space-y-6">
       {reportData.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">Nenhuma excurs?o cadastrada</div>
+        <div className="text-center py-12 text-muted-foreground">Nenhuma excursão cadastrada</div>
       ) : (
         <>
           <Card>
-            <CardHeader><CardTitle>Relat?rio por Excurs?o</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Relatório por Excursão</CardTitle></CardHeader>
             <CardContent className="overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Excurs?o</TableHead>
+                    <TableHead>Excursão</TableHead>
                     <TableHead>Destino</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead className="text-right">Vendidos</TableHead>
-                    <TableHead className="text-right">Ocupa??o</TableHead>
+                    <TableHead className="text-right">Ocupação</TableHead>
                     <TableHead className="text-right">Receita</TableHead>
-                    <TableHead className="text-right">Ticket M?dio</TableHead>
+                    <TableHead className="text-right">Ticket Médio</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -325,7 +332,7 @@ function ExcursionsReport() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Ocupa??o por Excurs?o</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Ocupação por Excursão</CardTitle></CardHeader>
             <CardContent>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -334,7 +341,7 @@ function ExcursionsReport() {
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tickFormatter={(v) => `${v}%`} />
                     <Tooltip formatter={(v: number) => `${v}%`} />
-                    <Bar dataKey="occupancy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Ocupa??o" />
+                    <Bar dataKey="occupancy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Ocupação" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -390,17 +397,17 @@ function VehiclesReport() {
     <div className="space-y-6">
       {reportData.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
-          Nenhum dado de ve?culo dispon?vel. Vincule lan?amentos financeiros a ve?culos para ver este relat?rio.
+          Nenhum dado de veículo disponível. Vincule lançamentos financeiros a veículos para ver este relatório.
         </div>
       ) : (
         <>
           <Card>
-            <CardHeader><CardTitle>Custos e Receitas por Ve?culo</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Custos e Receitas por Veículo</CardTitle></CardHeader>
             <CardContent className="overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Ve?culo</TableHead>
+                    <TableHead>Veículo</TableHead>
                     <TableHead>Placa</TableHead>
                     <TableHead className="text-right">Receita</TableHead>
                     <TableHead className="text-right">Custos</TableHead>
@@ -425,7 +432,7 @@ function VehiclesReport() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Gr?fico por Ve?culo</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Gráfico por Veículo</CardTitle></CardHeader>
             <CardContent>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -443,6 +450,317 @@ function VehiclesReport() {
             </CardContent>
           </Card>
         </>
+      )}
+    </div>
+  );
+}
+
+// ==================== MAINTENANCE REPORT ====================
+function MaintenanceReport() {
+  const [period, setPeriod] = useState("all");
+
+  const { data: tickets } = useQuery({
+    queryKey: ["report-maintenance-tickets"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("maintenance_tickets")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: vehicles } = useQuery({
+    queryKey: ["report-maintenance-vehicles"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("vehicles").select("id, name, plate").eq("active", true);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const vehicleMap = useMemo(() => {
+    const m = new Map<string, string>();
+    (vehicles || []).forEach(v => m.set(v.id, v.name));
+    return m;
+  }, [vehicles]);
+
+  const filtered = useMemo(() => {
+    if (!tickets) return [];
+    if (period === "all") return tickets;
+    const now = new Date();
+    const months = period === "3m" ? 3 : period === "6m" ? 6 : 12;
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - months, now.getDate());
+    return tickets.filter(t => new Date(t.created_at) >= cutoff);
+  }, [tickets, period]);
+
+  // KPIs
+  const totalTickets = filtered.length;
+  const completedTickets = filtered.filter(t => t.status === "CONCLUIDO");
+  const openTickets = filtered.filter(t => !["CONCLUIDO", "CANCELADO"].includes(t.status));
+  const totalCostCents = completedTickets.reduce((s, t) => s + (t.total_cost_cents || 0), 0);
+  const avgCostCents = completedTickets.length > 0 ? Math.round(totalCostCents / completedTickets.length) : 0;
+
+  // Avg resolution time (hours)
+  const resolutionTimes = completedTickets
+    .filter(t => t.completed_at && t.reported_at)
+    .map(t => differenceInHours(new Date(t.completed_at!), new Date(t.reported_at)));
+  const avgResolutionHours = resolutionTimes.length > 0 ? Math.round(resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length) : 0;
+
+  // By vehicle
+  const byVehicle = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; costCents: number; open: number }>();
+    filtered.forEach(t => {
+      if (!t.vehicle_id) return;
+      const name = vehicleMap.get(t.vehicle_id) || "Desconhecido";
+      if (!map.has(t.vehicle_id)) map.set(t.vehicle_id, { name, count: 0, costCents: 0, open: 0 });
+      const row = map.get(t.vehicle_id)!;
+      row.count++;
+      row.costCents += t.total_cost_cents || 0;
+      if (!["CONCLUIDO", "CANCELADO"].includes(t.status)) row.open++;
+    });
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [filtered, vehicleMap]);
+
+  // Top recurring problems (by category)
+  const byCategory = useMemo(() => {
+    const map = new Map<string, number>();
+    filtered.forEach(t => {
+      const cat = t.category || "Sem categoria";
+      map.set(cat, (map.get(cat) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+  }, [filtered]);
+
+  // By priority
+  const byPriority = useMemo(() => {
+    const counts = { BAIXA: 0, MEDIA: 0, ALTA: 0, CRITICA: 0 };
+    filtered.forEach(t => { if (t.priority in counts) counts[t.priority as keyof typeof counts]++; });
+    return [
+      { name: "Baixa", value: counts.BAIXA, fill: "hsl(var(--muted-foreground))" },
+      { name: "Média", value: counts.MEDIA, fill: "hsl(var(--accent))" },
+      { name: "Alta", value: counts.ALTA, fill: "#f59e0b" },
+      { name: "Crítica", value: counts.CRITICA, fill: "hsl(var(--destructive))" },
+    ].filter(p => p.value > 0);
+  }, [filtered]);
+
+  // Monthly trend
+  const monthlyTrend = useMemo(() => {
+    const map = new Map<string, { opened: number; completed: number; costCents: number }>();
+    filtered.forEach(t => {
+      const m = t.created_at.slice(0, 7);
+      if (!map.has(m)) map.set(m, { opened: 0, completed: 0, costCents: 0 });
+      const row = map.get(m)!;
+      row.opened++;
+      if (t.status === "CONCLUIDO") {
+        row.completed++;
+        row.costCents += t.total_cost_cents || 0;
+      }
+    });
+    return Array.from(map.entries())
+      .map(([month, data]) => ({
+        month: formatMonthRef(month),
+        abertos: data.opened,
+        concluidos: data.completed,
+        custo: data.costCents / 100,
+      }))
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-12);
+  }, [filtered]);
+
+  return (
+    <div className="space-y-6">
+      {/* Period filter */}
+      <div className="flex items-center gap-3">
+        <Select value={period} onValueChange={setPeriod}>
+          <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todo período</SelectItem>
+            <SelectItem value="3m">Últimos 3 meses</SelectItem>
+            <SelectItem value="6m">Últimos 6 meses</SelectItem>
+            <SelectItem value="12m">Últimos 12 meses</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Total de Chamados</p>
+            <p className="text-2xl font-bold">{totalTickets}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Em Aberto</p>
+            <p className="text-2xl font-bold text-warning">{openTickets.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Concluídos</p>
+            <p className="text-2xl font-bold text-emerald-400">{completedTickets.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Custo Total</p>
+            <p className="text-2xl font-bold text-red-400">{formatCurrency(totalCostCents)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Tempo Médio Resolução</p>
+            <p className="text-2xl font-bold">{avgResolutionHours}h</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts row */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Monthly trend */}
+        {monthlyTrend.length > 0 && (
+          <Card>
+            <CardHeader><CardTitle>Tendência Mensal</CardTitle></CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyTrend}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="abertos" fill="hsl(var(--primary))" name="Abertos" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="concluidos" fill="#10b981" name="Concluídos" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Priority distribution */}
+        {byPriority.length > 0 && (
+          <Card>
+            <CardHeader><CardTitle>Distribuição por Prioridade</CardTitle></CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={byPriority} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={4} dataKey="value" nameKey="name" label={({ name, value }) => `${name}: ${value}`}>
+                      {byPriority.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Top recurring categories */}
+      {byCategory.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Problemas Recorrentes (por Categoria)</CardTitle></CardHeader>
+          <CardContent>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={byCategory} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis type="number" />
+                  <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]} name="Chamados" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* By vehicle table */}
+      <Card>
+        <CardHeader><CardTitle>Histórico por Veículo</CardTitle></CardHeader>
+        <CardContent className="overflow-auto">
+          {byVehicle.length === 0 ? (
+            <p className="text-center py-8 text-muted-foreground">Nenhum chamado vinculado a veículos</p>
+          ) : (
+            <>
+              {/* Mobile */}
+              <div className="lg:hidden space-y-3">
+                {byVehicle.map((v) => (
+                  <div key={v.name} className="p-3 rounded-lg border bg-card">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-semibold">{v.name}</p>
+                      {v.open > 0 && <Badge className="bg-warning/10 text-warning border-warning/20 text-xs">{v.open} aberto(s)</Badge>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div><p className="text-xs text-muted-foreground">Chamados</p><p className="font-medium">{v.count}</p></div>
+                      <div><p className="text-xs text-muted-foreground">Custo Total</p><p className="font-medium text-red-400">{formatCurrency(v.costCents)}</p></div>
+                      <div><p className="text-xs text-muted-foreground">Custo Médio</p><p className="font-medium">{formatCurrency(v.count > 0 ? Math.round(v.costCents / v.count) : 0)}</p></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Desktop */}
+              <div className="hidden lg:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Veículo</TableHead>
+                      <TableHead className="text-right">Chamados</TableHead>
+                      <TableHead className="text-right">Em Aberto</TableHead>
+                      <TableHead className="text-right">Custo Total</TableHead>
+                      <TableHead className="text-right">Custo Médio</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {byVehicle.map((v) => (
+                      <TableRow key={v.name}>
+                        <TableCell className="font-medium">{v.name}</TableCell>
+                        <TableCell className="text-right">{v.count}</TableCell>
+                        <TableCell className="text-right">
+                          {v.open > 0 ? <Badge className="bg-warning/10 text-warning border-warning/20 text-xs">{v.open}</Badge> : "0"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-red-400">{formatCurrency(v.costCents)}</TableCell>
+                        <TableCell className="text-right font-mono">{formatCurrency(v.count > 0 ? Math.round(v.costCents / v.count) : 0)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Cost trend chart */}
+      {monthlyTrend.length > 0 && monthlyTrend.some(m => m.custo > 0) && (
+        <Card>
+          <CardHeader><CardTitle>Custo de Manutenção por Mês</CardTitle></CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={monthlyTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={(v) => `R$${v.toFixed(0)}`} />
+                  <Tooltip formatter={(v: number) => `R$ ${v.toFixed(2)}`} />
+                  <Line type="monotone" dataKey="custo" stroke="#ef4444" strokeWidth={2} name="Custo" dot={{ fill: "#ef4444" }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
@@ -494,17 +812,17 @@ function AffiliatesReport() {
     <div className="space-y-6">
       {/* Summary by affiliate */}
       <Card>
-        <CardHeader><CardTitle>Comiss?es por Afiliado</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Comissões por Afiliado</CardTitle></CardHeader>
         <CardContent>
           {byAffiliate.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">Nenhuma comiss?o registrada</p>
+            <p className="text-center py-8 text-muted-foreground">Nenhuma comissão registrada</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Afiliado</TableHead>
                   <TableHead className="text-right">Vendas</TableHead>
-                  <TableHead className="text-right">Comiss?o Total</TableHead>
+                  <TableHead className="text-right">Comissão Total</TableHead>
                   <TableHead className="text-right">Confirmada</TableHead>
                   <TableHead className="text-right">Pendente</TableHead>
                 </TableRow>
@@ -528,16 +846,16 @@ function AffiliatesReport() {
       {/* Detail table */}
       {(commissions || []).length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Detalhamento de Comiss?es</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Detalhamento de Comissões</CardTitle></CardHeader>
           <CardContent className="overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Data</TableHead>
                   <TableHead>Afiliado</TableHead>
-                  <TableHead>Excurs?o</TableHead>
+                  <TableHead>Excursão</TableHead>
                   <TableHead className="text-right">Venda</TableHead>
-                  <TableHead className="text-right">Comiss?o</TableHead>
+                  <TableHead className="text-right">Comissão</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -570,7 +888,7 @@ function AffiliatesReport() {
       {/* Chart */}
       {byAffiliate.length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Comiss?o por Afiliado</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Comissão por Afiliado</CardTitle></CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -591,4 +909,3 @@ function AffiliatesReport() {
     </div>
   );
 }
-
