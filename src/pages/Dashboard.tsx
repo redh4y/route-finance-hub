@@ -29,6 +29,7 @@ import { DashboardBillingBlock } from "@/components/dashboard/DashboardBillingBl
 import { DashboardOperationBlock } from "@/components/dashboard/DashboardOperationBlock";
 import { DashboardCommercialBlock } from "@/components/dashboard/DashboardCommercialBlock";
 import { DashboardAlerts } from "@/components/dashboard/DashboardAlerts";
+import { DashboardMaintenanceBlock } from "@/components/dashboard/DashboardMaintenanceBlock";
 
 function DashboardSkeleton() {
   return (
@@ -196,10 +197,11 @@ export default function Dashboard() {
                   <DashboardBillingBlock billingKPIs={enhanced.billingKPIs} />
 
                   {/* Operation + Commercial + Alerts */}
-                  <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
-                    <DashboardOperationBlock stats={enhanced.operationStats} />
-                    <DashboardCommercialBlock stats={enhanced.commercialStats} />
-                    <DashboardAlerts alerts={enhanced.smartAlerts} />
+                   <div className="grid gap-6 grid-cols-1 lg:grid-cols-2 xl:grid-cols-4">
+                     <DashboardOperationBlock stats={enhanced.operationStats} />
+                     <DashboardCommercialBlock stats={enhanced.commercialStats} />
+                     <DashboardMaintenanceBlock />
+                     <DashboardAlerts alerts={enhanced.smartAlerts} />
                   </div>
                 </div>
               )}

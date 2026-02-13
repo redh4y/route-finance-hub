@@ -19,6 +19,9 @@ import {
   Users2,
   Settings2,
   LayoutGrid,
+  Wrench,
+  FileText as ClipboardIcon,
+  Users as DriversIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -61,9 +64,16 @@ const navItems = [
     icon: Truck,
   },
   {
-    label: "Excursões",
-    path: "/excursoes",
-    icon: Bus,
+    label: "Manutenção",
+    path: "/manutencao",
+    icon: Wrench,
+    children: [
+      { label: "Chamados", path: "/manutencao", icon: Wrench },
+      { label: "Motoristas", path: "/manutencao/motoristas", icon: DriversIcon },
+      { label: "Inspeção", path: "/manutencao/inspecao", icon: ClipboardIcon },
+    ],
+  },
+  {
   },
   {
     label: "Afiliados",

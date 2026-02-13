@@ -458,6 +458,42 @@ export type Database = {
           },
         ]
       }
+      drivers: {
+        Row: {
+          address: string | null
+          cpf: string | null
+          created_at: string
+          id: string
+          name: string
+          phone: string | null
+          rg: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          cpf?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          phone?: string | null
+          rg?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          cpf?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          phone?: string | null
+          rg?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       excursion_seats: {
         Row: {
           blocked: boolean
@@ -825,6 +861,60 @@ export type Database = {
         }
         Relationships: []
       }
+      inspection_checklists: {
+        Row: {
+          created_at: string
+          driver_id: string | null
+          id: string
+          inspection_date: string
+          inspector_name: string | null
+          items: Json
+          observations: string | null
+          status: string
+          updated_at: string
+          vehicle_id: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id?: string | null
+          id?: string
+          inspection_date?: string
+          inspector_name?: string | null
+          items?: Json
+          observations?: string | null
+          status?: string
+          updated_at?: string
+          vehicle_id: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string | null
+          id?: string
+          inspection_date?: string
+          inspector_name?: string | null
+          items?: Json
+          observations?: string | null
+          status?: string
+          updated_at?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inspection_checklists_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inspection_checklists_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       installment_contracts: {
         Row: {
           card_id: string
@@ -890,6 +980,132 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      maintenance_tickets: {
+        Row: {
+          attachment_urls: string[] | null
+          category: string | null
+          completed_at: string | null
+          cost_center_id: string | null
+          cost_type: string | null
+          created_at: string
+          description: string | null
+          financial_entry_id: string | null
+          group_id: string | null
+          id: string
+          impact_type: string | null
+          labor_cost_cents: number | null
+          parts_cost_cents: number | null
+          payment_method: string | null
+          priority: Database["public"]["Enums"]["maintenance_priority"]
+          reported_at: string
+          reported_by: string | null
+          service_date: string | null
+          sla_deadline: string | null
+          status: Database["public"]["Enums"]["maintenance_status"]
+          subcategory: string | null
+          subgroup_id: string | null
+          supplier: string | null
+          title: string
+          total_cost_cents: number | null
+          updated_at: string
+          vehicle_id: string | null
+        }
+        Insert: {
+          attachment_urls?: string[] | null
+          category?: string | null
+          completed_at?: string | null
+          cost_center_id?: string | null
+          cost_type?: string | null
+          created_at?: string
+          description?: string | null
+          financial_entry_id?: string | null
+          group_id?: string | null
+          id?: string
+          impact_type?: string | null
+          labor_cost_cents?: number | null
+          parts_cost_cents?: number | null
+          payment_method?: string | null
+          priority?: Database["public"]["Enums"]["maintenance_priority"]
+          reported_at?: string
+          reported_by?: string | null
+          service_date?: string | null
+          sla_deadline?: string | null
+          status?: Database["public"]["Enums"]["maintenance_status"]
+          subcategory?: string | null
+          subgroup_id?: string | null
+          supplier?: string | null
+          title: string
+          total_cost_cents?: number | null
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Update: {
+          attachment_urls?: string[] | null
+          category?: string | null
+          completed_at?: string | null
+          cost_center_id?: string | null
+          cost_type?: string | null
+          created_at?: string
+          description?: string | null
+          financial_entry_id?: string | null
+          group_id?: string | null
+          id?: string
+          impact_type?: string | null
+          labor_cost_cents?: number | null
+          parts_cost_cents?: number | null
+          payment_method?: string | null
+          priority?: Database["public"]["Enums"]["maintenance_priority"]
+          reported_at?: string
+          reported_by?: string | null
+          service_date?: string | null
+          sla_deadline?: string | null
+          status?: Database["public"]["Enums"]["maintenance_status"]
+          subcategory?: string | null
+          subgroup_id?: string | null
+          supplier?: string | null
+          title?: string
+          total_cost_cents?: number | null
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_tickets_cost_center_id_fkey"
+            columns: ["cost_center_id"]
+            isOneToOne: false
+            referencedRelation: "cost_centers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_tickets_financial_entry_id_fkey"
+            columns: ["financial_entry_id"]
+            isOneToOne: false
+            referencedRelation: "financial_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_tickets_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "dre_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_tickets_subgroup_id_fkey"
+            columns: ["subgroup_id"]
+            isOneToOne: false
+            referencedRelation: "dre_subgroups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_tickets_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       passengers: {
         Row: {
@@ -1442,6 +1658,14 @@ export type Database = {
       }
     }
     Enums: {
+      maintenance_priority: "BAIXA" | "MEDIA" | "ALTA" | "CRITICA"
+      maintenance_status:
+        | "ABERTO"
+        | "EM_ANALISE"
+        | "EM_EXECUCAO"
+        | "AGUARDANDO_PECA"
+        | "CONCLUIDO"
+        | "CANCELADO"
       public_lead_status:
         | "CAPTURADO"
         | "INTERESSE_ASSENTOS"
@@ -1576,6 +1800,15 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      maintenance_priority: ["BAIXA", "MEDIA", "ALTA", "CRITICA"],
+      maintenance_status: [
+        "ABERTO",
+        "EM_ANALISE",
+        "EM_EXECUCAO",
+        "AGUARDANDO_PECA",
+        "CONCLUIDO",
+        "CANCELADO",
+      ],
       public_lead_status: [
         "CAPTURADO",
         "INTERESSE_ASSENTOS",
