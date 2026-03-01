@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +15,12 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { formatCurrency, formatDate, formatMonthRef, getCurrentMonthRef } from "@/lib/formatters";
+import {
+  formatCurrency,
+  formatDate,
+  formatMonthRef,
+  getCurrentMonthRef,
+} from "@/lib/formatters";
 import { toast } from "sonner";
 import {
   Table,
@@ -90,7 +95,13 @@ type AllocationDraft = {
   amount: string;
 };
 
-type QuickFilter = "ALL" | "REVIEW" | "NO_GROUP" | "COST_NO_VEHICLE" | "CUSTO" | "DESPESA";
+type QuickFilter =
+  | "ALL"
+  | "REVIEW"
+  | "NO_GROUP"
+  | "COST_NO_VEHICLE"
+  | "CUSTO"
+  | "DESPESA";
 
 const PAYMENT_METHOD_OPTIONS = [
   { value: "PIX", label: "PIX" },
@@ -113,10 +124,15 @@ const REVIEW_REASON_LABELS: Record<string, string> = {
 
 function formatReviewReasons(reasons?: string[] | null): string {
   if (!reasons || reasons.length === 0) return "";
-  return reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(", ");
+  return reasons
+    .map((reason) => REVIEW_REASON_LABELS[reason] || reason)
+    .join(", ");
 }
 
-function isEntryNeedsReview(entry: FinancialEntry, allocationsByEntry: Map<string, AllocationRow[]>): boolean {
+function isEntryNeedsReview(
+  entry: FinancialEntry,
+  allocationsByEntry: Map<string, AllocationRow[]>,
+): boolean {
   if (entry.needs_review || entry.needs_classification) return true;
   if (!entry.group_id) return true;
   const allocation = allocationsByEntry.get(entry.id);
@@ -125,9 +141,20 @@ function isEntryNeedsReview(entry: FinancialEntry, allocationsByEntry: Map<strin
   return false;
 }
 
-const QUICK_FILTERS: { value: QuickFilter; label: string; icon?: React.ReactNode }[] = [
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+const DEFAULT_PAGE_SIZE = 20;
+
+const QUICK_FILTERS: {
+  value: QuickFilter;
+  label: string;
+  icon?: React.ReactNode;
+}[] = [
   { value: "ALL", label: "Todos" },
-  { value: "REVIEW", label: "Revisão", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+  {
+    value: "REVIEW",
+    label: "Revisão",
+    icon: <AlertTriangle className="h-3.5 w-3.5" />,
+  },
   { value: "NO_GROUP", label: "Sem grupo" },
   { value: "COST_NO_VEHICLE", label: "Custo s/ veículo" },
   { value: "CUSTO", label: "Custos" },
@@ -145,26 +172,43 @@ export default function FinancialExpenses() {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [paymentMethod, setPaymentMethod] = useState("PIX");
   const [vehicleId, setVehicleId] = useState("");
-  const [allocationEntry, setAllocationEntry] = useState<FinancialEntry | null>(null);
+  const [allocationEntry, setAllocationEntry] = useState<FinancialEntry | null>(
+    null,
+  );
   const [allocationRows, setAllocationRows] = useState<AllocationDraft[]>([]);
-  const [classEntryType, setClassEntryType] = useState<"CUSTO" | "DESPESA">("DESPESA");
+  const [classEntryType, setClassEntryType] = useState<"CUSTO" | "DESPESA">(
+    "DESPESA",
+  );
   const [classGroupId, setClassGroupId] = useState("");
   const [classSubgroupId, setClassSubgroupId] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("ALL");
   const [paymentFilter, setPaymentFilter] = useState<string>("ALL");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedMonth, quickFilter, paymentFilter, pageSize]);
 
   const uploadAttachment = async (entryId: string, file: File) => {
     setUploadingId(entryId);
     try {
       const ext = file.name.split(".").pop();
       const path = `${entryId}/${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("financial-attachments").upload(path, file);
+      const { error: upErr } = await supabase.storage
+        .from("financial-attachments")
+        .upload(path, file);
       if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from("financial-attachments").getPublicUrl(path);
-      const { error: dbErr } = await supabase.from("financial_entries").update({ attachment_url: urlData.publicUrl } as any).eq("id", entryId);
+      const { data: urlData } = supabase.storage
+        .from("financial-attachments")
+        .getPublicUrl(path);
+      const { error: dbErr } = await supabase
+        .from("financial_entries")
+        .update({ attachment_url: urlData.publicUrl } as any)
+        .eq("id", entryId);
       if (dbErr) throw dbErr;
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       toast.success("Comprovante anexado");
@@ -183,12 +227,17 @@ export default function FinancialExpenses() {
         .select("id, name, plate, active")
         .order("name", { ascending: true });
       if (error) throw error;
-      return data as { id: string; name: string; plate: string | null; active: boolean }[];
+      return data as {
+        id: string;
+        name: string;
+        plate: string | null;
+        active: boolean;
+      }[];
     },
   });
   const activeVehicles = useMemo(
     () => (vehicles || []).filter((vehicle) => vehicle.active),
-    [vehicles]
+    [vehicles],
   );
   const vehicleById = useMemo(() => {
     const map = new Map<string, { name: string; plate: string | null }>();
@@ -262,7 +311,12 @@ export default function FinancialExpenses() {
         .eq("active", true)
         .order("name", { ascending: true });
       if (error) throw error;
-      return data as { id: string; name: string; type: string; active: boolean }[];
+      return data as {
+        id: string;
+        name: string;
+        type: string;
+        active: boolean;
+      }[];
     },
   });
 
@@ -299,7 +353,9 @@ export default function FinancialExpenses() {
 
   const allGroupById = useMemo(() => {
     const map = new Map<string, { name: string; nature: string }>();
-    (allDreGroups || []).forEach((g) => map.set(g.id, { name: g.name, nature: g.nature }));
+    (allDreGroups || []).forEach((g) =>
+      map.set(g.id, { name: g.name, nature: g.nature }),
+    );
     return map;
   }, [allDreGroups]);
 
@@ -317,24 +373,94 @@ export default function FinancialExpenses() {
     return map;
   }, [dreSubgroups]);
 
-  const { data: entries, isLoading } = useQuery({
-    queryKey: ["financial-entries", selectedMonth, "expenses"],
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const { data: entriesResult, isLoading } = useQuery({
+    queryKey: [
+      "financial-entries",
+      selectedMonth,
+      "expenses",
+      quickFilter,
+      paymentFilter,
+      page,
+      pageSize,
+    ],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("financial_entries")
-        .select("*")
-        .or(`competence_month.eq.${selectedMonth},invoice_month.eq.${selectedMonth}`)
-        .in("type", ["CUSTO", "DESPESA"])
-        .order("date", { ascending: false });
+        .select("*", { count: "exact" })
+        .or(
+          `competence_month.eq.${selectedMonth},invoice_month.eq.${selectedMonth}`,
+        )
+        .in("type", ["CUSTO", "DESPESA"]);
+
+      if (quickFilter === "CUSTO" || quickFilter === "DESPESA") {
+        query = query.eq("type", quickFilter);
+      } else if (quickFilter === "NO_GROUP") {
+        query = query.is("group_id", null);
+      } else if (quickFilter === "COST_NO_VEHICLE") {
+        query = query.eq("type", "CUSTO").is("vehicle_id", null);
+      } else if (quickFilter === "REVIEW") {
+        query = query.or(
+          "needs_review.eq.true,needs_classification.eq.true,group_id.is.null",
+        );
+      }
+
+      if (paymentFilter !== "ALL") {
+        query = query.eq("payment_method", paymentFilter);
+      }
+
+      const { data, error, count } = await query
+        .order("date", { ascending: false })
+        .range(from, to);
 
       if (error) throw error;
-      return data as FinancialEntry[];
+      return {
+        rows: (data || []) as FinancialEntry[],
+        count: count || 0,
+      };
     },
   });
 
-  const entryIds = useMemo(() => (entries || []).map((e) => e.id), [entries]);
+  const entries = entriesResult?.rows || [];
+  const totalEntries = entriesResult?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
+
+  const { data: summaryRows } = useQuery({
+    queryKey: ["financial-entries-summary", selectedMonth],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("financial_entries")
+        .select("type, amount_cents")
+        .or(
+          `competence_month.eq.${selectedMonth},invoice_month.eq.${selectedMonth}`,
+        )
+        .in("type", ["CUSTO", "DESPESA"]);
+      if (error) throw error;
+      return (data || []) as Pick<FinancialEntry, "type" | "amount_cents">[];
+    },
+  });
+
+  const { data: reviewCount = 0 } = useQuery({
+    queryKey: ["financial-entries-review-count", selectedMonth],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("financial_entries")
+        .select("id", { count: "exact", head: true })
+        .or(
+          `competence_month.eq.${selectedMonth},invoice_month.eq.${selectedMonth}`,
+        )
+        .in("type", ["CUSTO", "DESPESA"])
+        .or("needs_review.eq.true,needs_classification.eq.true,group_id.is.null");
+      if (error) throw error;
+      return count || 0;
+    },
+  });
+
+  const entryIds = useMemo(() => entries.map((e) => e.id), [entries]);
   const { data: allocations } = useQuery({
-    queryKey: ["financial-entry-allocations", selectedMonth],
+    queryKey: ["financial-entry-allocations", selectedMonth, page, pageSize],
     enabled: entryIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -356,48 +482,7 @@ export default function FinancialExpenses() {
     return map;
   }, [allocations]);
 
-  // Filtered entries
-  const filteredEntries = useMemo(() => {
-    if (!entries) return [];
-    let filtered = entries;
-
-    // Quick filter
-    switch (quickFilter) {
-      case "REVIEW":
-        filtered = filtered.filter((e) => isEntryNeedsReview(e, allocationsByEntry));
-        break;
-      case "NO_GROUP":
-        filtered = filtered.filter((e) => !e.group_id);
-        break;
-      case "COST_NO_VEHICLE": {
-        filtered = filtered.filter((e) => {
-          if (e.type !== "CUSTO") return false;
-          const alloc = allocationsByEntry.get(e.id);
-          return !e.vehicle_id && (!alloc || alloc.length === 0);
-        });
-        break;
-      }
-      case "CUSTO":
-        filtered = filtered.filter((e) => e.type === "CUSTO");
-        break;
-      case "DESPESA":
-        filtered = filtered.filter((e) => e.type === "DESPESA");
-        break;
-    }
-
-    // Payment filter
-    if (paymentFilter !== "ALL") {
-      filtered = filtered.filter((e) => e.payment_method === paymentFilter);
-    }
-
-    return filtered;
-  }, [entries, quickFilter, paymentFilter, allocationsByEntry]);
-
-  // Review counts
-  const reviewCount = useMemo(() => {
-    if (!entries) return 0;
-    return entries.filter((e) => isEntryNeedsReview(e, allocationsByEntry)).length;
-  }, [entries, allocationsByEntry]);
+  const filteredEntries = entries;
 
   const createEntry = useMutation({
     mutationFn: async () => {
@@ -407,13 +492,17 @@ export default function FinancialExpenses() {
       if ((dreSubgroups?.length || 0) > 0 && !subgroupId) {
         throw new Error("Selecione um subgrupo.");
       }
-      const amountCents = Math.round(parseFloat(amount.replace(",", ".")) * 100);
+      const amountCents = Math.round(
+        parseFloat(amount.replace(",", ".")) * 100,
+      );
       const group = groupById.get(groupId);
       const subgroup = subgroupId ? subgroupById.get(subgroupId) : null;
       const reviewReasons: string[] = [];
       if (!groupId) reviewReasons.push("MISSING_GROUP");
-      if ((dreSubgroups?.length || 0) > 0 && !subgroupId) reviewReasons.push("MISSING_SUBGROUP");
-      if (entryType === "CUSTO" && !vehicleId) reviewReasons.push("COST_WITHOUT_VEHICLE");
+      if ((dreSubgroups?.length || 0) > 0 && !subgroupId)
+        reviewReasons.push("MISSING_SUBGROUP");
+      if (entryType === "CUSTO" && !vehicleId)
+        reviewReasons.push("COST_WITHOUT_VEHICLE");
       if (!paymentMethod) reviewReasons.push("MISSING_PAYMENT_METHOD");
       const needsReview = reviewReasons.length > 0;
 
@@ -435,7 +524,9 @@ export default function FinancialExpenses() {
         review_reasons: reviewReasons,
       };
 
-      const { error } = await supabase.from("financial_entries").insert(payload);
+      const { error } = await supabase
+        .from("financial_entries")
+        .insert(payload);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -473,6 +564,27 @@ export default function FinancialExpenses() {
     },
   });
 
+  const clearAllEntries = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("financial_entries")
+        .delete()
+        .in("type", ["CUSTO", "DESPESA"]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
+      queryClient.invalidateQueries({
+        queryKey: ["financial-entry-allocations"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["dre"] });
+      toast.success("Todos os lan?amentos de sa?das foram removidos");
+    },
+    onError: (error) => {
+      toast.error("Erro ao limpar dados: " + error.message);
+    },
+  });
+
   const saveAllocations = useMutation({
     mutationFn: async () => {
       if (!allocationEntry) return;
@@ -487,17 +599,25 @@ export default function FinancialExpenses() {
         .filter((row) => row.vehicleId && row.amount)
         .map((row) => ({
           vehicleId: row.vehicleId,
-          amountCents: Math.round(parseFloat(row.amount.replace(",", ".")) * 100),
+          amountCents: Math.round(
+            parseFloat(row.amount.replace(",", ".")) * 100,
+          ),
         }));
 
-      if (parsed.some((row) => Number.isNaN(row.amountCents) || row.amountCents <= 0)) {
+      if (
+        parsed.some(
+          (row) => Number.isNaN(row.amountCents) || row.amountCents <= 0,
+        )
+      ) {
         throw new Error("Preencha os valores de rateio corretamente.");
       }
 
       if (parsed.length > 0) {
         const total = parsed.reduce((sum, row) => sum + row.amountCents, 0);
         if (total !== allocationEntry.amount_cents) {
-          throw new Error("A soma do rateio deve ser igual ao valor do lançamento.");
+          throw new Error(
+            "A soma do rateio deve ser igual ao valor do lançamento.",
+          );
         }
       }
 
@@ -515,17 +635,21 @@ export default function FinancialExpenses() {
               entry_id: allocationEntry.id,
               vehicle_id: row.vehicleId,
               amount_cents: row.amountCents,
-            }))
+            })),
           );
         if (insertError) throw insertError;
       }
 
       const selectedGroup = classDreGroups?.find((g) => g.id === classGroupId);
-      const selectedSubgroup = classDreSubgroups?.find((sg) => sg.id === classSubgroupId);
+      const selectedSubgroup = classDreSubgroups?.find(
+        (sg) => sg.id === classSubgroupId,
+      );
       const reviewReasons: string[] = [];
       if (!classGroupId) reviewReasons.push("MISSING_GROUP");
-      if (hasClassSubgroups && !classSubgroupId) reviewReasons.push("MISSING_SUBGROUP");
-      if (classEntryType === "CUSTO" && parsed.length === 0) reviewReasons.push("COST_WITHOUT_VEHICLE");
+      if (hasClassSubgroups && !classSubgroupId)
+        reviewReasons.push("MISSING_SUBGROUP");
+      if (classEntryType === "CUSTO" && parsed.length === 0)
+        reviewReasons.push("COST_WITHOUT_VEHICLE");
       const needsReview = reviewReasons.length > 0;
 
       const updatePayload: any = {
@@ -547,7 +671,9 @@ export default function FinancialExpenses() {
       if (updateError) throw updateError;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["financial-entry-allocations"] });
+      queryClient.invalidateQueries({
+        queryKey: ["financial-entry-allocations"],
+      });
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
       toast.success("Classificação e rateio salvos com sucesso");
@@ -562,22 +688,29 @@ export default function FinancialExpenses() {
   });
   const hasSubgroups = (dreSubgroups?.length || 0) > 0;
 
-  const months = Array.from({ length: 12 }, (_, i) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - i);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  });
-
-  const totalCustos = entries?.filter((e) => e.type === "CUSTO").reduce((sum, e) => sum + e.amount_cents, 0) || 0;
-  const totalDespesas = entries?.filter((e) => e.type === "DESPESA").reduce((sum, e) => sum + e.amount_cents, 0) || 0;
+  const totalCustos =
+    summaryRows
+      ?.filter((e) => e.type === "CUSTO")
+      .reduce((sum, e) => sum + e.amount_cents, 0) || 0;
+  const totalDespesas =
+    summaryRows
+      ?.filter((e) => e.type === "DESPESA")
+      .reduce((sum, e) => sum + e.amount_cents, 0) || 0;
   const getInstallmentLabel = (entry: FinancialEntry) => {
-    if (entry.installment_total && entry.installment_total > 1 && entry.installment_current) {
+    if (
+      entry.installment_total &&
+      entry.installment_total > 1 &&
+      entry.installment_current
+    ) {
       return `${String(entry.installment_current).padStart(2, "0")}/${String(entry.installment_total).padStart(2, "0")}`;
     }
     return "01/01";
   };
   const getCleanDescription = (desc: string) =>
-    desc.replace(/\s*\b\d{1,2}\/\d{1,2}\b\s*/g, " ").replace(/\s+/g, " ").trim();
+    desc
+      .replace(/\s*\b\d{1,2}\/\d{1,2}\b\s*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
   const openAllocation = (entry: FinancialEntry) => {
     const existing = allocationsByEntry.get(entry.id);
@@ -586,7 +719,7 @@ export default function FinancialExpenses() {
         existing.map((row) => ({
           vehicleId: row.vehicle_id,
           amount: (row.amount_cents / 100).toFixed(2).replace(".", ","),
-        }))
+        })),
       );
     } else {
       setAllocationRows([
@@ -633,18 +766,52 @@ export default function FinancialExpenses() {
                     {reviewCount} pendência{reviewCount > 1 ? "s" : ""}
                   </Button>
                 )}
-                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {months.map((month) => (
-                      <SelectItem key={month} value={month}>
-                        {formatMonthRef(month)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="h-4 w-4 mr-1.5" />
+                      LIMPAR TODOS OS DADOS
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>
+                        Limpar todos os dados de sa?das?
+                      </DialogTitle>
+                      <DialogDescription>
+                        Esta a??o remove todos os lan?amentos de custos e
+                        despesas. N?o pode ser desfeita.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <DialogClose asChild>
+                        <Button variant="outline">Cancelar</Button>
+                      </DialogClose>
+                      <DialogClose asChild>
+                        <Button
+                          variant="destructive"
+                          onClick={() => clearAllEntries.mutate()}
+                          disabled={clearAllEntries.isPending}
+                        >
+                          Confirmar limpeza
+                        </Button>
+                      </DialogClose>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                <Input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(event) => setSelectedMonth(event.target.value)}
+                  className="w-[180px]"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedMonth(getCurrentMonthRef())}
+                >
+                  Mês atual
+                </Button>
               </div>
             </div>
           </div>
@@ -662,18 +829,23 @@ export default function FinancialExpenses() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Tipo</Label>
-                    <Select value={entryType} onValueChange={(v) => {
-                      setEntryType(v as "CUSTO" | "DESPESA");
-                      setGroupId("");
-                      setSubgroupId("");
-                      setCostCenterId("");
-                    }}>
+                    <Select
+                      value={entryType}
+                      onValueChange={(v) => {
+                        setEntryType(v as "CUSTO" | "DESPESA");
+                        setGroupId("");
+                        setSubgroupId("");
+                        setCostCenterId("");
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="CUSTO">Custo Operacional</SelectItem>
-                        <SelectItem value="DESPESA">Despesa Administrativa</SelectItem>
+                        <SelectItem value="DESPESA">
+                          Despesa Administrativa
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -683,16 +855,25 @@ export default function FinancialExpenses() {
                     </Label>
                     <Select
                       value={vehicleId || ""}
-                      onValueChange={(value) => setVehicleId(value === "__none__" ? "" : value)}
+                      onValueChange={(value) =>
+                        setVehicleId(value === "__none__" ? "" : value)
+                      }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder={entryType === "CUSTO" ? "Selecione o veículo" : "Sem veículo"} />
+                        <SelectValue
+                          placeholder={
+                            entryType === "CUSTO"
+                              ? "Selecione o veículo"
+                              : "Sem veículo"
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">Sem veículo</SelectItem>
                         {activeVehicles.map((vehicle) => (
                           <SelectItem key={vehicle.id} value={vehicle.id}>
-                            {vehicle.name}{vehicle.plate ? ` - ${vehicle.plate}` : ""}
+                            {vehicle.name}
+                            {vehicle.plate ? ` - ${vehicle.plate}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -709,10 +890,13 @@ export default function FinancialExpenses() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Grupo</Label>
-                    <Select value={groupId} onValueChange={(v) => {
-                      setGroupId(v);
-                      setSubgroupId("");
-                    }}>
+                    <Select
+                      value={groupId}
+                      onValueChange={(v) => {
+                        setGroupId(v);
+                        setSubgroupId("");
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
@@ -751,13 +935,17 @@ export default function FinancialExpenses() {
                   <Label>Centro de custo (opcional)</Label>
                   <Select
                     value={costCenterId || ""}
-                    onValueChange={(value) => setCostCenterId(value === "__none__" ? "" : value)}
+                    onValueChange={(value) =>
+                      setCostCenterId(value === "__none__" ? "" : value)
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Sem centro de custo" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none__">Sem centro de custo</SelectItem>
+                      <SelectItem value="__none__">
+                        Sem centro de custo
+                      </SelectItem>
                       {costCenters?.map((center) => (
                         <SelectItem key={center.id} value={center.id}>
                           {center.name}
@@ -770,7 +958,11 @@ export default function FinancialExpenses() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Data</Label>
-                    <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                    <Input
+                      type="date"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -786,7 +978,10 @@ export default function FinancialExpenses() {
 
                 <div className="space-y-2">
                   <Label>Forma de pagamento</Label>
-                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <Select
+                    value={paymentMethod}
+                    onValueChange={setPaymentMethod}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione..." />
                     </SelectTrigger>
@@ -855,12 +1050,22 @@ export default function FinancialExpenses() {
                     </div>
                   </CardContent>
                 </Card>
-                <Card className={cn("border-l-4", reviewCount > 0 ? "border-l-review" : "border-l-success")}>
+                <Card
+                  className={cn(
+                    "border-l-4",
+                    reviewCount > 0 ? "border-l-review" : "border-l-success",
+                  )}
+                >
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="stat-label">Pendências</p>
-                        <p className={cn("stat-value", reviewCount > 0 ? "text-review" : "text-success")}>
+                        <p
+                          className={cn(
+                            "stat-value",
+                            reviewCount > 0 ? "text-review" : "text-success",
+                          )}
+                        >
                           {reviewCount}
                         </p>
                       </div>
@@ -882,11 +1087,15 @@ export default function FinancialExpenses() {
                     {QUICK_FILTERS.map((f) => (
                       <Button
                         key={f.value}
-                        variant={quickFilter === f.value ? "default" : "outline"}
+                        variant={
+                          quickFilter === f.value ? "default" : "outline"
+                        }
                         size="sm"
                         className={cn(
                           "h-8 text-xs",
-                          quickFilter === f.value && f.value === "REVIEW" && "bg-review hover:bg-review/90"
+                          quickFilter === f.value &&
+                            f.value === "REVIEW" &&
+                            "bg-review hover:bg-review/90",
                         )}
                         onClick={() => setQuickFilter(f.value)}
                       >
@@ -900,7 +1109,10 @@ export default function FinancialExpenses() {
                       </Button>
                     ))}
                     <div className="ml-auto">
-                      <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                      <Select
+                        value={paymentFilter}
+                        onValueChange={setPaymentFilter}
+                      >
                         <SelectTrigger className="h-8 w-[160px] text-xs">
                           <SelectValue placeholder="Pagamento" />
                         </SelectTrigger>
@@ -926,7 +1138,8 @@ export default function FinancialExpenses() {
                       Lançamentos — {formatMonthRef(selectedMonth)}
                     </CardTitle>
                     <span className="text-xs text-muted-foreground">
-                      {filteredEntries.length} de {entries?.length || 0} lançamentos
+                      {filteredEntries.length} de {totalEntries}{" "}
+                      lançamentos
                     </span>
                   </div>
                 </CardHeader>
@@ -942,39 +1155,118 @@ export default function FinancialExpenses() {
                       {/* Mobile: Card list */}
                       <div className="lg:hidden space-y-3">
                         {filteredEntries.map((entry) => {
-                          const needsReview = isEntryNeedsReview(entry, allocationsByEntry);
-                          const groupInfo = entry.group_id ? allGroupById.get(entry.group_id) : null;
+                          const needsReview = isEntryNeedsReview(
+                            entry,
+                            allocationsByEntry,
+                          );
+                          const groupInfo = entry.group_id
+                            ? allGroupById.get(entry.group_id)
+                            : null;
                           return (
-                            <div key={entry.id} className={cn("p-3 rounded-lg border bg-card space-y-2", needsReview && "border-review/30 bg-review/[0.03]")}>
+                            <div
+                              key={entry.id}
+                              className={cn(
+                                "p-3 rounded-lg border bg-card space-y-2",
+                                needsReview &&
+                                  "border-review/30 bg-review/[0.03]",
+                              )}
+                            >
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <Badge variant="outline" className={cn("text-[11px] font-semibold shrink-0", entry.type === "CUSTO" ? "border-destructive/40 text-destructive bg-destructive/5" : "border-warning/40 text-warning bg-warning/5")}>{entry.type}</Badge>
-                                  {needsReview && <AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" />}
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-[11px] font-semibold shrink-0",
+                                      entry.type === "CUSTO"
+                                        ? "border-destructive/40 text-destructive bg-destructive/5"
+                                        : "border-warning/40 text-warning bg-warning/5",
+                                    )}
+                                  >
+                                    {entry.type}
+                                  </Badge>
+                                  {needsReview && (
+                                    <AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" />
+                                  )}
                                 </div>
-                                <span className="font-mono text-sm text-destructive font-medium shrink-0">-{formatCurrency(entry.amount_cents)}</span>
+                                <span className="font-mono text-sm text-destructive font-medium shrink-0">
+                                  -{formatCurrency(entry.amount_cents)}
+                                </span>
                               </div>
-                              <p className="text-sm truncate">{getCleanDescription(entry.description)}</p>
+                              <p className="text-sm truncate">
+                                {getCleanDescription(entry.description)}
+                              </p>
                               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                 <span>{formatDate(entry.date)}</span>
                                 <span>·</span>
                                 <span>{groupInfo?.name || "Sem grupo"}</span>
                                 <span>·</span>
-                                <Badge variant="outline" className="text-[10px]">{PAYMENT_METHOD_OPTIONS.find((o) => o.value === entry.payment_method)?.label || entry.payment_method || "—"}</Badge>
-                                <Badge variant="outline" className={cn("text-[10px]", entry.installment_total && entry.installment_total > 1 ? "border-accent/40 text-accent" : "border-success/40 text-success")}>{getInstallmentLabel(entry)}</Badge>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px]"
+                                >
+                                  {PAYMENT_METHOD_OPTIONS.find(
+                                    (o) => o.value === entry.payment_method,
+                                  )?.label ||
+                                    entry.payment_method ||
+                                    "—"}
+                                </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-[10px]",
+                                    entry.installment_total &&
+                                      entry.installment_total > 1
+                                      ? "border-accent/40 text-accent"
+                                      : "border-success/40 text-success",
+                                  )}
+                                >
+                                  {getInstallmentLabel(entry)}
+                                </Badge>
                               </div>
                               <div className="flex items-center gap-1 pt-1">
-                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => openAllocation(entry)}>
-                                  <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />Classificar
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => openAllocation(entry)}
+                                >
+                                  <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
+                                  Classificar
                                 </Button>
                                 <label className="cursor-pointer">
-                                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAttachment(entry.id, f); }} />
-                                  <Button variant="ghost" size="sm" className="h-7 text-xs pointer-events-none" tabIndex={-1}>
-                                    <Paperclip className="h-3.5 w-3.5 mr-1" />{entry.attachment_url ? "Trocar" : "Anexar"}
+                                  <input
+                                    type="file"
+                                    accept="image/*,.pdf"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0];
+                                      if (f) uploadAttachment(entry.id, f);
+                                    }}
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs pointer-events-none"
+                                    tabIndex={-1}
+                                  >
+                                    <Paperclip className="h-3.5 w-3.5 mr-1" />
+                                    {entry.attachment_url ? "Trocar" : "Anexar"}
                                   </Button>
                                 </label>
                                 {entry.attachment_url && (
-                                  <a href={entry.attachment_url} target="_blank" rel="noopener noreferrer">
-                                    <Button variant="ghost" size="sm" className="h-7 text-xs"><ExternalLink className="h-3.5 w-3.5 mr-1" />Ver</Button>
+                                  <a
+                                    href={entry.attachment_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                    >
+                                      <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                                      Ver
+                                    </Button>
                                   </a>
                                 )}
                               </div>
@@ -985,108 +1277,277 @@ export default function FinancialExpenses() {
 
                       {/* Desktop: Table */}
                       <div className="hidden lg:block overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[90px]">Data</TableHead>
-                            <TableHead className="w-[120px]">Tipo</TableHead>
-                            <TableHead>Grupo / Subgrupo</TableHead>
-                            <TableHead className="w-[70px]">Parc.</TableHead>
-                            <TableHead className="w-[120px]">Pagamento</TableHead>
-                            <TableHead>Descrição</TableHead>
-                            <TableHead className="text-right w-[110px]">Valor</TableHead>
-                            <TableHead className="w-[110px]"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredEntries.map((entry) => {
-                            const needsReview = isEntryNeedsReview(entry, allocationsByEntry);
-                            const allocation = allocationsByEntry.get(entry.id);
-                            const vehicleIds = allocation?.length
-                              ? allocation.map((row) => row.vehicle_id)
-                              : entry.vehicle_id
-                                ? [entry.vehicle_id]
-                                : [];
-                            const groupInfo = entry.group_id ? allGroupById.get(entry.group_id) : null;
-                            const subgroupInfo = entry.subgroup_id ? allSubgroupById.get(entry.subgroup_id) : null;
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-[90px]">Data</TableHead>
+                              <TableHead className="w-[120px]">Tipo</TableHead>
+                              <TableHead>Grupo / Subgrupo</TableHead>
+                              <TableHead className="w-[70px]">Parc.</TableHead>
+                              <TableHead className="w-[120px]">
+                                Pagamento
+                              </TableHead>
+                              <TableHead>Descrição</TableHead>
+                              <TableHead className="text-right w-[110px]">
+                                Valor
+                              </TableHead>
+                              <TableHead className="w-[110px]"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredEntries.map((entry) => {
+                              const needsReview = isEntryNeedsReview(
+                                entry,
+                                allocationsByEntry,
+                              );
+                              const allocation = allocationsByEntry.get(
+                                entry.id,
+                              );
+                              const vehicleIds = allocation?.length
+                                ? allocation.map((row) => row.vehicle_id)
+                                : entry.vehicle_id
+                                  ? [entry.vehicle_id]
+                                  : [];
+                              const groupInfo = entry.group_id
+                                ? allGroupById.get(entry.group_id)
+                                : null;
+                              const subgroupInfo = entry.subgroup_id
+                                ? allSubgroupById.get(entry.subgroup_id)
+                                : null;
 
-                            return (
-                              <TableRow key={entry.id} className={cn(needsReview && "bg-review/[0.03]")}>
-                                <TableCell className="text-xs tabular-nums">{formatDate(entry.date)}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-1.5">
-                                    <Badge variant="outline" className={cn("text-[11px] font-semibold", entry.type === "CUSTO" ? "border-destructive/40 text-destructive bg-destructive/5" : "border-warning/40 text-warning bg-warning/5")}>{entry.type}</Badge>
-                                    {needsReview && (
-                                      <Tooltip><TooltipTrigger asChild><AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" /></TooltipTrigger>
-                                        <TooltipContent side="top" className="max-w-[220px]"><p className="font-medium text-xs mb-1">Pendências:</p><p className="text-xs">{formatReviewReasons(entry.review_reasons) || "Classificação incompleta"}</p></TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </div>
-                                  {vehicleIds.length > 0 && (
-                                    <div className="text-[11px] text-muted-foreground mt-1 truncate max-w-[120px]">
-                                      {vehicleIds.map((id) => vehicleById.get(id)).filter(Boolean).map((v) => v!.name).join(", ")}
-                                    </div>
+                              return (
+                                <TableRow
+                                  key={entry.id}
+                                  className={cn(
+                                    needsReview && "bg-review/[0.03]",
                                   )}
-                                </TableCell>
-                                <TableCell>
-                                  <div className="space-y-0.5">
-                                    {groupInfo ? <span className="text-sm font-medium">{groupInfo.name}</span> : <span className="text-sm text-muted-foreground italic">Sem grupo</span>}
-                                    {subgroupInfo && <div className="text-xs text-muted-foreground">{subgroupInfo.name}</div>}
-                                    {needsReview && <Badge variant="outline" className="text-[10px] border-review/30 text-review bg-review/5 mt-0.5">Revisão DRE</Badge>}
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className={cn("text-xs", entry.installment_total && entry.installment_total > 1 ? "border-accent/40 text-accent bg-accent/5" : "border-success/40 text-success bg-success/5")}>{getInstallmentLabel(entry)}</Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className="text-xs">{PAYMENT_METHOD_OPTIONS.find((o) => o.value === entry.payment_method)?.label || entry.payment_method || "—"}</Badge>
-                                </TableCell>
-                                <TableCell className="max-w-[200px]">
-                                  <span className="truncate block text-sm">{getCleanDescription(entry.description)}</span>
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm text-destructive font-medium">-{formatCurrency(entry.amount_cents)}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center justify-end gap-0.5">
-                                    {entry.attachment_url ? (
-                                      <Tooltip><TooltipTrigger asChild>
-                                        <a href={entry.attachment_url} target="_blank" rel="noopener noreferrer">
-                                          <Button variant="ghost" size="icon" className="h-8 w-8 text-success hover:bg-success/10"><Paperclip className="h-4 w-4" /></Button>
-                                        </a>
-                                      </TooltipTrigger><TooltipContent>Ver comprovante</TooltipContent></Tooltip>
-                                    ) : (
-                                      <Tooltip><TooltipTrigger asChild>
-                                        <label className="cursor-pointer">
-                                          <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAttachment(entry.id, f); }} />
-                                          <Button variant="ghost" size="icon" className={cn("h-8 w-8 pointer-events-none", uploadingId === entry.id && "animate-pulse")} tabIndex={-1}>
-                                            <Paperclip className="h-4 w-4" />
-                                          </Button>
-                                        </label>
-                                      </TooltipTrigger><TooltipContent>Anexar comprovante</TooltipContent></Tooltip>
+                                >
+                                  <TableCell className="text-xs tabular-nums">
+                                    {formatDate(entry.date)}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-1.5">
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(
+                                          "text-[11px] font-semibold",
+                                          entry.type === "CUSTO"
+                                            ? "border-destructive/40 text-destructive bg-destructive/5"
+                                            : "border-warning/40 text-warning bg-warning/5",
+                                        )}
+                                      >
+                                        {entry.type}
+                                      </Badge>
+                                      {needsReview && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <AlertTriangle className="h-3.5 w-3.5 text-review shrink-0" />
+                                          </TooltipTrigger>
+                                          <TooltipContent
+                                            side="top"
+                                            className="max-w-[220px]"
+                                          >
+                                            <p className="font-medium text-xs mb-1">
+                                              Pendências:
+                                            </p>
+                                            <p className="text-xs">
+                                              {formatReviewReasons(
+                                                entry.review_reasons,
+                                              ) || "Classificação incompleta"}
+                                            </p>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                    </div>
+                                    {vehicleIds.length > 0 && (
+                                      <div className="text-[11px] text-muted-foreground mt-1 truncate max-w-[120px]">
+                                        {vehicleIds
+                                          .map((id) => vehicleById.get(id))
+                                          .filter(Boolean)
+                                          .map((v) => v!.name)
+                                          .join(", ")}
+                                      </div>
                                     )}
-                                    <Tooltip><TooltipTrigger asChild>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-accent hover:text-accent-foreground" onClick={() => openAllocation(entry)}>
-                                        <SlidersHorizontal className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger><TooltipContent>Classificar</TooltipContent></Tooltip>
-                                    <Dialog>
-                                      <DialogTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-destructive hover:text-destructive-foreground"><Trash2 className="h-4 w-4" /></Button>
-                                      </DialogTrigger>
-                                      <DialogContent>
-                                        <DialogHeader><DialogTitle>Excluir lançamento?</DialogTitle><DialogDescription>Esta ação não pode ser desfeita.</DialogDescription></DialogHeader>
-                                        <DialogFooter>
-                                          <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
-                                          <Button variant="destructive" onClick={() => deleteEntry.mutate(entry.id)}>Excluir</Button>
-                                        </DialogFooter>
-                                      </DialogContent>
-                                    </Dialog>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="space-y-0.5">
+                                      {groupInfo ? (
+                                        <span className="text-sm font-medium">
+                                          {groupInfo.name}
+                                        </span>
+                                      ) : (
+                                        <span className="text-sm text-muted-foreground italic">
+                                          Sem grupo
+                                        </span>
+                                      )}
+                                      {subgroupInfo && (
+                                        <div className="text-xs text-muted-foreground">
+                                          {subgroupInfo.name}
+                                        </div>
+                                      )}
+                                      {needsReview && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] border-review/30 text-review bg-review/5 mt-0.5"
+                                        >
+                                          Revisão DRE
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-xs",
+                                        entry.installment_total &&
+                                          entry.installment_total > 1
+                                          ? "border-accent/40 text-accent bg-accent/5"
+                                          : "border-success/40 text-success bg-success/5",
+                                      )}
+                                    >
+                                      {getInstallmentLabel(entry)}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {PAYMENT_METHOD_OPTIONS.find(
+                                        (o) => o.value === entry.payment_method,
+                                      )?.label ||
+                                        entry.payment_method ||
+                                        "—"}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="max-w-[200px]">
+                                    <span className="truncate block text-sm">
+                                      {getCleanDescription(entry.description)}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-sm text-destructive font-medium">
+                                    -{formatCurrency(entry.amount_cents)}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center justify-end gap-0.5">
+                                      {entry.attachment_url ? (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <a
+                                              href={entry.attachment_url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                            >
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-success hover:bg-accent hover:text-accent-foreground"
+                                              >
+                                                <Paperclip className="h-4 w-4" />
+                                              </Button>
+                                            </a>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            Ver comprovante
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ) : (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <label className="cursor-pointer">
+                                              <input
+                                                type="file"
+                                                accept="image/*,.pdf"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                  const f = e.target.files?.[0];
+                                                  if (f)
+                                                    uploadAttachment(
+                                                      entry.id,
+                                                      f,
+                                                    );
+                                                }}
+                                              />
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className={cn(
+                                                  "h-8 w-8 hover:bg-accent hover:text-accent-foreground",
+                                                  uploadingId === entry.id &&
+                                                    "animate-pulse",
+                                                )}
+                                                tabIndex={-1}
+                                              >
+                                                <Paperclip className="h-4 w-4" />
+                                              </Button>
+                                            </label>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            Anexar comprovante
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 hover:bg-accent hover:text-accent-foreground"
+                                            onClick={() =>
+                                              openAllocation(entry)
+                                            }
+                                          >
+                                            <SlidersHorizontal className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Classificar
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      <Dialog>
+                                        <DialogTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 hover:bg-destructive hover:text-destructive-foreground"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                          <DialogHeader>
+                                            <DialogTitle>
+                                              Excluir lançamento?
+                                            </DialogTitle>
+                                            <DialogDescription>
+                                              Esta ação não pode ser desfeita.
+                                            </DialogDescription>
+                                          </DialogHeader>
+                                          <DialogFooter>
+                                            <DialogClose asChild>
+                                              <Button variant="outline">
+                                                Cancelar
+                                              </Button>
+                                            </DialogClose>
+                                            <Button
+                                              variant="destructive"
+                                              onClick={() =>
+                                                deleteEntry.mutate(entry.id)
+                                              }
+                                            >
+                                              Excluir
+                                            </Button>
+                                          </DialogFooter>
+                                        </DialogContent>
+                                      </Dialog>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
                       </div>
                     </>
                   ) : (
@@ -1108,6 +1569,50 @@ export default function FinancialExpenses() {
                           Limpar filtros
                         </Button>
                       )}
+                    </div>
+                  )}
+
+                  {totalEntries > 0 && (
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-xs text-muted-foreground">
+                        Página {page} de {totalPages} • {totalEntries} lançamentos
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={String(pageSize)}
+                          onValueChange={(v) => {
+                            setPageSize(Number(v));
+                            setPage(1);
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-[110px] text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PAGE_SIZE_OPTIONS.map((size) => (
+                              <SelectItem key={size} value={String(size)}>
+                                {size}/p?gina
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={page <= 1}
+                        >
+                          Anterior
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={page >= totalPages}
+                        >
+                          Pr?xima
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -1140,10 +1645,14 @@ export default function FinancialExpenses() {
                   <div className="rounded-lg border bg-muted/30 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <div className="font-medium text-sm">{getCleanDescription(allocationEntry.description)}</div>
+                        <div className="font-medium text-sm">
+                          {getCleanDescription(allocationEntry.description)}
+                        </div>
                         <div className="text-xs text-muted-foreground mt-1">
-                          {formatDate(allocationEntry.date)} · {allocationEntry.category}
-                          {allocationEntry.subcategory && ` / ${allocationEntry.subcategory}`}
+                          {formatDate(allocationEntry.date)} ·{" "}
+                          {allocationEntry.category}
+                          {allocationEntry.subcategory &&
+                            ` / ${allocationEntry.subcategory}`}
                         </div>
                       </div>
                       <div className="text-right">
@@ -1152,26 +1661,34 @@ export default function FinancialExpenses() {
                         </div>
                       </div>
                     </div>
-                    {allocationEntry.review_reasons && allocationEntry.review_reasons.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {allocationEntry.review_reasons.map((reason) => (
-                          <Badge key={reason} variant="outline" className="text-[10px] border-review/30 text-review bg-review/5">
-                            {REVIEW_REASON_LABELS[reason] || reason}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
+                    {allocationEntry.review_reasons &&
+                      allocationEntry.review_reasons.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {allocationEntry.review_reasons.map((reason) => (
+                            <Badge
+                              key={reason}
+                              variant="outline"
+                              className="text-[10px] border-review/30 text-review bg-review/5"
+                            >
+                              {REVIEW_REASON_LABELS[reason] || reason}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                   </div>
 
                   {/* Classification fields */}
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label>Tipo</Label>
-                      <Select value={classEntryType} onValueChange={(value) => {
-                        setClassEntryType(value as "CUSTO" | "DESPESA");
-                        setClassGroupId("");
-                        setClassSubgroupId("");
-                      }}>
+                      <Select
+                        value={classEntryType}
+                        onValueChange={(value) => {
+                          setClassEntryType(value as "CUSTO" | "DESPESA");
+                          setClassGroupId("");
+                          setClassSubgroupId("");
+                        }}
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -1183,10 +1700,13 @@ export default function FinancialExpenses() {
                     </div>
                     <div className="space-y-2">
                       <Label>Grupo</Label>
-                      <Select value={classGroupId} onValueChange={(value) => {
-                        setClassGroupId(value);
-                        setClassSubgroupId("");
-                      }}>
+                      <Select
+                        value={classGroupId}
+                        onValueChange={(value) => {
+                          setClassGroupId(value);
+                          setClassSubgroupId("");
+                        }}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Selecione..." />
                         </SelectTrigger>
@@ -1204,10 +1724,19 @@ export default function FinancialExpenses() {
                       <Select
                         value={classSubgroupId || ""}
                         onValueChange={setClassSubgroupId}
-                        disabled={!classGroupId || (classDreSubgroups?.length || 0) === 0}
+                        disabled={
+                          !classGroupId ||
+                          (classDreSubgroups?.length || 0) === 0
+                        }
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder={(classDreSubgroups?.length || 0) === 0 ? "Sem subgrupo" : "Selecione..."} />
+                          <SelectValue
+                            placeholder={
+                              (classDreSubgroups?.length || 0) === 0
+                                ? "Sem subgrupo"
+                                : "Selecione..."
+                            }
+                          />
                         </SelectTrigger>
                         <SelectContent>
                           {classDreSubgroups?.map((subgroup) => (
@@ -1222,14 +1751,23 @@ export default function FinancialExpenses() {
 
                   {/* Vehicle allocation */}
                   <div className="space-y-3">
-                    <Label className="text-sm font-medium">Rateio por veículo</Label>
+                    <Label className="text-sm font-medium">
+                      Rateio por veículo
+                    </Label>
                     {allocationRows.map((row, index) => (
-                      <div key={`${row.vehicleId}-${index}`} className="grid gap-2 md:grid-cols-[2fr_1fr_40px] items-center">
+                      <div
+                        key={`${row.vehicleId}-${index}`}
+                        className="grid gap-2 md:grid-cols-[2fr_1fr_40px] items-center"
+                      >
                         <Select
                           value={row.vehicleId || ""}
                           onValueChange={(value) => {
                             setAllocationRows((prev) =>
-                              prev.map((item, i) => (i === index ? { ...item, vehicleId: value } : item))
+                              prev.map((item, i) =>
+                                i === index
+                                  ? { ...item, vehicleId: value }
+                                  : item,
+                              ),
                             );
                           }}
                         >
@@ -1239,7 +1777,8 @@ export default function FinancialExpenses() {
                           <SelectContent>
                             {vehicles?.map((vehicle) => (
                               <SelectItem key={vehicle.id} value={vehicle.id}>
-                                {vehicle.name}{vehicle.plate ? ` - ${vehicle.plate}` : ""}
+                                {vehicle.name}
+                                {vehicle.plate ? ` - ${vehicle.plate}` : ""}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1250,7 +1789,9 @@ export default function FinancialExpenses() {
                           onChange={(e) => {
                             const value = e.target.value;
                             setAllocationRows((prev) =>
-                              prev.map((item, i) => (i === index ? { ...item, amount: value } : item))
+                              prev.map((item, i) =>
+                                i === index ? { ...item, amount: value } : item,
+                              ),
                             );
                           }}
                         />
@@ -1259,7 +1800,9 @@ export default function FinancialExpenses() {
                           size="icon"
                           className="h-8 w-8 hover:bg-destructive hover:text-destructive-foreground"
                           onClick={() =>
-                            setAllocationRows((prev) => prev.filter((_, i) => i !== index))
+                            setAllocationRows((prev) =>
+                              prev.filter((_, i) => i !== index),
+                            )
                           }
                         >
                           <Trash2 className="h-4 w-4" />
@@ -1270,7 +1813,10 @@ export default function FinancialExpenses() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        setAllocationRows((prev) => [...prev, { vehicleId: "", amount: "" }])
+                        setAllocationRows((prev) => [
+                          ...prev,
+                          { vehicleId: "", amount: "" },
+                        ])
                       }
                     >
                       <Plus className="h-3.5 w-3.5 mr-1" />
@@ -1281,34 +1827,46 @@ export default function FinancialExpenses() {
                   {/* Rateio summary */}
                   <div className="rounded-lg border bg-muted/20 p-3 space-y-1.5">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Total do lançamento</span>
+                      <span className="text-muted-foreground">
+                        Total do lançamento
+                      </span>
                       <span className="font-mono font-medium">
                         {formatCurrency(allocationEntry.amount_cents)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Total rateado</span>
-                      <span className={cn(
-                        "font-mono font-medium",
-                        allocationEntry.amount_cents === allocationTotalCents
-                          ? "text-success"
-                          : "text-warning"
-                      )}>
+                      <span className="text-muted-foreground">
+                        Total rateado
+                      </span>
+                      <span
+                        className={cn(
+                          "font-mono font-medium",
+                          allocationEntry.amount_cents === allocationTotalCents
+                            ? "text-success"
+                            : "text-warning",
+                        )}
+                      >
                         {formatCurrency(allocationTotalCents)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm border-t pt-1.5">
                       <span className="text-muted-foreground font-medium">
-                        {allocationRemainingCents > 0 ? "Falta ratear" : allocationRemainingCents < 0 ? "Excedente" : "Rateio completo"}
+                        {allocationRemainingCents > 0
+                          ? "Falta ratear"
+                          : allocationRemainingCents < 0
+                            ? "Excedente"
+                            : "Rateio completo"}
                       </span>
-                      <span className={cn(
-                        "font-mono font-bold",
-                        allocationRemainingCents === 0
-                          ? "text-success"
-                          : allocationRemainingCents > 0
-                            ? "text-warning"
-                            : "text-destructive"
-                      )}>
+                      <span
+                        className={cn(
+                          "font-mono font-bold",
+                          allocationRemainingCents === 0
+                            ? "text-success"
+                            : allocationRemainingCents > 0
+                              ? "text-warning"
+                              : "text-destructive",
+                        )}
+                      >
                         {allocationRemainingCents === 0 ? (
                           <span className="flex items-center gap-1">
                             <CheckCircle2 className="h-4 w-4" />
@@ -1323,10 +1881,16 @@ export default function FinancialExpenses() {
                 </div>
               )}
               <DialogFooter>
-                <Button variant="outline" onClick={() => setAllocationEntry(null)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setAllocationEntry(null)}
+                >
                   Cancelar
                 </Button>
-                <Button onClick={() => saveAllocations.mutate()} disabled={saveAllocations.isPending}>
+                <Button
+                  onClick={() => saveAllocations.mutate()}
+                  disabled={saveAllocations.isPending}
+                >
                   Salvar classificação
                 </Button>
               </DialogFooter>

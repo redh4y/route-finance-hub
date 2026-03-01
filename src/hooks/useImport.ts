@@ -436,6 +436,8 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
     billing_mode: "BOLETO",
     review_flag: true,
     needs_review: true,
+    review_status: "REVIEW",
+    review_reason: "IMPORT_BILLING_SEM_CADASTRO",
     default_route: billing.amount_expected_cents > 50000 ? "FRANCA" : "BARRETOS",
   };
 

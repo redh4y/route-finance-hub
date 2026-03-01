@@ -48,6 +48,7 @@ export interface PayersFilters {
   billingMode?: string;
   route?: string;
   needsReview?: boolean;
+  reviewReason?: string;
   search?: string;
 }
 
@@ -69,6 +70,9 @@ export function usePayers(filters: PayersFilters = {}) {
       }
       if (filters.needsReview !== undefined) {
         query = query.eq("needs_review", filters.needsReview);
+      }
+      if (filters.reviewReason) {
+        query = query.eq("review_reason", filters.reviewReason);
       }
       if (filters.search) {
         query = query.ilike("name_lower", `%${filters.search.toLowerCase()}%`);

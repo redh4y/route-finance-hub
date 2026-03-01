@@ -269,6 +269,8 @@ export function useOptimizedImportBillings() {
               billing_mode: "BOLETO",
               review_flag: true,
               needs_review: true,
+              review_status: "REVIEW",
+              review_reason: "IMPORT_BILLING_SEM_CADASTRO",
               default_route: payerRoute,
             });
             existingPayerIds.add(payerId);

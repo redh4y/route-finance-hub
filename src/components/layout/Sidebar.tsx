@@ -27,9 +27,11 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
 import {
   Collapsible,
   CollapsibleContent,
+  CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
 const navItems = [
@@ -44,14 +46,25 @@ const navItems = [
     icon: LayoutGrid,
   },
   {
-    label: "Pagadores",
+    label: "Gestão de Alunos",
     path: "/pagadores",
     icon: Users,
+    children: [
+      { label: "Pagadores", path: "/pagadores", icon: Users },
+      { label: "Importar", path: "/importar", icon: Upload },
+      { label: "Atrasos", path: "/atrasos", icon: MessageCircle },
+      { label: "Rotas", path: "/rotas", icon: MapPin },
+    ],
   },
   {
-    label: "Importar",
-    path: "/importar",
-    icon: Upload,
+    label: "Financeiro",
+    path: "/financeiro",
+    icon: TrendingUp,
+    children: [
+      { label: "DRE", path: "/financeiro", icon: FileText, exact: true },
+      { label: "Entradas", path: "/financeiro/entradas", icon: ArrowUpCircle },
+      { label: "Saídas", path: "/financeiro/saidas", icon: ArrowDownCircle },
+    ],
   },
   {
     label: "Cartões",
@@ -59,7 +72,7 @@ const navItems = [
     icon: CreditCard,
   },
   {
-    label: "Veiculos",
+    label: "Veículos",
     path: "/veiculos",
     icon: Truck,
   },
@@ -68,25 +81,24 @@ const navItems = [
     path: "/manutencao",
     icon: Wrench,
     children: [
-      { label: "Chamados", path: "/manutencao", icon: Wrench },
-      { label: "Motoristas", path: "/manutencao/motoristas", icon: DriversIcon },
+      { label: "Chamados", path: "/manutencao", icon: Wrench, exact: true },
+      {
+        label: "Motoristas",
+        path: "/manutencao/motoristas",
+        icon: DriversIcon,
+      },
       { label: "Inspeção", path: "/manutencao/inspecao", icon: ClipboardIcon },
     ],
   },
   {
-    label: "Excursões",
+    label: "Comercial",
     path: "/excursoes",
-    icon: Bus,
-  },
-  {
-    label: "Afiliados",
-    path: "/afiliados",
     icon: Users2,
-  },
-  {
-    label: "Leads",
-    path: "/leads",
-    icon: Users,
+    children: [
+      { label: "Excursões", path: "/excursoes", icon: Bus },
+      { label: "Afiliados", path: "/afiliados", icon: Users2 },
+      { label: "Leads", path: "/leads", icon: Users },
+    ],
   },
   {
     label: "Configurações",
@@ -94,29 +106,9 @@ const navItems = [
     icon: Settings2,
   },
   {
-    label: "Financeiro",
-    path: "/financeiro",
-    icon: TrendingUp,
-    children: [
-      { label: "DRE", path: "/financeiro", icon: FileText },
-      { label: "Entradas", path: "/financeiro/entradas", icon: ArrowUpCircle },
-      { label: "Saídas", path: "/financeiro/saidas", icon: ArrowDownCircle },
-    ],
-  },
-  {
     label: "Relatórios",
     path: "/relatorios",
     icon: BarChart3,
-  },
-  {
-    label: "Rotas",
-    path: "/rotas",
-    icon: MapPin,
-  },
-  {
-    label: "Atrasos",
-    path: "/atrasos",
-    icon: MessageCircle,
   },
   {
     label: "Auditoria",
@@ -137,7 +129,7 @@ interface SidebarProps {
 export function Sidebar({ onNavigate }: SidebarProps) {
   const location = useLocation();
   const { signOut, user } = useAuth();
-  const financeiroOpen = true;
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const isActive = (path: string) => {
     if (path === "/") {
@@ -145,6 +137,17 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     }
     return location.pathname.startsWith(path);
   };
+
+  const isChildActive = (child: { path: string; exact?: boolean }) => {
+    if (child.exact) return location.pathname === child.path;
+    return (
+      location.pathname === child.path ||
+      location.pathname.startsWith(`${child.path}/`)
+    );
+  };
+
+  const isGroupActive = (children: Array<{ path: string; exact?: boolean }>) =>
+    children.some((child) => isChildActive(child));
 
   const handleLogout = async () => {
     await signOut();
@@ -157,16 +160,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
       {/* Logo */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border shrink-0"
       >
         <div className="flex h-10 w-10 items-center justify-center rounded-lg overflow-hidden">
-          <img src="/favicon.png" alt="Tavares" className="h-10 w-10 object-cover" />
+          <img
+            src="/favicon.png"
+            alt="Tavares"
+            className="h-10 w-10 object-cover"
+          />
         </div>
         <div className="min-w-0">
-          <h1 className="text-lg font-bold text-sidebar-foreground truncate">Tavares</h1>
+          <h1 className="text-lg font-bold text-sidebar-foreground truncate">
+            Tavares
+          </h1>
           <p className="text-xs text-sidebar-foreground/60">Financeiro</p>
         </div>
       </motion.div>
@@ -174,24 +183,44 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {navItems.map((item, index) => (
-          <motion.div 
+          <motion.div
             key={item.path}
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: index * 0.05 }}
           >
             {item.children ? (
-              <Collapsible open={financeiroOpen}>
-                <div className={cn(
-                  "nav-item w-full justify-between cursor-default",
-                  isActive(item.path) && "text-sidebar-foreground"
-                )}>
-                  <span className="flex items-center gap-3">
-                    <item.icon className="h-5 w-5 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </span>
-                  <ChevronDown className="h-4 w-4 transition-transform shrink-0 rotate-180" />
-                </div>
+              <Collapsible
+                open={isGroupActive(item.children) || !!openGroups[item.path]}
+              >
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenGroups((prev) => ({
+                        ...prev,
+                        [item.path]: !prev[item.path],
+                      }))
+                    }
+                    className={cn(
+                      "nav-item w-full justify-between",
+                      isGroupActive(item.children) && "text-sidebar-foreground",
+                    )}
+                  >
+                    <span className="flex items-center gap-3">
+                      <item.icon className="h-5 w-5 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 transition-transform shrink-0",
+                        (isGroupActive(item.children) ||
+                          !!openGroups[item.path]) &&
+                          "rotate-180",
+                      )}
+                    />
+                  </button>
+                </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="ml-4 pl-4 border-l border-sidebar-border space-y-1 mt-1">
                     {item.children.map((child) => (
@@ -201,7 +230,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                         onClick={handleNavClick}
                         className={cn(
                           "nav-item",
-                          location.pathname === child.path && "active"
+                          isChildActive(child) && "active",
                         )}
                       >
                         <child.icon className="h-4 w-4 shrink-0" />
@@ -217,7 +246,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 onClick={handleNavClick}
                 className={cn(
                   "nav-item",
-                  isActive(item.path) && !item.children && "active"
+                  isActive(item.path) && !item.children && "active",
                 )}
               >
                 <item.icon className="h-5 w-5 shrink-0" />

@@ -48,10 +48,19 @@ const QUICK_FILTERS = [
   { key: "all", label: "Todos", icon: Users },
   { key: "active", label: "Ativos", icon: UserCheck },
   { key: "inactive", label: "Inativos", icon: UserX },
-  { key: "review", label: "Revisão", icon: AlertTriangle },
+  { key: "review", label: "Revis\u00e3o", icon: AlertTriangle },
+  { key: "uncatalogued", label: "Sem cadastro", icon: AlertCircle },
 ] as const;
 
 type QuickFilterKey = (typeof QUICK_FILTERS)[number]["key"];
+
+const IMPORT_MISSING_PAYER_REASON = "IMPORT_BILLING_SEM_CADASTRO";
+
+function isImportedWithoutRegister(
+  reviewReason: string | null | undefined,
+): boolean {
+  return reviewReason === IMPORT_MISSING_PAYER_REASON;
+}
 
 export default function Payers() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -81,24 +90,34 @@ export default function Payers() {
         return { status: "INATIVO" };
       case "review":
         return { needsReview: true };
+      case "uncatalogued":
+        return { reviewReason: IMPORT_MISSING_PAYER_REASON };
       default:
         return {};
     }
   }, [quickFilter]);
 
-  const { data: payers, isLoading, error } = usePayers({
+  const {
+    data: payers,
+    isLoading,
+    error,
+  } = usePayers({
     ...filters,
     search: searchTerm || undefined,
   });
 
   // Stats
   const stats = useMemo(() => {
-    if (!payers) return { total: 0, active: 0, inactive: 0, review: 0 };
+    if (!payers)
+      return { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 };
     return {
       total: payers.length,
       active: payers.filter((p) => p.status === "ATIVO").length,
       inactive: payers.filter((p) => p.status === "INATIVO").length,
       review: payers.filter((p) => p.needs_review).length,
+      uncatalogued: payers.filter((p) =>
+        isImportedWithoutRegister(p.review_reason),
+      ).length,
     };
   }, [payers]);
 
@@ -136,6 +155,14 @@ export default function Payers() {
                   variant="warning"
                 />
               )}
+              {stats.uncatalogued > 0 && (
+                <StatPill
+                  icon={AlertCircle}
+                  label="Sem cadastro"
+                  value={stats.uncatalogued}
+                  variant="warning"
+                />
+              )}
             </div>
           </div>
 
@@ -164,21 +191,36 @@ export default function Payers() {
 
             {/* Quick filters */}
             <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg">
-              {QUICK_FILTERS.map((filter) => (
-                <Button
-                  key={filter.key}
-                  variant={quickFilter === filter.key ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => setQuickFilter(filter.key)}
-                  className={cn(
-                    "gap-1.5 text-xs",
-                    quickFilter === filter.key && "shadow-sm"
-                  )}
-                >
-                  <filter.icon className="h-3.5 w-3.5" />
-                  {filter.label}
-                </Button>
-              ))}
+              {QUICK_FILTERS.map((filter) => {
+                const isSelected = quickFilter === filter.key;
+                const iconColorClasses =
+                  filter.key === "all"
+                    ? "text-sky-600"
+                    : filter.key === "active"
+                      ? "text-emerald-600"
+                      : filter.key === "inactive"
+                        ? "text-red-600"
+                        : filter.key === "review"
+                          ? "text-violet-600"
+                          : filter.key === "uncatalogued"
+                            ? "text-amber-600"
+                            : "text-foreground";
+
+                return (
+                  <Button
+                    key={filter.key}
+                    variant={isSelected ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setQuickFilter(filter.key)}
+                    className={cn("gap-1.5 text-xs", isSelected && "shadow-sm")}
+                  >
+                    <filter.icon
+                      className={cn("h-3.5 w-3.5", iconColorClasses)}
+                    />
+                    {filter.label}
+                  </Button>
+                );
+              })}
             </div>
           </div>
 
@@ -190,7 +232,9 @@ export default function Payers() {
               className="flex items-center gap-2 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive"
             >
               <AlertCircle className="h-5 w-5 shrink-0" />
-              <p className="text-sm">Erro ao carregar pagadores: {error.message}</p>
+              <p className="text-sm">
+                Erro ao carregar pagadores: {error.message}
+              </p>
             </motion.div>
           )}
 
@@ -227,9 +271,13 @@ export default function Payers() {
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
                               <TableHead>Pagador</TableHead>
-                              <TableHead className="text-center">Modo de cobrança</TableHead>
+                              <TableHead className="text-center">
+                                Modo de cobrança
+                              </TableHead>
                               <TableHead>Status</TableHead>
-                              <TableHead className="text-right">Ações</TableHead>
+                              <TableHead className="text-right">
+                                Ações
+                              </TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -247,7 +295,10 @@ export default function Payers() {
                       </div>
                     </>
                   ) : (
-                    <EmptyState searchTerm={searchTerm} quickFilter={quickFilter} />
+                    <EmptyState
+                      searchTerm={searchTerm}
+                      quickFilter={quickFilter}
+                    />
                   )}
                 </ScrollArea>
               </Card>
@@ -261,7 +312,10 @@ export default function Payers() {
 
           {/* Mobile: Quick view as sheet */}
           {isMobile && (
-            <Sheet open={!!selectedPayerId} onOpenChange={(open) => !open && setSelectedPayerId(null)}>
+            <Sheet
+              open={!!selectedPayerId}
+              onOpenChange={(open) => !open && setSelectedPayerId(null)}
+            >
               <SheetContent side="bottom" className="h-[70vh] p-0">
                 <ScrollArea className="h-full">
                   <QuickViewPanel payerId={selectedPayerId} />
@@ -302,7 +356,7 @@ function StatPill({
             variant === "success",
           "bg-amber-500/10 text-amber-600 dark:text-amber-400":
             variant === "warning",
-        }
+        },
       )}
     >
       <Icon className="h-3 w-3" />
@@ -335,7 +389,7 @@ function PayerRow({
       onClick={onClick}
       className={cn(
         "cursor-pointer transition-colors hover:bg-muted/50",
-        isSelected && "bg-primary/5"
+        isSelected && "bg-primary/5",
       )}
     >
       <TableCell>
@@ -345,7 +399,7 @@ function PayerRow({
               "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold",
               isActive
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-muted text-muted-foreground"
+                : "bg-muted text-muted-foreground",
             )}
           >
             {payer.name.charAt(0).toUpperCase()}
@@ -355,7 +409,10 @@ function PayerRow({
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{payer.name}</span>
               {payer.is_coordinator && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 shrink-0"
+                >
                   Coord
                 </Badge>
               )}
@@ -364,7 +421,15 @@ function PayerRow({
                   variant="outline"
                   className="text-[10px] px-1.5 py-0 shrink-0 border-amber-500/50 text-amber-600"
                 >
-                  Revisao
+                  Revis\u00e3o
+                </Badge>
+              )}
+              {isImportedWithoutRegister(payer.review_reason) && (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 shrink-0 border-orange-500/50 text-orange-600"
+                >
+                  Sem cadastro
                 </Badge>
               )}
             </div>
@@ -404,7 +469,8 @@ function PayerRow({
           variant={isActive ? "default" : "secondary"}
           className={cn(
             "text-xs",
-            isActive && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+            isActive &&
+              "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
           )}
         >
           {isActive ? "Ativo" : "Inativo"}
@@ -451,7 +517,9 @@ function PayerCard({
       onClick={onClick}
       className={cn(
         "p-4 rounded-lg border transition-all cursor-pointer",
-        isSelected ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30"
+        isSelected
+          ? "border-primary bg-primary/5"
+          : "border-border hover:border-muted-foreground/30",
       )}
     >
       <div className="flex items-start gap-3">
@@ -461,7 +529,7 @@ function PayerCard({
             "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold",
             isActive
               ? "bg-success/10 text-success"
-              : "bg-muted text-muted-foreground"
+              : "bg-muted text-muted-foreground",
           )}
         >
           {payer.name.charAt(0).toUpperCase()}
@@ -477,6 +545,14 @@ function PayerCard({
                 className="text-[10px] px-1.5 py-0 shrink-0 border-warning/50 text-warning"
               >
                 Revisão
+              </Badge>
+            )}
+            {isImportedWithoutRegister(payer.review_reason) && (
+              <Badge
+                variant="outline"
+                className="text-[10px] px-1.5 py-0 shrink-0 border-orange-500/50 text-orange-600"
+              >
+                Sem cadastro
               </Badge>
             )}
           </div>
@@ -498,15 +574,12 @@ function PayerCard({
               variant={isActive ? "default" : "secondary"}
               className={cn(
                 "text-xs",
-                isActive && "bg-success/10 text-success border-success/30"
+                isActive && "bg-success/10 text-success border-success/30",
               )}
             >
               {isActive ? "Ativo" : "Inativo"}
             </Badge>
-            <Badge
-              variant="outline"
-              className="text-xs"
-            >
+            <Badge variant="outline" className="text-xs">
               {payer.billing_mode}
             </Badge>
           </div>
@@ -550,8 +623,10 @@ function EmptyState({
         {searchTerm
           ? `Nenhum resultado para "${searchTerm}"`
           : quickFilter === "review"
-          ? "Não há pagadores pendentes de revisão"
-          : "Importe pagadores através do menu de Importação"}
+            ? "Não há pagadores pendentes de revisão"
+            : quickFilter === "uncatalogued"
+              ? "N\u00e3o h\u00e1 pagadores criados automaticamente por importa\u00e7\u00e3o de boletos"
+              : "Importe pagadores atrav\u00e9s do menu de Importa\u00e7\u00e3o"}
       </p>
     </div>
   );
@@ -598,7 +673,9 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
       if (!payerId) return [];
       let query = supabase
         .from("billings")
-        .select("id, status, settlement_at, liquidation_at, due_date, payer_id, payer_code, reference_month")
+        .select(
+          "id, status, settlement_at, liquidation_at, due_date, payer_id, payer_code, reference_month",
+        )
         .order("reference_month", { ascending: false })
         .limit(200);
 
@@ -664,7 +741,7 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
                   "w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center text-2xl font-bold",
                   isActive
                     ? "bg-emerald-500/10 text-emerald-600"
-                    : "bg-muted text-muted-foreground"
+                    : "bg-muted text-muted-foreground",
                 )}
               >
                 {selectedPayer.name.charAt(0).toUpperCase()}
@@ -696,7 +773,9 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
                   <p className="font-medium">Necessita revisão</p>
                   {selectedPayer.review_reason && (
                     <p className="text-xs opacity-80 mt-0.5">
-                      {selectedPayer.review_reason}
+                      {isImportedWithoutRegister(selectedPayer.review_reason)
+                        ? "Criado automaticamente na importa\u00e7\u00e3o de boletos. Cadastre/complete os dados."
+                        : selectedPayer.review_reason}
                     </p>
                   )}
                 </div>
@@ -716,7 +795,11 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
                 />
               )}
               {selectedPayer.email && (
-                <InfoRow icon={Mail} label="E-mail" value={selectedPayer.email} />
+                <InfoRow
+                  icon={Mail}
+                  label="E-mail"
+                  value={selectedPayer.email}
+                />
               )}
               {selectedPayer.neighborhood && (
                 <InfoRow
@@ -744,16 +827,19 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
                 label="Ultimo pagamento"
                 value={
                   selectedPayer.last_payment_at
-                    ? new Date(selectedPayer.last_payment_at).toLocaleDateString(
-                        "pt-BR"
-                      )
+                    ? new Date(
+                        selectedPayer.last_payment_at,
+                      ).toLocaleDateString("pt-BR")
                     : latestPaidDate
-                    ? latestPaidDate.toLocaleDateString("pt-BR")
-                    : "-"
+                      ? latestPaidDate.toLocaleDateString("pt-BR")
+                      : "-"
                 }
               />
               {!latestPaidDate && (
-                <Badge variant="outline" className="gap-1 text-warning border-warning/50">
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-warning border-warning/50"
+                >
                   <Clock className="h-3 w-3" />
                   Boleto em aberto
                 </Badge>
