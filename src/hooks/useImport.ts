@@ -19,7 +19,58 @@ export interface ImportResult {
   success: number;
   errors: number;
   errorDetails: Array<{ row: number; error: string }>;
+  payerUpdatesChanged?: number;
+  payerUpdatesUnchanged?: number;
 }
+
+const PAYER_UPDATE_FIELDS =
+  "id, billing_seen_in_month, last_billing_ref, status, billing_mode, default_route, last_payment_at, needs_review";
+
+function normalizePayerCompareValue(key: string, value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (key === "last_payment_at") {
+      const dateOnly = trimmed.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+      return dateOnly || trimmed;
+    }
+
+    return trimmed;
+  }
+
+  return value;
+}
+
+function hasPayerUpdateChanges(currentPayer: any, update: Record<string, any>): boolean {
+  if (!currentPayer) return true;
+
+  return Object.entries(update).some(([key, nextValue]) => {
+    const currentValue = currentPayer[key as keyof typeof currentPayer];
+    return (
+      normalizePayerCompareValue(key, currentValue) !==
+      normalizePayerCompareValue(key, nextValue)
+    );
+  });
+}
+
+type TransformedBilling = NonNullable<ReturnType<typeof transformBillingRow>>;
+
+function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date">): string {
+  const payer = billing.payer_id || "";
+  const ref = billing.reference_month || "";
+  const nosso = (billing.nosso_numero || "").trim();
+  const seu = (billing.seu_numero || "").trim();
+  const due = billing.due_date || "";
+
+  if (nosso) return `${payer}|${ref}|NN|${nosso}`;
+  if (seu || due) return `${payer}|${ref}|SD|${seu}|${due}`;
+  return `${payer}|${ref}|FALLBACK`;
+}
+
+
 
 export function useImportPayers() {
   const queryClient = useQueryClient();
@@ -130,10 +181,9 @@ export function useImportPayers() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
-      
+
       if (result.errors > 0) {
-        toast.warning(`Importação concluída: ${result.success} sucesso, ${result.errors} erros`);
+        toast.warning(`Importa??o conclu?da: ${result.success} sucesso, ${result.errors} erros`);
       } else {
         toast.success(`${result.success} pagadores importados com sucesso!`);
       }
@@ -195,20 +245,21 @@ export function useImportBillings() {
         console.warn("Failed to create import log:", importLogError);
       }
 
-      // Group billings by payer_id + reference_month for conflict resolution
-      const billingMap = new Map<string, ReturnType<typeof transformBillingRow>>();
+      // Keep history of all emitted billings; dedupe only exact same billing identity inside the file
+      const billingMap = new Map<string, TransformedBilling>();
       const payerIdsInImport = new Set<string>();
       const payerMonthStatus = new Map<string, "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW">();
+      const importedPayerIds = new Set<string>();
+      const changedPayerIds = new Set<string>();
 
       for (const row of rows) {
         const billing = transformBillingRow(row);
         if (!billing) continue;
 
-        const key = `${billing.payer_id}-${billing.reference_month}`;
+        const key = getBillingIdentityKey(billing);
         const existing = billingMap.get(key);
 
         if (existing) {
-          // Use higher priority status
           const higherStatus = getHigherPriorityStatus(
             billing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW",
             existing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW"
@@ -219,10 +270,9 @@ export function useImportBillings() {
         } else {
           billingMap.set(key, billing);
         }
-        
+
         payerIdsInImport.add(billing.payer_id);
-        
-        // Track reference month (should be consistent across file)
+
         if (!result.referenceMonth && billing.reference_month) {
           result.referenceMonth = billing.reference_month;
         }
@@ -250,14 +300,27 @@ export function useImportBillings() {
             continue;
           }
           payerIdsInImport.add(payer.id);
+          importedPayerIds.add(payer.id);
 
-          // Check for existing billing
-          const { data: existingBilling } = await supabase
+          // Check for existing billing by identity (keep month history)
+          let existingBillingQuery = supabase
             .from("billings")
-            .select("id, status")
+            .select("id, status, due_date")
             .eq("payer_id", payer.id)
-            .eq("reference_month", billing.reference_month)
-            .maybeSingle();
+            .eq("reference_month", billing.reference_month);
+
+          if (billing.nosso_numero) {
+            existingBillingQuery = existingBillingQuery.eq("nosso_numero", billing.nosso_numero);
+          } else {
+            existingBillingQuery = existingBillingQuery.eq("seu_numero", billing.seu_numero || "");
+            if (billing.due_date) {
+              existingBillingQuery = existingBillingQuery.eq("due_date", billing.due_date);
+            } else {
+              existingBillingQuery = existingBillingQuery.is("due_date", null);
+            }
+          }
+
+          const { data: existingBilling } = await existingBillingQuery.maybeSingle();
 
           // Prepare billing data
           const billingData = {
@@ -279,13 +342,16 @@ export function useImportBillings() {
           };
 
           if (existingBilling) {
-            // Update existing billing if new status has higher priority
+            // Keep highest status priority, but allow reimport to refresh due date and other fields
             const newStatus = getHigherPriorityStatus(
               billing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW",
               existingBilling.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW"
             );
 
-            if (newStatus !== existingBilling.status) {
+            const dueDateChanged = (existingBilling.due_date || null) !== (billingData.due_date || null);
+            const shouldUpdate = newStatus !== existingBilling.status || dueDateChanged;
+
+            if (shouldUpdate) {
               const { error } = await supabase
                 .from("billings")
                 .update({ ...billingData, status: newStatus })
@@ -334,10 +400,14 @@ export function useImportBillings() {
             payerUpdate.needs_review = true;
           }
 
-          await supabase
-            .from("payers")
-            .update(payerUpdate)
-            .eq("id", payer.id);
+          if (hasPayerUpdateChanges(payer, payerUpdate)) {
+            await supabase
+              .from("payers")
+              .update(payerUpdate)
+              .eq("id", payer.id);
+            Object.assign(payer, payerUpdate);
+            changedPayerIds.add(payer.id);
+          }
 
           result.success++;
         } catch (err: any) {
@@ -347,6 +417,9 @@ export function useImportBillings() {
 
         setProgress(Math.round(((i + 1) / billings.length) * 100));
       }
+
+      result.payerUpdatesChanged = changedPayerIds.size;
+      result.payerUpdatesUnchanged = Math.max(0, importedPayerIds.size - changedPayerIds.size);
 
       // Automatic payer deactivation logic
       if (result.referenceMonth) {
@@ -377,11 +450,16 @@ export function useImportBillings() {
       queryClient.invalidateQueries({ queryKey: ["billings"] });
       queryClient.invalidateQueries({ queryKey: ["payers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
-      
+
+      const payerSummary =
+        typeof result.payerUpdatesChanged === "number" && typeof result.payerUpdatesUnchanged === "number"
+          ? ` Pagadores alterados: ${result.payerUpdatesChanged}. Sem mudanca: ${result.payerUpdatesUnchanged}.`
+          : "";
+
       if (result.errors > 0) {
-        toast.warning(`Importação concluída: ${result.success} sucesso, ${result.errors} erros`);
+        toast.warning(`Importacao concluida: ${result.success} sucesso, ${result.errors} erros.${payerSummary}`);
       } else {
-        toast.success(`${result.success} boletos importados com sucesso!`);
+        toast.success(`${result.success} boletos importados com sucesso!${payerSummary}`);
       }
     },
     onError: (error) => {
@@ -407,7 +485,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
   // First try to find by id (document_digits)
   let { data: payer } = await supabase
     .from("payers")
-    .select("id")
+    .select(PAYER_UPDATE_FIELDS)
     .eq("id", billing.payer_id)
     .maybeSingle();
 
@@ -417,7 +495,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
   if (billing.payer_code) {
     const { data: payerByCode } = await supabase
       .from("payers")
-      .select("id")
+      .select(PAYER_UPDATE_FIELDS)
       .eq("payer_code", billing.payer_code)
       .maybeSingle();
 
@@ -444,7 +522,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
   const { data: newPayer, error } = await supabase
     .from("payers")
     .insert(placeholderPayer)
-    .select("id")
+    .select(PAYER_UPDATE_FIELDS)
     .single();
 
   if (error) {
@@ -460,7 +538,7 @@ async function deactivatePayersNotInImport(referenceMonth: string, payerIdsInImp
   // Get all active payers that should be checked
   const { data: activePayers } = await supabase
     .from("payers")
-    .select("id, billing_mode, is_coordinator, manual_active_until")
+    .select("id, billing_mode, is_coordinator, manual_active_until, needs_review")
     .eq("status", "ATIVO");
 
   if (!activePayers) return;
@@ -482,7 +560,7 @@ async function deactivatePayersNotInImport(referenceMonth: string, payerIdsInImp
     if (payer.billing_mode === "PIX_ONLY") continue;
 
     if (payer.billing_mode === "MIXED") {
-      mixedToReview.push(payer.id);
+      if (!payer.needs_review) mixedToReview.push(payer.id);
       continue;
     }
 
@@ -494,6 +572,7 @@ async function deactivatePayersNotInImport(referenceMonth: string, payerIdsInImp
     await supabase
       .from("payers")
       .update({ status: "INATIVO" })
+      .eq("status", "ATIVO")
       .in("id", payersToDeactivate);
   }
 
@@ -521,11 +600,19 @@ async function applyPayerMonthStatus(
   }
 
   if (toDeactivate.length > 0) {
-    await supabase.from("payers").update({ status: "INATIVO" }).in("id", toDeactivate);
+    await supabase
+      .from("payers")
+      .update({ status: "INATIVO" })
+      .eq("status", "ATIVO")
+      .in("id", toDeactivate);
   }
 
   if (toActivate.length > 0) {
-    await supabase.from("payers").update({ status: "ATIVO" }).in("id", toActivate);
+    await supabase
+      .from("payers")
+      .update({ status: "ATIVO" })
+      .neq("status", "ATIVO")
+      .in("id", toActivate);
   }
 }
 

@@ -150,6 +150,28 @@ export default function FinancialRevenue() {
     }
   })
 
+  const billingIds = useMemo(
+    () => (billings || []).map((b) => b.id),
+    [billings]
+  )
+
+  const { data: dueDateChangedIds } = useQuery({
+    queryKey: ['billings-due-date-changes', selectedMonth, billingIds],
+    enabled: billingIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('record_id')
+        .eq('table_name', 'billings')
+        .eq('operation', 'UPDATE')
+        .contains('changed_fields', ['due_date'])
+        .in('record_id', billingIds)
+
+      if (error) throw error
+      return new Set((data || []).map((row) => row.record_id).filter(Boolean) as string[])
+    }
+  })
+
   // Get manual revenue entries
   const { data: entries, isLoading: loadingEntries } = useQuery({
     queryKey: ['financial-entries', selectedMonth, 'revenue'],
@@ -485,6 +507,11 @@ export default function FinancialRevenue() {
                             <p className="text-sm font-medium truncate">{billing.payers?.name || billing.payer_id}</p>
                             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                               <span>{billing.due_date ? formatDate(billing.due_date) : '-'}</span>
+                              {dueDateChangedIds?.has(billing.id) && (
+                                <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 bg-amber-500/10">
+                                  Venc. alterado
+                                </Badge>
+                              )}
                               <StatusBadge status={mapBillingStatus(billing.status)} />
                             </div>
                           </div>
@@ -506,7 +533,16 @@ export default function FinancialRevenue() {
                         <TableBody>
                           {filteredBillings.slice(0, 20).map(billing => (
                             <TableRow key={billing.id}>
-                              <TableCell>{billing.due_date ? formatDate(billing.due_date) : '-'}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <span>{billing.due_date ? formatDate(billing.due_date) : '-'}</span>
+                                  {dueDateChangedIds?.has(billing.id) && (
+                                    <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 bg-amber-500/10">
+                                      Venc. alterado
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
                               <TableCell className="text-sm">{billing.payers?.name || billing.payer_id}</TableCell>
                               <TableCell><StatusBadge status={mapBillingStatus(billing.status)} /></TableCell>
                               <TableCell className="text-right font-mono">{formatCurrency(billing.amount_expected_cents)}</TableCell>

@@ -108,8 +108,12 @@ export function getBillingReferenceMonth(
   let year = date.getFullYear();
   let month = date.getMonth() + 1;
 
-  // If it's a reissue (ANT/ANTERIOR), use previous month
-  if (isPreviousMonthReissue(seuNumero)) {
+  // Business rule: due dates up to the 10th are treated as previous month reference.
+  // Also applies to explicit previous-month reissues (ANT/ANTERIOR).
+  const isEarlyNextMonthDue = date.getDate() <= 10;
+  const shouldUsePreviousMonth = isEarlyNextMonthDue || isPreviousMonthReissue(seuNumero);
+
+  if (shouldUsePreviousMonth) {
     month--;
     if (month < 1) {
       month = 12;

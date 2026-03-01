@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatCPF, formatCurrency, formatMonthRef, formatPhone } from "@/lib/formatters";
+import { formatCPF, formatCurrency, formatDate, formatMonthRef, formatPhone } from "@/lib/formatters";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   User,
@@ -70,6 +70,7 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
     enabled: !!payerId,
   });
 
+
   const { data: billings, isLoading: billingsLoading } = useQuery({
     queryKey: ["payer-billings", payerId],
     queryFn: async () => {
@@ -79,12 +80,24 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
         .select("*")
         .eq("payer_id", payerId)
         .order("reference_month", { ascending: false })
-        .limit(24);
+        .order("due_date", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (error) throw error;
       return data as Billing[];
     },
     enabled: !!payerId,
   });
+
+
+  const duplicateCountByMonth = useMemo(() => {
+    const countByMonth = new Map<string, number>();
+    (billings || []).forEach((b) => {
+      const key = b.reference_month || "sem-ref";
+      countByMonth.set(key, (countByMonth.get(key) || 0) + 1);
+    });
+    return countByMonth;
+  }, [billings]);
 
   const updateMutation = useMutation({
     mutationFn: async (updates: Partial<Payer>) => {
@@ -383,10 +396,15 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
                           <p className="font-medium">{formatMonthRef(billing.reference_month)}</p>
                           <p className="text-xs text-muted-foreground">
                             Venc: {billing.due_date 
-                              ? new Date(billing.due_date).toLocaleDateString("pt-BR")
+                              ? formatDate(billing.due_date)
                               : "-"
                             }
                           </p>
+                          {(duplicateCountByMonth.get(billing.reference_month || "sem-ref") || 0) > 1 && (
+                            <Badge variant="outline" className="mt-1 text-[10px]">
+                              Boleto duplicado no m?s
+                            </Badge>
+                          )}
                         </div>
                         <StatusBadge status={mapBillingStatus(billing.status)} />
                       </div>

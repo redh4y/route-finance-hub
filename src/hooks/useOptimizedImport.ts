@@ -19,11 +19,75 @@ export interface ImportResult {
   success: number;
   errors: number;
   errorDetails: Array<{ row: number; error: string }>;
+  payerUpdatesChanged?: number;
+  payerUpdatesUnchanged?: number;
 }
 
 const BATCH_SIZE_PAYERS = 200;
 const BATCH_SIZE_BILLINGS = 100;
 const BATCH_SIZE_CEPS = 500;
+
+const PAYER_UPDATE_FIELDS =
+  "id, payer_code, billing_seen_in_month, last_billing_ref, status, billing_mode, default_route, last_payment_at, needs_review";
+
+function normalizePayerCompareValue(key: string, value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (key === "last_payment_at") {
+      const dateOnly = trimmed.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+      return dateOnly || trimmed;
+    }
+
+    return trimmed;
+  }
+
+  return value;
+}
+
+function hasPayerUpdateChanges(currentPayer: any, update: Record<string, any>): boolean {
+  if (!currentPayer) return true;
+
+  return Object.entries(update).some(([key, nextValue]) => {
+    const currentValue = currentPayer[key as keyof typeof currentPayer];
+    return (
+      normalizePayerCompareValue(key, currentValue) !==
+      normalizePayerCompareValue(key, nextValue)
+    );
+  });
+}
+
+type TransformedBilling = NonNullable<ReturnType<typeof transformBillingRow>>;
+
+function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date">): string {
+  const payer = billing.payer_id || "";
+  const ref = billing.reference_month || "";
+  const nosso = (billing.nosso_numero || "").trim();
+  const seu = (billing.seu_numero || "").trim();
+  const due = billing.due_date || "";
+
+  if (nosso) return `${payer}|${ref}|NN|${nosso}`;
+  if (seu || due) return `${payer}|${ref}|SD|${seu}|${due}`;
+  return `${payer}|${ref}|FALLBACK`;
+}
+
+function getExistingBillingLookupKeys(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date">): string[] {
+  const keys: string[] = [];
+  const payer = billing.payer_id || "";
+  const ref = billing.reference_month || "";
+  const nosso = (billing.nosso_numero || "").trim();
+  const seu = (billing.seu_numero || "").trim();
+  const due = billing.due_date || "";
+
+  if (nosso) keys.push(`${payer}|${ref}|NN|${nosso}`);
+  if (seu || due) keys.push(`${payer}|${ref}|SD|${seu}|${due}`);
+  keys.push(`${payer}|${ref}|FALLBACK`);
+
+  return keys;
+}
 
 // Optimized payer import with larger batches and parallel processing
 export function useOptimizedImportPayers() {
@@ -129,10 +193,9 @@ export function useOptimizedImportPayers() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
 
       if (result.errors > 0) {
-        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
+        toast.warning(`Importa??o: ${result.success} OK, ${result.errors} erros`);
       } else {
         toast.success(`${result.success} pagadores importados!`);
       }
@@ -178,16 +241,17 @@ export function useOptimizedImportBillings() {
         .select("id")
         .single();
 
-      // Group billings by payer_id + reference_month for conflict resolution
-      const billingMap = new Map<string, ReturnType<typeof transformBillingRow>>();
+      // Keep history of all emitted billings; dedupe only exact same billing identity inside the file
+      const billingMap = new Map<string, TransformedBilling>();
       const payerIdsInImport = new Set<string>();
       const payerMonthStatus = new Map<string, "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW">();
+      const importedPayerIds = new Set<string>();
 
       for (const row of rows) {
         const billing = transformBillingRow(row);
         if (!billing) continue;
 
-        const key = `${billing.payer_id}-${billing.reference_month}`;
+        const key = getBillingIdentityKey(billing);
         const existing = billingMap.get(key);
 
         if (existing) {
@@ -215,28 +279,40 @@ export function useOptimizedImportBillings() {
       const payerIds = Array.from(payerIdsInImport);
       const { data: existingPayers } = await supabase
         .from("payers")
-        .select("id, payer_code")
+        .select(PAYER_UPDATE_FIELDS)
         .in("id", payerIds);
 
       const existingPayerIds = new Set(existingPayers?.map((p) => p.id) || []);
       const existingPayerCodes = new Map(
         existingPayers?.filter((p) => p.payer_code).map((p) => [p.payer_code!, p.id]) || []
       );
+      const payerStateById = new Map(
+        (existingPayers || []).map((p) => [p.id, p])
+      );
 
-      // Pre-fetch existing billings for this reference month
-      const existingBillingsQuery = result.referenceMonth
+      // Pre-fetch existing billings for imported payers (across reference months)
+      const existingBillingsQuery = payerIds.length > 0
         ? await supabase
             .from("billings")
-            .select("id, payer_id, status, reference_month")
-            .eq("reference_month", result.referenceMonth)
+            .select("id, payer_id, status, reference_month, due_date, nosso_numero, seu_numero")
             .in("payer_id", payerIds)
-        : { data: [] as { id: string; payer_id: string; status: string; reference_month: string }[] };
+        : { data: [] as { id: string; payer_id: string; status: string; reference_month: string; due_date: string | null; nosso_numero: string | null; seu_numero: string | null }[] };
 
       const existingBillings = existingBillingsQuery.data || [];
 
-      const existingBillingsMap = new Map(
-        existingBillings.map((b) => [`${b.payer_id}-${b.reference_month}`, b])
-      );
+      const existingBillingsMap = new Map<string, (typeof existingBillings)[number]>();
+      existingBillings.forEach((b) => {
+        const keys = getExistingBillingLookupKeys({
+          payer_id: b.payer_id,
+          reference_month: b.reference_month,
+          nosso_numero: b.nosso_numero,
+          seu_numero: b.seu_numero,
+          due_date: b.due_date,
+        });
+        keys.forEach((k) => {
+          if (!existingBillingsMap.has(k)) existingBillingsMap.set(k, b);
+        });
+      });
 
       // Process billings in batches
       const newBillings: any[] = [];
@@ -273,6 +349,17 @@ export function useOptimizedImportBillings() {
               review_reason: "IMPORT_BILLING_SEM_CADASTRO",
               default_route: payerRoute,
             });
+            payerStateById.set(payerId, {
+              id: payerId,
+              payer_code: billing.payer_code,
+              billing_seen_in_month: null,
+              last_billing_ref: null,
+              status: "ATIVO",
+              billing_mode: "BOLETO",
+              default_route: payerRoute,
+              last_payment_at: null,
+              needs_review: true,
+            });
             existingPayerIds.add(payerId);
           }
         }
@@ -287,8 +374,17 @@ export function useOptimizedImportBillings() {
         payerMonthStatus.set(payerId, nextStatus);
 
         payerIdsInImport.add(payerId);
-        const billingKey = `${payerId}-${billing.reference_month}`;
-        const existingBilling = existingBillingsMap.get(billingKey);
+        importedPayerIds.add(payerId);
+        const billingLookupKeys = getExistingBillingLookupKeys({
+          payer_id: payerId,
+          reference_month: billing.reference_month,
+          nosso_numero: billing.nosso_numero,
+          seu_numero: billing.seu_numero,
+          due_date: billing.due_date,
+        });
+        const existingBilling = billingLookupKeys
+          .map((k) => existingBillingsMap.get(k))
+          .find(Boolean);
 
         const billingData = {
           payer_id: payerId,
@@ -313,14 +409,35 @@ export function useOptimizedImportBillings() {
             billing.status as any,
             existingBilling.status as any
           );
-          if (newStatus !== existingBilling.status) {
+          const dueDateChanged =
+            (existingBilling.due_date || null) !== (billingData.due_date || null);
+
+          if (newStatus !== existingBilling.status || dueDateChanged) {
+            const updatedPayload = { ...billingData, status: newStatus };
             updateBillings.push({
               id: existingBilling.id,
-              data: { ...billingData, status: newStatus },
+              data: updatedPayload,
+            });
+            billingLookupKeys.forEach((k) => {
+              existingBillingsMap.set(k, {
+                ...existingBilling,
+                ...updatedPayload,
+              } as any);
             });
           }
         } else {
           newBillings.push(billingData);
+          billingLookupKeys.forEach((k) => {
+            existingBillingsMap.set(k, {
+              id: "__pending_insert__",
+              payer_id: billingData.payer_id,
+              status: billingData.status,
+              reference_month: billingData.reference_month,
+              due_date: billingData.due_date,
+              nosso_numero: billingData.nosso_numero,
+              seu_numero: billingData.seu_numero,
+            } as any);
+          });
         }
 
         // Accumulate payer updates
@@ -344,7 +461,14 @@ export function useOptimizedImportBillings() {
           payerUpdate.needs_review = true;
         }
 
-        payerUpdates.set(payerId, payerUpdate);
+        const currentPayerState = payerStateById.get(payerId);
+        if (hasPayerUpdateChanges(currentPayerState, payerUpdate)) {
+          payerUpdates.set(payerId, payerUpdate);
+          payerStateById.set(payerId, {
+            ...(currentPayerState || { id: payerId }),
+            ...payerUpdate,
+          });
+        }
       }
 
       setProgress(30);
@@ -417,6 +541,9 @@ export function useOptimizedImportBillings() {
 
       setProgress(95);
 
+      result.payerUpdatesChanged = payerUpdates.size;
+      result.payerUpdatesUnchanged = Math.max(0, importedPayerIds.size - payerUpdates.size);
+
       // Deactivate payers not in import
       if (result.referenceMonth) {
         await applyPayerMonthStatus(result.referenceMonth, payerMonthStatus);
@@ -447,10 +574,15 @@ export function useOptimizedImportBillings() {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
 
+      const payerSummary =
+        typeof result.payerUpdatesChanged === "number" && typeof result.payerUpdatesUnchanged === "number"
+          ? ` Pagadores alterados: ${result.payerUpdatesChanged}. Sem mudanca: ${result.payerUpdatesUnchanged}.`
+          : "";
+
       if (result.errors > 0) {
-        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
+        toast.warning(`Importacao: ${result.success} OK, ${result.errors} erros.${payerSummary}`);
       } else {
-        toast.success(`${result.success} boletos importados!`);
+        toast.success(`${result.success} boletos importados!${payerSummary}`);
       }
     },
     onError: (error) => {
@@ -574,14 +706,22 @@ async function applyPayerMonthStatus(
   if (toDeactivate.length > 0) {
     for (let i = 0; i < toDeactivate.length; i += 500) {
       const batch = toDeactivate.slice(i, i + 500);
-      await supabase.from("payers").update({ status: "INATIVO" }).in("id", batch);
+      await supabase
+        .from("payers")
+        .update({ status: "INATIVO" })
+        .eq("status", "ATIVO")
+        .in("id", batch);
     }
   }
 
   if (toActivate.length > 0) {
     for (let i = 0; i < toActivate.length; i += 500) {
       const batch = toActivate.slice(i, i + 500);
-      await supabase.from("payers").update({ status: "ATIVO" }).in("id", batch);
+      await supabase
+        .from("payers")
+        .update({ status: "ATIVO" })
+        .neq("status", "ATIVO")
+        .in("id", batch);
     }
   }
 }
@@ -593,7 +733,7 @@ async function deactivatePayersNotInImport(
 ) {
   const { data: activePayers } = await supabase
     .from("payers")
-    .select("id, billing_mode, is_coordinator, manual_active_until")
+    .select("id, billing_mode, is_coordinator, manual_active_until, needs_review")
     .eq("status", "ATIVO");
 
   if (!activePayers) return;
@@ -610,7 +750,7 @@ async function deactivatePayersNotInImport(
     if (payer.billing_mode === "PIX_ONLY") continue;
 
     if (payer.billing_mode === "MIXED") {
-      mixedToReview.push(payer.id);
+      if (!payer.needs_review) mixedToReview.push(payer.id);
       continue;
     }
 
@@ -621,7 +761,11 @@ async function deactivatePayersNotInImport(
     // Batch update in chunks
     for (let i = 0; i < payersToDeactivate.length; i += 500) {
       const batch = payersToDeactivate.slice(i, i + 500);
-      await supabase.from("payers").update({ status: "INATIVO" }).in("id", batch);
+      await supabase
+        .from("payers")
+        .update({ status: "INATIVO" })
+        .eq("status", "ATIVO")
+        .in("id", batch);
     }
   }
 
