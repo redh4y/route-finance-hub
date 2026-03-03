@@ -303,10 +303,10 @@ export function useImportBillings() {
           payerIdsInImport.add(payer.id);
           importedPayerIds.add(payer.id);
 
-          // Check for existing billing by identity (keep month history)
+          // Check existing billings for same identity base
           let existingBillingQuery = supabase
             .from("billings")
-            .select("id, status, due_date")
+            .select("id, status, due_date, created_at")
             .eq("payer_id", payer.id)
             .eq("reference_month", billing.reference_month);
 
@@ -321,11 +321,11 @@ export function useImportBillings() {
             }
           }
 
-          const { data: existingBilling } = await existingBillingQuery
-            .eq("status", billing.status)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+          const { data: existingVariants } = await existingBillingQuery.order("created_at", { ascending: false });
+          const sameStatus = (existingVariants || []).find((b) => b.status === billing.status);
+          const hasPaidVariant = (existingVariants || []).some((b) => b.status === "PAID");
+          const openVariant = (existingVariants || []).find((b) => b.status === "OPEN");
+          const cancelVariant = (existingVariants || []).find((b) => b.status === "CANCELADO");
 
           // Prepare billing data
           const billingData = {
@@ -346,32 +346,51 @@ export function useImportBillings() {
             source_file_name: file.name,
           };
 
-          if (existingBilling) {
-            // Keep highest status priority, but allow reimport to refresh due date and other fields
-            const newStatus = getHigherPriorityStatus(
-              billing.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW",
-              existingBilling.status as "PAID" | "OPEN" | "CANCELADO" | "NEEDS_REVIEW"
-            );
+          const upsertByStatusTransition = async () => {
+            if (sameStatus) {
+              const dueDateChanged = (sameStatus.due_date || null) !== (billingData.due_date || null);
+              if (dueDateChanged) {
+                const { error } = await supabase
+                  .from("billings")
+                  .update({ ...billingData, status: billing.status })
+                  .eq("id", sameStatus.id);
+                if (error) throw error;
+              }
+              return;
+            }
 
-            const dueDateChanged = (existingBilling.due_date || null) !== (billingData.due_date || null);
-            const shouldUpdate = newStatus !== existingBilling.status || dueDateChanged;
-
-            if (shouldUpdate) {
+            if (billing.status === "CANCELADO" && openVariant && !hasPaidVariant) {
               const { error } = await supabase
                 .from("billings")
-                .update({ ...billingData, status: newStatus })
-                .eq("id", existingBilling.id);
-
+                .update({ ...billingData, status: "CANCELADO" })
+                .eq("id", openVariant.id);
               if (error) throw error;
+              return;
             }
-          } else {
-            // Insert new billing
+
+            if ((billing.status === "PAID" || billing.status === "OPEN") && !hasPaidVariant) {
+              const transitionTarget = openVariant || cancelVariant;
+              if (transitionTarget) {
+                const { error } = await supabase
+                  .from("billings")
+                  .update({ ...billingData, status: billing.status })
+                  .eq("id", transitionTarget.id);
+                if (error) throw error;
+                return;
+              }
+            }
+
+            if (billing.status === "OPEN" && hasPaidVariant) {
+              return;
+            }
+
             const { error } = await supabase
               .from("billings")
               .insert(billingData);
-
             if (error) throw error;
-          }
+          };
+
+          await upsertByStatusTransition();
 
           // Track payer status for the month (highest priority)
           const existingStatus = payerMonthStatus.get(payer.id);

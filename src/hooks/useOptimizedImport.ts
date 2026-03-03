@@ -75,6 +75,18 @@ function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "r
   return `${payer}|${ref}|FALLBACK|ST|${status}`;
 }
 
+function getBillingBaseLookupKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date">): string {
+  const payer = billing.payer_id || "";
+  const ref = billing.reference_month || "";
+  const nosso = (billing.nosso_numero || "").trim();
+  const seu = (billing.seu_numero || "").trim();
+  const due = billing.due_date || "";
+
+  if (nosso) return `${payer}|${ref}|NN|${nosso}`;
+  if (seu || due) return `${payer}|${ref}|SD|${seu}|${due}`;
+  return `${payer}|${ref}|FALLBACK`;
+}
+
 function getExistingBillingLookupKeys(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date" | "status">): string[] {
   const keys: string[] = [];
   const payer = billing.payer_id || "";
@@ -303,19 +315,33 @@ export function useOptimizedImportBillings() {
       const existingBillings = existingBillingsQuery.data || [];
 
       const existingBillingsMap = new Map<string, (typeof existingBillings)[number]>();
-      existingBillings.forEach((b) => {
+      const existingBillingsByBase = new Map<string, (typeof existingBillings)[number][]>();
+
+      const registerExistingBilling = (billingRow: (typeof existingBillings)[number]) => {
         const keys = getExistingBillingLookupKeys({
-          payer_id: b.payer_id,
-          reference_month: b.reference_month,
-          nosso_numero: b.nosso_numero,
-          seu_numero: b.seu_numero,
-          due_date: b.due_date,
-          status: b.status as any,
+          payer_id: billingRow.payer_id,
+          reference_month: billingRow.reference_month,
+          nosso_numero: billingRow.nosso_numero,
+          seu_numero: billingRow.seu_numero,
+          due_date: billingRow.due_date,
+          status: billingRow.status as any,
         });
-        keys.forEach((k) => {
-          if (!existingBillingsMap.has(k)) existingBillingsMap.set(k, b);
+        keys.forEach((k) => existingBillingsMap.set(k, billingRow));
+
+        const baseKey = getBillingBaseLookupKey({
+          payer_id: billingRow.payer_id,
+          reference_month: billingRow.reference_month,
+          nosso_numero: billingRow.nosso_numero,
+          seu_numero: billingRow.seu_numero,
+          due_date: billingRow.due_date,
         });
-      });
+        const list = existingBillingsByBase.get(baseKey) || [];
+        const next = list.filter((x) => x.id !== billingRow.id);
+        next.push(billingRow);
+        existingBillingsByBase.set(baseKey, next);
+      };
+
+      existingBillings.forEach((b) => registerExistingBilling(b));
 
       // Process billings in batches
       const newBillings: any[] = [];
@@ -378,17 +404,20 @@ export function useOptimizedImportBillings() {
 
         payerIdsInImport.add(payerId);
         importedPayerIds.add(payerId);
-        const billingLookupKeys = getExistingBillingLookupKeys({
+
+        const baseKey = getBillingBaseLookupKey({
           payer_id: payerId,
           reference_month: billing.reference_month,
           nosso_numero: billing.nosso_numero,
           seu_numero: billing.seu_numero,
           due_date: billing.due_date,
-          status: billing.status as any,
         });
-        const existingBilling = billingLookupKeys
-          .map((k) => existingBillingsMap.get(k))
-          .find(Boolean);
+
+        const existingVariants = existingBillingsByBase.get(baseKey) || [];
+        const sameStatus = existingVariants.find((b) => b.status === billing.status);
+        const hasPaidVariant = existingVariants.some((b) => b.status === "PAID");
+        const openVariant = existingVariants.find((b) => b.status === "OPEN");
+        const cancelVariant = existingVariants.find((b) => b.status === "CANCELADO");
 
         const billingData = {
           payer_id: payerId,
@@ -408,40 +437,52 @@ export function useOptimizedImportBillings() {
           source_file_name: file.name,
         };
 
-        if (existingBilling) {
-          const newStatus = getHigherPriorityStatus(
-            billing.status as any,
-            existingBilling.status as any
-          );
-          const dueDateChanged =
-            (existingBilling.due_date || null) !== (billingData.due_date || null);
+        const registerPlannedUpdate = (targetId: string, status: string) => {
+          const updatedPayload = { ...billingData, status };
+          updateBillings.push({ id: targetId, data: updatedPayload });
 
-          if (newStatus !== existingBilling.status || dueDateChanged) {
-            const updatedPayload = { ...billingData, status: newStatus };
-            updateBillings.push({
-              id: existingBilling.id,
-              data: updatedPayload,
-            });
-            billingLookupKeys.forEach((k) => {
-              existingBillingsMap.set(k, {
-                ...existingBilling,
-                ...updatedPayload,
-              } as any);
-            });
+          registerExistingBilling({
+            id: targetId,
+            payer_id: billingData.payer_id,
+            status,
+            reference_month: billingData.reference_month,
+            due_date: billingData.due_date,
+            nosso_numero: billingData.nosso_numero,
+            seu_numero: billingData.seu_numero,
+          } as any);
+        };
+
+        const registerPlannedInsert = (status: string) => {
+          newBillings.push({ ...billingData, status });
+          registerExistingBilling({
+            id: `__pending_insert__${newBillings.length}`,
+            payer_id: billingData.payer_id,
+            status,
+            reference_month: billingData.reference_month,
+            due_date: billingData.due_date,
+            nosso_numero: billingData.nosso_numero,
+            seu_numero: billingData.seu_numero,
+          } as any);
+        };
+
+        if (sameStatus) {
+          const dueDateChanged = (sameStatus.due_date || null) !== (billingData.due_date || null);
+          if (dueDateChanged) {
+            registerPlannedUpdate(sameStatus.id, billing.status);
           }
+        } else if (billing.status === "CANCELADO" && openVariant && !hasPaidVariant) {
+          registerPlannedUpdate(openVariant.id, "CANCELADO");
+        } else if ((billing.status === "PAID" || billing.status === "OPEN") && !hasPaidVariant) {
+          const transitionTarget = openVariant || cancelVariant;
+          if (transitionTarget) {
+            registerPlannedUpdate(transitionTarget.id, billing.status);
+          } else {
+            registerPlannedInsert(billing.status);
+          }
+        } else if (billing.status === "OPEN" && hasPaidVariant) {
+          // Ignore OPEN if already paid in the same billing base
         } else {
-          newBillings.push(billingData);
-          billingLookupKeys.forEach((k) => {
-            existingBillingsMap.set(k, {
-              id: "__pending_insert__",
-              payer_id: billingData.payer_id,
-              status: billingData.status,
-              reference_month: billingData.reference_month,
-              due_date: billingData.due_date,
-              nosso_numero: billingData.nosso_numero,
-              seu_numero: billingData.seu_numero,
-            } as any);
-          });
+          registerPlannedInsert(billing.status);
         }
 
         // Accumulate payer updates

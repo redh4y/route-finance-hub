@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +35,208 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
+import { parseCSV, transformBillingRow, BillingCSVRow } from "@/lib/csv-import";
+
+
+
+type BillingPreviewType = "NEW" | "UPDATE_DUE_DATE" | "NO_CHANGE" | "MISSING_PAYER" | "NEW_STATUS_VARIANT";
+
+type BillingPreviewRow = {
+  type: BillingPreviewType;
+  payerName: string;
+  payerId: string;
+  payerCode: string | null;
+  referenceMonth: string;
+  status: string;
+  dueDate: string | null;
+  nossoNumero: string | null;
+  seuNumero: string | null;
+  amountExpectedCents: number;
+  note: string;
+};
+
+const getBillingPreviewBaseKey = (billing: {
+  payer_id: string;
+  reference_month: string;
+  nosso_numero?: string | null;
+  seu_numero?: string | null;
+  due_date?: string | null;
+}) => {
+  const payer = billing.payer_id || "";
+  const ref = billing.reference_month || "";
+  const nosso = (billing.nosso_numero || "").trim();
+  const seu = (billing.seu_numero || "").trim();
+  const due = billing.due_date || "";
+
+  if (nosso) return `${payer}|${ref}|NN|${nosso}`;
+  if (seu) return `${payer}|${ref}|SEU|${seu}`;
+  return `${payer}|${ref}|FALLBACK|${due}`;
+};
+
+const getBillingPreviewStatusKey = (billing: {
+  payer_id: string;
+  reference_month: string;
+  nosso_numero?: string | null;
+  seu_numero?: string | null;
+  due_date?: string | null;
+  status: string;
+}) => `${getBillingPreviewBaseKey(billing)}|ST|${(billing.status || "").trim().toUpperCase()}`;
+
+async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
+  const rows = await parseCSV<BillingCSVRow>(file);
+  const transformed = rows.map(transformBillingRow).filter(Boolean) as NonNullable<ReturnType<typeof transformBillingRow>>[];
+
+  const incomingByStatus = new Map<string, NonNullable<ReturnType<typeof transformBillingRow>>>();
+  for (const billing of transformed) {
+    incomingByStatus.set(getBillingPreviewStatusKey(billing), billing);
+  }
+  const incoming = Array.from(incomingByStatus.values());
+
+  const payerIds = Array.from(new Set(incoming.map((b) => b.payer_id).filter(Boolean)));
+  const payerCodes = Array.from(new Set(incoming.map((b) => b.payer_code).filter((v): v is string => !!v)));
+
+  let payerQuery = supabase.from("payers").select("id, name, payer_code");
+  if (payerIds.length > 0 && payerCodes.length > 0) {
+    payerQuery = payerQuery.or(`id.in.(${payerIds.join(",")}),payer_code.in.(${payerCodes.map((c) => `"${c}"`).join(",")})`);
+  } else if (payerIds.length > 0) {
+    payerQuery = payerQuery.in("id", payerIds);
+  } else if (payerCodes.length > 0) {
+    payerQuery = payerQuery.in("payer_code", payerCodes);
+  }
+
+  const { data: payers, error: payerErr } = await payerQuery;
+  if (payerErr) throw payerErr;
+
+  const payerById = new Map((payers || []).map((p) => [p.id, p]));
+  const payerIdByCode = new Map((payers || []).filter((p) => p.payer_code).map((p) => [p.payer_code as string, p.id as string]));
+
+  const resolvedIncoming = incoming.map((b) => {
+    const resolvedPayerId = payerById.get(b.payer_id)?.id || (b.payer_code ? payerIdByCode.get(b.payer_code) : null) || b.payer_id;
+    const payerMatch = payerById.get(resolvedPayerId);
+    return {
+      ...b,
+      payer_id: resolvedPayerId,
+      _payerFound: !!payerMatch,
+      _payerName: payerMatch?.name || b.payer_name || `Pagador ${resolvedPayerId}`,
+      _payerCode: payerMatch?.payer_code || b.payer_code || null,
+    };
+  });
+
+  const resolvedPayerIds = Array.from(new Set(resolvedIncoming.map((b) => b.payer_id)));
+  const { data: existingBillings, error: billingErr } = await supabase
+    .from("billings")
+    .select("payer_id, reference_month, nosso_numero, seu_numero, due_date, status")
+    .in("payer_id", resolvedPayerIds.length > 0 ? resolvedPayerIds : ["__none__"]);
+  if (billingErr) throw billingErr;
+
+  const existingByStatusKey = new Map<string, (typeof existingBillings)[number]>();
+  const existingByBaseKey = new Set<string>();
+
+  (existingBillings || []).forEach((b) => {
+    const statusKey = getBillingPreviewStatusKey({
+      payer_id: b.payer_id,
+      reference_month: b.reference_month,
+      nosso_numero: b.nosso_numero,
+      seu_numero: b.seu_numero,
+      due_date: b.due_date,
+      status: b.status,
+    });
+    existingByStatusKey.set(statusKey, b);
+    existingByBaseKey.add(
+      getBillingPreviewBaseKey({
+        payer_id: b.payer_id,
+        reference_month: b.reference_month,
+        nosso_numero: b.nosso_numero,
+        seu_numero: b.seu_numero,
+        due_date: b.due_date,
+      })
+    );
+  });
+
+  return resolvedIncoming.map((b) => {
+    const statusKey = getBillingPreviewStatusKey(b);
+    const baseKey = getBillingPreviewBaseKey(b);
+    const existing = existingByStatusKey.get(statusKey);
+
+    if (!b._payerFound) {
+      return {
+        type: "MISSING_PAYER" as const,
+        payerName: b._payerName,
+        payerId: b.payer_id,
+        payerCode: b._payerCode,
+        referenceMonth: b.reference_month,
+        status: b.status,
+        dueDate: b.due_date,
+        nossoNumero: b.nosso_numero,
+        seuNumero: b.seu_numero,
+        amountExpectedCents: b.amount_expected_cents,
+        note: "Pagador nao encontrado. Sera criado automaticamente.",
+      };
+    }
+
+    if (existing) {
+      if ((existing.due_date || null) !== (b.due_date || null)) {
+        return {
+          type: "UPDATE_DUE_DATE" as const,
+          payerName: b._payerName,
+          payerId: b.payer_id,
+          payerCode: b._payerCode,
+          referenceMonth: b.reference_month,
+          status: b.status,
+          dueDate: b.due_date,
+          nossoNumero: b.nosso_numero,
+          seuNumero: b.seu_numero,
+          amountExpectedCents: b.amount_expected_cents,
+          note: `Vencimento sera atualizado de ${existing.due_date || "-"} para ${b.due_date || "-"}.`,
+        };
+      }
+
+      return {
+        type: "NO_CHANGE" as const,
+        payerName: b._payerName,
+        payerId: b.payer_id,
+        payerCode: b._payerCode,
+        referenceMonth: b.reference_month,
+        status: b.status,
+        dueDate: b.due_date,
+        nossoNumero: b.nosso_numero,
+        seuNumero: b.seu_numero,
+        amountExpectedCents: b.amount_expected_cents,
+        note: "Sem alteracoes em relacao ao banco.",
+      };
+    }
+
+    if (existingByBaseKey.has(baseKey)) {
+      return {
+        type: "NEW_STATUS_VARIANT" as const,
+        payerName: b._payerName,
+        payerId: b.payer_id,
+        payerCode: b._payerCode,
+        referenceMonth: b.reference_month,
+        status: b.status,
+        dueDate: b.due_date,
+        nossoNumero: b.nosso_numero,
+        seuNumero: b.seu_numero,
+        amountExpectedCents: b.amount_expected_cents,
+        note: "Mesmo boleto base com status diferente. Historico sera mantido.",
+      };
+    }
+
+    return {
+      type: "NEW" as const,
+      payerName: b._payerName,
+      payerId: b.payer_id,
+      payerCode: b._payerCode,
+      referenceMonth: b.reference_month,
+      status: b.status,
+      dueDate: b.due_date,
+      nossoNumero: b.nosso_numero,
+      seuNumero: b.seu_numero,
+      amountExpectedCents: b.amount_expected_cents,
+      note: "Novo boleto a ser inserido.",
+    };
+  });
+}
 
 export default function Import() {
   const [activeTab, setActiveTab] = useState("pagadores");
@@ -183,11 +385,26 @@ function ImportPayersCard() {
     </div>
   );
 }
-
 function ImportBillingsCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewRows, setPreviewRows] = useState<BillingPreviewRow[]>([]);
+  const [previewFilter, setPreviewFilter] = useState<"ALL" | BillingPreviewType>("ALL");
   const { importBillings, isImporting, progress, reset } = useOptimizedImportBillings();
+
+  const summary = useMemo(() => ({
+    NEW: previewRows.filter((r) => r.type === "NEW").length,
+    UPDATE_DUE_DATE: previewRows.filter((r) => r.type === "UPDATE_DUE_DATE").length,
+    NEW_STATUS_VARIANT: previewRows.filter((r) => r.type === "NEW_STATUS_VARIANT").length,
+    NO_CHANGE: previewRows.filter((r) => r.type === "NO_CHANGE").length,
+    MISSING_PAYER: previewRows.filter((r) => r.type === "MISSING_PAYER").length,
+  }), [previewRows]);
+
+  const filteredPreviewRows = useMemo(() => {
+    if (previewFilter === "ALL") return previewRows;
+    return previewRows.filter((r) => r.type === previewFilter);
+  }, [previewRows, previewFilter]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -207,20 +424,83 @@ function ImportBillingsCard() {
     }
   };
 
+  const handlePreview = async () => {
+    if (!file) return;
+    setIsPreviewing(true);
+    try {
+      const rows = await analyzeBillingPreview(file);
+      setPreviewRows(rows);
+      toast.success(`Analise concluida: ${rows.length} linhas comparadas.`);
+    } catch (error: any) {
+      toast.error(`Falha na analise: ${error.message || String(error)}`);
+      setPreviewRows([]);
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
+  const handleExportPreviewCsv = () => {
+    if (filteredPreviewRows.length === 0) return;
+
+    const header = [
+      "tipo",
+      "pagador",
+      "payer_id",
+      "payer_code",
+      "referencia",
+      "status",
+      "vencimento",
+      "nosso_numero",
+      "seu_numero",
+      "valor_centavos",
+      "observacao",
+    ];
+
+    const rows = filteredPreviewRows.map((r) => [
+      r.type,
+      r.payerName,
+      r.payerId,
+      r.payerCode || "",
+      r.referenceMonth,
+      r.status,
+      r.dueDate || "",
+      r.nossoNumero || "",
+      r.seuNumero || "",
+      String(r.amountExpectedCents),
+      r.note,
+    ]);
+
+    const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv = [header, ...rows].map((line) => line.map((v) => escape(String(v))).join(",")).join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `preview-boletos-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleImport = async () => {
     if (!file) return;
     await importBillings(file);
     setFile(null);
+    setPreviewRows([]);
+    setPreviewFilter("ALL");
     reset();
   };
 
   const handleClear = () => {
     setFile(null);
+    setPreviewRows([]);
+    setPreviewFilter("ALL");
     reset();
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -244,13 +524,30 @@ function ImportBillingsCard() {
 
           {isImporting && <ProgressBar progress={progress} />}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {file && (
-              <Button variant="ghost" onClick={handleClear} disabled={isImporting}>
+              <Button variant="ghost" onClick={handleClear} disabled={isImporting || isPreviewing}>
                 <X className="h-4 w-4 mr-2" />
                 Limpar
               </Button>
             )}
+            <Button variant="outline" onClick={handlePreview} disabled={!file || isImporting || isPreviewing}>
+              {isPreviewing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Analisando...
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="h-4 w-4 mr-2" />
+                  Analisar alteracoes
+                </>
+              )}
+            </Button>
+            <Button variant="outline" onClick={handleExportPreviewCsv} disabled={filteredPreviewRows.length === 0}>
+              <FileText className="h-4 w-4 mr-2" />
+              Exportar diferencas
+            </Button>
             <Button onClick={handleImport} disabled={!file || isImporting} className="ml-auto">
               {isImporting ? (
                 <>
@@ -260,7 +557,7 @@ function ImportBillingsCard() {
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Importar
+                  Confirmar importacao
                 </>
               )}
             </Button>
@@ -310,9 +607,77 @@ function ImportBillingsCard() {
           </div>
         </CardContent>
       </Card>
+      </div>
+
+      {previewRows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center gap-2 justify-between">
+              <div>
+                <CardTitle className="text-lg">Preview comparativo (sem grava??o)</CardTitle>
+                <CardDescription>
+                  Compare com a base atual antes de confirmar a importa??o.
+                </CardDescription>
+              </div>
+              <Select value={previewFilter} onValueChange={(v) => setPreviewFilter(v as "ALL" | BillingPreviewType)}>
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Filtrar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Todos</SelectItem>
+                  <SelectItem value="NEW">Novos</SelectItem>
+                  <SelectItem value="UPDATE_DUE_DATE">Vencimento alterado</SelectItem>
+                  <SelectItem value="NEW_STATUS_VARIANT">Novo status (hist?rico)</SelectItem>
+                  <SelectItem value="MISSING_PAYER">Sem cadastro</SelectItem>
+                  <SelectItem value="NO_CHANGE">Sem mudan?as</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">Novos: {summary.NEW}</Badge>
+              <Badge variant="secondary">Vencimento: {summary.UPDATE_DUE_DATE}</Badge>
+              <Badge variant="secondary">Novo status: {summary.NEW_STATUS_VARIANT}</Badge>
+              <Badge variant="secondary">Sem cadastro: {summary.MISSING_PAYER}</Badge>
+              <Badge variant="outline">Sem mudan?as: {summary.NO_CHANGE}</Badge>
+            </div>
+
+            <div className="max-h-[380px] overflow-auto rounded border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 sticky top-0">
+                  <tr>
+                    <th className="text-left p-2">Tipo</th>
+                    <th className="text-left p-2">Pagador</th>
+                    <th className="text-left p-2">Ref.</th>
+                    <th className="text-left p-2">Status</th>
+                    <th className="text-left p-2">Venc.</th>
+                    <th className="text-left p-2">Valor</th>
+                    <th className="text-left p-2">Observa??o</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPreviewRows.map((row, idx) => (
+                    <tr key={`${row.payerId}-${row.nossoNumero || row.seuNumero || idx}`} className="border-t">
+                      <td className="p-2"><Badge variant="outline">{row.type}</Badge></td>
+                      <td className="p-2">{row.payerName}</td>
+                      <td className="p-2">{row.referenceMonth}</td>
+                      <td className="p-2">{row.status}</td>
+                      <td className="p-2">{row.dueDate || "-"}</td>
+                      <td className="p-2">R$ {(row.amountExpectedCents / 100).toFixed(2)}</td>
+                      <td className="p-2">{row.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
+
 
 function ImportInvoicesCard() {
   const [file, setFile] = useState<File | null>(null);
