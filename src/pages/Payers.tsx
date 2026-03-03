@@ -711,6 +711,16 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
     return latest;
   }, [paidBillings]);
 
+  const billingFlags = useMemo(() => {
+    const statuses = new Set((allBillings || []).map((b) => b.status));
+    return {
+      hasAny: (allBillings || []).length > 0,
+      hasOpen: statuses.has("OPEN"),
+      hasCancelled: statuses.has("CANCELADO"),
+      hasPaid: statuses.has("PAID"),
+    };
+  }, [allBillings]);
+
   if (!payerId || !selectedPayer) {
     return (
       <Card className="h-[calc(100vh-280px)] flex items-center justify-center">
@@ -835,13 +845,16 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
                       : "-"
                 }
               />
-              {!latestPaidDate && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 text-warning border-warning/50"
-                >
+              {!latestPaidDate && billingFlags.hasOpen && (
+                <Badge variant="outline" className="gap-1 text-warning border-warning/50">
                   <Clock className="h-3 w-3" />
                   Boleto em aberto
+                </Badge>
+              )}
+              {!latestPaidDate && !billingFlags.hasOpen && billingFlags.hasCancelled && (
+                <Badge variant="outline" className="gap-1 text-muted-foreground">
+                  <CheckCircle2 className="h-3 w-3" />
+                  CANCELADO
                 </Badge>
               )}
               {selectedPayer.pix_monthly_amount_cents && (

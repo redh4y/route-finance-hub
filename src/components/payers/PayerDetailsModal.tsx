@@ -72,17 +72,24 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
 
 
   const { data: billings, isLoading: billingsLoading } = useQuery({
-    queryKey: ["payer-billings", payerId],
+    queryKey: ["payer-billings", payerId, payer?.payer_code],
     queryFn: async () => {
       if (!payerId) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from("billings")
         .select("*")
-        .eq("payer_id", payerId)
         .order("reference_month", { ascending: false })
         .order("due_date", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
         .limit(200);
+
+      if (payer?.payer_code) {
+        query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payer.payer_code}`);
+      } else {
+        query = query.eq("payer_id", payerId);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data as Billing[];
     },

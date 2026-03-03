@@ -58,16 +58,17 @@ function hasPayerUpdateChanges(currentPayer: any, update: Record<string, any>): 
 
 type TransformedBilling = NonNullable<ReturnType<typeof transformBillingRow>>;
 
-function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date">): string {
+function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date" | "status">): string {
   const payer = billing.payer_id || "";
   const ref = billing.reference_month || "";
   const nosso = (billing.nosso_numero || "").trim();
   const seu = (billing.seu_numero || "").trim();
   const due = billing.due_date || "";
+  const status = (billing.status || "").trim().toUpperCase() || "UNKNOWN";
 
-  if (nosso) return `${payer}|${ref}|NN|${nosso}`;
-  if (seu || due) return `${payer}|${ref}|SD|${seu}|${due}`;
-  return `${payer}|${ref}|FALLBACK`;
+  if (nosso) return `${payer}|${ref}|NN|${nosso}|ST|${status}`;
+  if (seu || due) return `${payer}|${ref}|SD|${seu}|${due}|ST|${status}`;
+  return `${payer}|${ref}|FALLBACK|ST|${status}`;
 }
 
 
@@ -320,7 +321,11 @@ export function useImportBillings() {
             }
           }
 
-          const { data: existingBilling } = await existingBillingQuery.maybeSingle();
+          const { data: existingBilling } = await existingBillingQuery
+            .eq("status", billing.status)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
           // Prepare billing data
           const billingData = {

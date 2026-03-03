@@ -62,29 +62,31 @@ function hasPayerUpdateChanges(currentPayer: any, update: Record<string, any>): 
 
 type TransformedBilling = NonNullable<ReturnType<typeof transformBillingRow>>;
 
-function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date">): string {
+function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date" | "status">): string {
   const payer = billing.payer_id || "";
   const ref = billing.reference_month || "";
   const nosso = (billing.nosso_numero || "").trim();
   const seu = (billing.seu_numero || "").trim();
   const due = billing.due_date || "";
+  const status = (billing.status || "").trim().toUpperCase() || "UNKNOWN";
 
-  if (nosso) return `${payer}|${ref}|NN|${nosso}`;
-  if (seu || due) return `${payer}|${ref}|SD|${seu}|${due}`;
-  return `${payer}|${ref}|FALLBACK`;
+  if (nosso) return `${payer}|${ref}|NN|${nosso}|ST|${status}`;
+  if (seu || due) return `${payer}|${ref}|SD|${seu}|${due}|ST|${status}`;
+  return `${payer}|${ref}|FALLBACK|ST|${status}`;
 }
 
-function getExistingBillingLookupKeys(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date">): string[] {
+function getExistingBillingLookupKeys(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date" | "status">): string[] {
   const keys: string[] = [];
   const payer = billing.payer_id || "";
   const ref = billing.reference_month || "";
   const nosso = (billing.nosso_numero || "").trim();
   const seu = (billing.seu_numero || "").trim();
   const due = billing.due_date || "";
+  const status = (billing.status || "").trim().toUpperCase() || "UNKNOWN";
 
-  if (nosso) keys.push(`${payer}|${ref}|NN|${nosso}`);
-  if (seu || due) keys.push(`${payer}|${ref}|SD|${seu}|${due}`);
-  keys.push(`${payer}|${ref}|FALLBACK`);
+  if (nosso) keys.push(`${payer}|${ref}|NN|${nosso}|ST|${status}`);
+  if (seu || due) keys.push(`${payer}|${ref}|SD|${seu}|${due}|ST|${status}`);
+  keys.push(`${payer}|${ref}|FALLBACK|ST|${status}`);
 
   return keys;
 }
@@ -308,6 +310,7 @@ export function useOptimizedImportBillings() {
           nosso_numero: b.nosso_numero,
           seu_numero: b.seu_numero,
           due_date: b.due_date,
+          status: b.status as any,
         });
         keys.forEach((k) => {
           if (!existingBillingsMap.has(k)) existingBillingsMap.set(k, b);
@@ -381,6 +384,7 @@ export function useOptimizedImportBillings() {
           nosso_numero: billing.nosso_numero,
           seu_numero: billing.seu_numero,
           due_date: billing.due_date,
+          status: billing.status as any,
         });
         const existingBilling = billingLookupKeys
           .map((k) => existingBillingsMap.get(k))
