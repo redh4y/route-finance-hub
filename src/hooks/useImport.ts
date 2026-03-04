@@ -122,14 +122,87 @@ export function useImportPayers() {
       const valid = transformed.filter((t) => {
         if (!t.payer) {
           result.errors++;
-          result.errorDetails.push({ row: t.rowNumber, error: "Dados inválidos (sem nome ou identificador)" });
+          result.errorDetails.push({ row: t.rowNumber, error: "Dados inv?lidos (sem nome ou identificador)" });
           return false;
         }
         return true;
       }) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
 
-      for (let i = 0; i < valid.length; i += batchSize) {
-        const batchItems = valid.slice(i, i + batchSize);
+      const documentDigits = Array.from(
+        new Set(valid.map((v) => v.payer.document_digits).filter((d): d is string => !!d))
+      );
+      const payerCodes = Array.from(
+        new Set(valid.map((v) => v.payer.payer_code).filter((c): c is string => !!c))
+      );
+
+      let candidateQuery = supabase.from("payers").select("id, document_digits, payer_code");
+      if (documentDigits.length > 0 && payerCodes.length > 0) {
+        candidateQuery = candidateQuery.or(
+          `document_digits.in.(${documentDigits.map((d) => `"${d}"`).join(",")}),payer_code.in.(${payerCodes.map((c) => `"${c}"`).join(",")})`
+        );
+      } else if (documentDigits.length > 0) {
+        candidateQuery = candidateQuery.in("document_digits", documentDigits);
+      } else if (payerCodes.length > 0) {
+        candidateQuery = candidateQuery.in("payer_code", payerCodes);
+      }
+
+      const { data: candidatePayers, error: candidateError } = await candidateQuery;
+      if (candidateError) throw candidateError;
+
+      const docMap = new Map<string, string[]>();
+      const codeMap = new Map<string, string[]>();
+      (candidatePayers || []).forEach((p: any) => {
+        if (p.document_digits) {
+          const list = docMap.get(p.document_digits) || [];
+          list.push(p.id);
+          docMap.set(p.document_digits, list);
+        }
+        if (p.payer_code) {
+          const list = codeMap.get(p.payer_code) || [];
+          list.push(p.id);
+          codeMap.set(p.payer_code, list);
+        }
+      });
+
+      const resolvedValid = valid
+        .map((item) => {
+          const doc = item.payer.document_digits || null;
+          const code = item.payer.payer_code || null;
+          const docMatches = doc ? (docMap.get(doc) || []) : [];
+          const codeMatches = code ? (codeMap.get(code) || []) : [];
+
+          if (docMatches.length > 1) {
+            result.errors++;
+            result.errorDetails.push({ row: item.rowNumber, error: `Ambiguidade por CPF (${doc})` });
+            return null;
+          }
+
+          if (codeMatches.length > 1) {
+            result.errors++;
+            result.errorDetails.push({ row: item.rowNumber, error: `Ambiguidade por Cod Pagador (${code})` });
+            return null;
+          }
+
+          const docId = docMatches[0] || null;
+          const codeId = codeMatches[0] || null;
+
+          if (docId && codeId && docId !== codeId) {
+            result.errors++;
+            result.errorDetails.push({
+              row: item.rowNumber,
+              error: `Conflito de identidade: CPF aponta para ${docId} e Cod Pagador para ${codeId}`,
+            });
+            return null;
+          }
+
+          const targetId = docId || codeId || item.payer.id;
+          return { ...item, payer: { ...item.payer, id: targetId } };
+        })
+        .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
+
+      for (let i = 0; i < resolvedValid.length; i += batchSize) {
+
+        const batchItems = resolvedValid.slice(i, i + batchSize);
         const batch = batchItems.map((b) => b.payer);
 
         try {
@@ -158,7 +231,7 @@ export function useImportPayers() {
           }
         }
 
-        setProgress(Math.round((Math.min(i + batchSize, valid.length) / Math.max(valid.length, 1)) * 100));
+        setProgress(Math.round((Math.min(i + batchSize, resolvedValid.length) / Math.max(resolvedValid.length, 1)) * 100));
       }
 
       // Update import log
@@ -506,34 +579,34 @@ export function useImportBillings() {
 
 // Helper function to find or create payer from billing data
 async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transformBillingRow>>) {
-  // First try to find by id (document_digits)
-  let { data: payer } = await supabase
-    .from("payers")
-    .select(PAYER_UPDATE_FIELDS)
-    .eq("id", billing.payer_id)
-    .maybeSingle();
+  const looksLikeCpf = /^\d{11}$/.test(billing.payer_id || "");
+  const docCandidate = looksLikeCpf ? billing.payer_id : null;
+  const codeCandidate = billing.payer_code || (!looksLikeCpf ? billing.payer_id : null);
 
-  if (payer) return payer;
+  if (docCandidate) {
+    const { data: payerByDoc } = await supabase
+      .from("payers")
+      .select(PAYER_UPDATE_FIELDS)
+      .eq("document_digits", docCandidate)
+      .maybeSingle();
+    if (payerByDoc) return payerByDoc;
+  }
 
-  // Try to find by payer_code
-  if (billing.payer_code) {
+  if (codeCandidate) {
     const { data: payerByCode } = await supabase
       .from("payers")
       .select(PAYER_UPDATE_FIELDS)
-      .eq("payer_code", billing.payer_code)
+      .eq("payer_code", codeCandidate)
       .maybeSingle();
-
     if (payerByCode) return payerByCode;
   }
 
-  // Create placeholder payer if not found
-  // Note: name_lower is a generated column, so we don't include it
   const placeholderPayer = {
-    id: billing.payer_id,
-    name: billing.payer_name || `Pagador ${billing.payer_code || billing.payer_id}`,
-    document: billing.payer_id,
-    document_digits: billing.payer_id,
-    payer_code: billing.payer_code,
+    id: crypto.randomUUID(),
+    name: billing.payer_name || `Pagador ${codeCandidate || billing.payer_id}`,
+    document: docCandidate,
+    document_digits: docCandidate,
+    payer_code: codeCandidate,
     status: "ATIVO",
     billing_mode: "BOLETO",
     review_flag: true,

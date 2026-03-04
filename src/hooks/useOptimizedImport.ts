@@ -103,6 +103,35 @@ function getExistingBillingLookupKeys(billing: Pick<TransformedBilling, "payer_i
   return keys;
 }
 
+
+async function fetchCandidatePayersByIdentity(documentDigits: string[], payerCodes: string[]) {
+  const byId = new Map<string, { id: string; document_digits: string | null; payer_code: string | null }>();
+
+  for (let i = 0; i < documentDigits.length; i += 400) {
+    const chunk = documentDigits.slice(i, i + 400);
+    const { data, error } = await supabase
+      .from("payers")
+      .select("id, document_digits, payer_code")
+      .in("document_digits", chunk);
+
+    if (error) throw error;
+    (data || []).forEach((p: any) => byId.set(p.id, p));
+  }
+
+  for (let i = 0; i < payerCodes.length; i += 400) {
+    const chunk = payerCodes.slice(i, i + 400);
+    const { data, error } = await supabase
+      .from("payers")
+      .select("id, document_digits, payer_code")
+      .in("payer_code", chunk);
+
+    if (error) throw error;
+    (data || []).forEach((p: any) => byId.set(p.id, p));
+  }
+
+  return Array.from(byId.values());
+}
+
 // Optimized payer import with larger batches and parallel processing
 export function useOptimizedImportPayers() {
   const queryClient = useQueryClient();
@@ -145,12 +174,90 @@ export function useOptimizedImportPayers() {
           return true;
         });
 
+      // Match strategy for reimport: document_digits > payer_code
+      const documentDigits = Array.from(
+        new Set(transformed.map((v) => v.payer.document_digits).filter((d): d is string => !!d))
+      );
+      const payerCodes = Array.from(
+        new Set(transformed.map((v) => v.payer.payer_code).filter((c): c is string => !!c))
+      );
+
+      const candidatePayers =
+        documentDigits.length === 0 && payerCodes.length === 0
+          ? []
+          : await fetchCandidatePayersByIdentity(documentDigits, payerCodes);
+
+      const docMap = new Map<string, string[]>();
+      const codeMap = new Map<string, string[]>();
+      (candidatePayers || []).forEach((p: any) => {
+        if (p.document_digits) {
+          const list = docMap.get(p.document_digits) || [];
+          list.push(p.id);
+          docMap.set(p.document_digits, list);
+        }
+        if (p.payer_code) {
+          const list = codeMap.get(p.payer_code) || [];
+          list.push(p.id);
+          codeMap.set(p.payer_code, list);
+        }
+      });
+
+      const resolvedTransformedRaw = transformed
+        .map((item) => {
+          const doc = item.payer.document_digits || null;
+          const code = item.payer.payer_code || null;
+          const docMatches = doc ? (docMap.get(doc) || []) : [];
+          const codeMatches = code ? (codeMap.get(code) || []) : [];
+
+          if (docMatches.length > 1) {
+            result.errors++;
+            result.errorDetails.push({ row: item.rowNumber, error: `Ambiguidade por CPF (${doc})` });
+            return null;
+          }
+          if (codeMatches.length > 1) {
+            result.errors++;
+            result.errorDetails.push({ row: item.rowNumber, error: `Ambiguidade por Cod Pagador (${code})` });
+            return null;
+          }
+
+          const docId = docMatches[0] || null;
+          const codeId = codeMatches[0] || null;
+          if (docId && codeId && docId !== codeId) {
+            result.errors++;
+            result.errorDetails.push({
+              row: item.rowNumber,
+              error: `Conflito de identidade: CPF aponta para ${docId} e Cod Pagador para ${codeId}`,
+            });
+            return null;
+          }
+
+          const targetId = docId || codeId || item.payer.id;
+          return { ...item, payer: { ...item.payer, id: targetId } };
+        })
+        .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
+
+      // Avoid Postgres ON CONFLICT cardinality errors when the same id appears multiple times in one CSV.
+      // Keep the last occurrence for each payer id.
+      const dedupMap = new Map<string, { rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>();
+      for (const item of resolvedTransformedRaw) {
+        dedupMap.set(item.payer.id, item);
+      }
+      const resolvedTransformed = Array.from(dedupMap.values());
+      const droppedDuplicates = resolvedTransformedRaw.length - resolvedTransformed.length;
+      if (droppedDuplicates > 0) {
+        result.errorDetails.push({
+          row: 0,
+          error: `${droppedDuplicates} linha(s) duplicada(s) no CSV (mesmo pagador) foram consolidadas na ?ltima ocorr?ncia.`,
+        });
+      }
+
       // Process in larger batches
-      const totalBatches = Math.ceil(transformed.length / BATCH_SIZE_PAYERS);
-      
+      const totalBatches = Math.ceil(resolvedTransformed.length / BATCH_SIZE_PAYERS);
+
       for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+
         const start = batchIdx * BATCH_SIZE_PAYERS;
-        const batchItems = transformed.slice(start, start + BATCH_SIZE_PAYERS);
+        const batchItems = resolvedTransformed.slice(start, start + BATCH_SIZE_PAYERS);
         const batch = batchItems.map((b) => b.payer);
 
         try {
@@ -289,20 +396,45 @@ export function useOptimizedImportBillings() {
 
       const billings = Array.from(billingMap.values());
 
-      // Pre-fetch all existing payers in one query
-      const payerIds = Array.from(payerIdsInImport);
-      const { data: existingPayers } = await supabase
-        .from("payers")
-        .select(PAYER_UPDATE_FIELDS)
-        .in("id", payerIds);
+      // Pre-fetch existing payers in one query using import identifiers (CPF/Cod Pagador)
+      const importedDocs = Array.from(
+        new Set(
+          Array.from(payerIdsInImport).filter((v) => /^\d{11}$/.test(v))
+        )
+      );
+      const importedCodes = Array.from(
+        new Set(
+          billings
+            .map((b) => b.payer_code || (/^\d{11}$/.test(b.payer_id) ? null : b.payer_id))
+            .filter((v): v is string => !!v)
+        )
+      );
+
+      let existingPayersQuery = supabase.from("payers").select(PAYER_UPDATE_FIELDS);
+      if (importedDocs.length > 0 && importedCodes.length > 0) {
+        existingPayersQuery = existingPayersQuery.or(
+          `document_digits.in.(${importedDocs.map((d) => `"${d}"`).join(",")}),payer_code.in.(${importedCodes.map((c) => `"${c}"`).join(",")})`
+        );
+      } else if (importedDocs.length > 0) {
+        existingPayersQuery = existingPayersQuery.in("document_digits", importedDocs);
+      } else if (importedCodes.length > 0) {
+        existingPayersQuery = existingPayersQuery.in("payer_code", importedCodes);
+      }
+
+      const { data: existingPayers } = await existingPayersQuery;
 
       const existingPayerIds = new Set(existingPayers?.map((p) => p.id) || []);
       const existingPayerCodes = new Map(
         existingPayers?.filter((p) => p.payer_code).map((p) => [p.payer_code!, p.id]) || []
       );
+      const existingPayerByDocument = new Map(
+        existingPayers?.filter((p) => p.document_digits).map((p: any) => [p.document_digits as string, p.id as string]) || []
+      );
       const payerStateById = new Map(
         (existingPayers || []).map((p) => [p.id, p])
       );
+
+      const payerIds = Array.from(existingPayerIds);
 
       // Pre-fetch existing billings for imported payers (across reference months)
       const existingBillingsQuery = payerIds.length > 0
@@ -353,44 +485,49 @@ export function useOptimizedImportBillings() {
         const billing = billings[i];
         if (!billing) continue;
 
-        let payerId = billing.payer_id;
+        const looksLikeCpf = /^\d{11}$/.test(billing.payer_id || "");
+        const docCandidate = looksLikeCpf ? billing.payer_id : null;
+        const codeCandidate = billing.payer_code || (!looksLikeCpf ? billing.payer_id : null);
+
+        let payerId =
+          (docCandidate ? existingPayerByDocument.get(docCandidate) : null) ||
+          (codeCandidate ? existingPayerCodes.get(codeCandidate) : null) ||
+          null;
+
         const payerRoute =
           billing.amount_expected_cents > 50000 ? "FRANCA" : "BARRETOS";
 
-        // Check if payer exists
-        if (!existingPayerIds.has(payerId)) {
-          // Try by payer_code
-          if (billing.payer_code && existingPayerCodes.has(billing.payer_code)) {
-            payerId = existingPayerCodes.get(billing.payer_code)!;
-          } else {
-            // Create placeholder payer
-            payersToCreate.push({
-              id: payerId,
-              name: billing.payer_name || `Pagador ${billing.payer_code || payerId}`,
-              document: payerId,
-              document_digits: payerId,
-              payer_code: billing.payer_code,
-              status: "ATIVO",
-              billing_mode: "BOLETO",
-              review_flag: true,
-              needs_review: true,
-              review_status: "REVIEW",
-              review_reason: "IMPORT_BILLING_SEM_CADASTRO",
-              default_route: payerRoute,
-            });
-            payerStateById.set(payerId, {
-              id: payerId,
-              payer_code: billing.payer_code,
-              billing_seen_in_month: null,
-              last_billing_ref: null,
-              status: "ATIVO",
-              billing_mode: "BOLETO",
-              default_route: payerRoute,
-              last_payment_at: null,
-              needs_review: true,
-            });
-            existingPayerIds.add(payerId);
-          }
+        // Create placeholder payer when no match by document/code
+        if (!payerId) {
+          payerId = crypto.randomUUID();
+          payersToCreate.push({
+            id: payerId,
+            name: billing.payer_name || `Pagador ${codeCandidate || billing.payer_id}`,
+            document: docCandidate,
+            document_digits: docCandidate,
+            payer_code: codeCandidate,
+            status: "ATIVO",
+            billing_mode: "BOLETO",
+            review_flag: true,
+            needs_review: true,
+            review_status: "REVIEW",
+            review_reason: "IMPORT_BILLING_SEM_CADASTRO",
+            default_route: payerRoute,
+          });
+          payerStateById.set(payerId, {
+            id: payerId,
+            payer_code: codeCandidate,
+            billing_seen_in_month: null,
+            last_billing_ref: null,
+            status: "ATIVO",
+            billing_mode: "BOLETO",
+            default_route: payerRoute,
+            last_payment_at: null,
+            needs_review: true,
+          });
+          existingPayerIds.add(payerId);
+          if (docCandidate) existingPayerByDocument.set(docCandidate, payerId);
+          if (codeCandidate) existingPayerCodes.set(codeCandidate, payerId);
         }
 
         const existingStatus = payerMonthStatus.get(payerId);

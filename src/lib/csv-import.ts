@@ -1,18 +1,63 @@
+import Decimal from "decimal.js";
 import Papa from "papaparse";
 
 // Coerce values that may come from Excel as scientific notation (e.g. "4,62E+10")
+// Uses string math to avoid precision loss from Number.parseFloat for long identifiers (phones/CPF).
 function coerceExcelScientificToIntegerString(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  if (!/[eE][+-]?\d+/.test(trimmed)) return null;
+  const sciMatch = trimmed
+    .replace(/\s/g, "")
+    .replace(",", ".")
+    .match(/^([+-]?\d+(?:\.\d+)?)[eE]([+-]?\d+)$/);
 
-  const normalized = trimmed.replace(/\s/g, "").replace(",", ".");
-  const num = Number.parseFloat(normalized);
-  if (!Number.isFinite(num)) return null;
+  if (!sciMatch) return null;
 
-  // CPF/CEP/phones are integer-like
-  return String(Math.round(num));
+  const mantissaRaw = sciMatch[1];
+  const exponent = Number.parseInt(sciMatch[2], 10);
+  if (!Number.isFinite(exponent)) return null;
+
+  const sign = mantissaRaw.startsWith("-") ? "-" : "";
+  const mantissa = mantissaRaw.replace(/^[-+]/, "");
+  const parts = mantissa.split(".");
+  const intPart = parts[0] || "0";
+  const fracPart = parts[1] || "";
+
+  const digits = `${intPart}${fracPart}`.replace(/^0+/, "") || "0";
+  const decimalDigits = fracPart.length;
+  const shift = exponent - decimalDigits;
+
+  if (shift >= 0) {
+    return `${sign}${digits}${"0".repeat(shift)}`;
+  }
+
+  // If scientific notation results in fractional value, round to nearest integer using string-based carry.
+  const integerLength = digits.length + shift;
+  if (integerLength <= 0) return "0";
+
+  let integerPart = digits.slice(0, integerLength);
+  const nextDigit = digits.charAt(integerLength) || "0";
+
+  if (nextDigit >= "5") {
+    let carry = 1;
+    const arr = integerPart.split("");
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const n = arr[i].charCodeAt(0) - 48 + carry;
+      if (n >= 10) {
+        arr[i] = "0";
+        carry = 1;
+      } else {
+        arr[i] = String.fromCharCode(48 + n);
+        carry = 0;
+        break;
+      }
+    }
+    if (carry === 1) arr.unshift("1");
+    integerPart = arr.join("");
+  }
+
+  return `${sign}${integerPart}`;
 }
 
 // Normalize CPF to 11 digits with leading zeros
@@ -32,6 +77,32 @@ export function normalizeCEP(cep: string | null | undefined): string | null {
   if (digits.length === 0) return null;
   const normalized = digits.padStart(8, "0").slice(-8);
   return normalized.length === 8 ? normalized : null;
+}
+
+// Normalize phone to +55XXXXXXXXXXX, handling scientific notation safely.
+export function normalizePhone(raw: unknown): string | null {
+  let s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  if (/^\d+[.,]\d+e\+\d+$/i.test(s)) {
+    s = new Decimal(s.replace(",", ".")).toFixed(0);
+  } else {
+    s = coerceExcelScientificToIntegerString(s) ?? s;
+  }
+
+  let digits = s.replace(/\D/g, "");
+  if (!digits) return null;
+
+  // Keep Brazilian local number (DDD+9/8) and re-apply country code.
+  if (digits.startsWith("55") && digits.length > 11) {
+    digits = digits.slice(2);
+  }
+  if (digits.length > 11) {
+    digits = digits.slice(-11);
+  }
+
+  if (!digits.startsWith("55")) digits = `55${digits}`;
+  return `+${digits}`;
 }
 
 // Check if "Seu Número" indicates a previous month reissue
@@ -275,6 +346,8 @@ export interface BillingCSVRow {
   "Seu Numero"?: string;
   "Cod Pagador"?: string;
   "Cpf/Cnpj Pagador"?: string;
+  Identif?: string;
+  Identificacao?: string;
   
   // Dates
   "Data Vencimento"?: string;
@@ -304,11 +377,12 @@ export interface CEPCSVRow {
 export function transformPayerRow(row: PayerCSVRow) {
   const documentDigits = normalizeCPF(row.Identif);
   const payerCode = row["Cod Pagador"]?.trim() || null;
-  const id = documentDigits || payerCode;
 
-  if (!id || !row.Nome?.trim()) {
+  if ((!documentDigits && !payerCode) || !row.Nome?.trim()) {
     return null;
   }
+
+  const id = crypto.randomUUID();
 
   const matchOk = row.match_ok?.toLowerCase() === "true";
   const documentValid = validateCPF(documentDigits);
@@ -322,8 +396,9 @@ export function transformPayerRow(row: PayerCSVRow) {
   
   // Build extra contacts array if secondary phone exists
   const extraContacts: Array<{ type: string; value: string }> = [];
-  if (row.Telefone_secundario?.trim()) {
-    extraContacts.push({ type: "phone", value: row.Telefone_secundario.trim() });
+  const secondaryPhone = normalizePhone(row.Telefone_secundario);
+  if (secondaryPhone) {
+    extraContacts.push({ type: "phone", value: secondaryPhone });
   }
 
   // Base payer object - always saved fields
@@ -336,7 +411,7 @@ export function transformPayerRow(row: PayerCSVRow) {
     document_valid: documentValid,
     payer_code: payerCode,
     address_original: row.Endereco?.trim() || null,
-    phone: row.Telefone?.trim() || null,
+    phone: normalizePhone(row.Telefone),
     email: row.Email?.trim() || null,
     match_ok: matchOk,
     review_status: reviewStatus,
@@ -368,7 +443,7 @@ export function transformPayerRow(row: PayerCSVRow) {
 // Transform billing CSV row to database format with complete business rules
 export function transformBillingRow(row: BillingCSVRow) {
   // Try to get payer identification from multiple fields
-  const documentDigits = normalizeCPF(row["Cpf/Cnpj Pagador"]);
+  const documentDigits = normalizeCPF(row["Cpf/Cnpj Pagador"] || row.Identif || row.Identificacao);
   const payerCode = row["Cod Pagador"]?.trim() || null;
   const payerId = documentDigits || payerCode;
   

@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Select,
   SelectContent,
@@ -35,11 +36,35 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
-import { parseCSV, transformBillingRow, BillingCSVRow } from "@/lib/csv-import";
+import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow } from "@/lib/csv-import";
 
 
 
 type BillingPreviewType = "NEW" | "UPDATE_DUE_DATE" | "NO_CHANGE" | "MISSING_PAYER" | "NEW_STATUS_VARIANT";
+
+
+type PayerPreviewType = "NEW" | "UPDATE" | "NO_CHANGE" | "AMBIGUOUS" | "CONFLICT";
+
+type PayerPreviewRow = {
+  type: PayerPreviewType;
+  rowNumber: number;
+  name: string;
+  documentDigits: string | null;
+  payerCode: string | null;
+  matchedId: string | null;
+  changedFields?: string[];
+  note: string;
+};
+
+type PayerPreviewSummary = {
+  total: number;
+  altered: number;
+  NEW: number;
+  UPDATE: number;
+  NO_CHANGE: number;
+  AMBIGUOUS: number;
+  CONFLICT: number;
+};
 
 type BillingPreviewRow = {
   type: BillingPreviewType;
@@ -92,16 +117,26 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
   }
   const incoming = Array.from(incomingByStatus.values());
 
-  const payerIds = Array.from(new Set(incoming.map((b) => b.payer_id).filter(Boolean)));
-  const payerCodes = Array.from(new Set(incoming.map((b) => b.payer_code).filter((v): v is string => !!v)));
+  const importedDocs = Array.from(
+    new Set(incoming.map((b) => (/^\d{11}$/.test(b.payer_id || "") ? b.payer_id : null)).filter((v): v is string => !!v))
+  );
+  const importedCodes = Array.from(
+    new Set(
+      incoming
+        .map((b) => b.payer_code || (!/^\d{11}$/.test(b.payer_id || "") ? b.payer_id : null))
+        .filter((v): v is string => !!v)
+    )
+  );
 
-  let payerQuery = supabase.from("payers").select("id, name, payer_code");
-  if (payerIds.length > 0 && payerCodes.length > 0) {
-    payerQuery = payerQuery.or(`id.in.(${payerIds.join(",")}),payer_code.in.(${payerCodes.map((c) => `"${c}"`).join(",")})`);
-  } else if (payerIds.length > 0) {
-    payerQuery = payerQuery.in("id", payerIds);
-  } else if (payerCodes.length > 0) {
-    payerQuery = payerQuery.in("payer_code", payerCodes);
+  let payerQuery = supabase.from("payers").select("id, name, payer_code, document_digits");
+  if (importedDocs.length > 0 && importedCodes.length > 0) {
+    payerQuery = payerQuery.or(
+      `document_digits.in.(${importedDocs.map((d) => `"${d}"`).join(",")}),payer_code.in.(${importedCodes.map((c) => `"${c}"`).join(",")})`
+    );
+  } else if (importedDocs.length > 0) {
+    payerQuery = payerQuery.in("document_digits", importedDocs);
+  } else if (importedCodes.length > 0) {
+    payerQuery = payerQuery.in("payer_code", importedCodes);
   }
 
   const { data: payers, error: payerErr } = await payerQuery;
@@ -109,16 +144,22 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
 
   const payerById = new Map((payers || []).map((p) => [p.id, p]));
   const payerIdByCode = new Map((payers || []).filter((p) => p.payer_code).map((p) => [p.payer_code as string, p.id as string]));
+  const payerIdByDoc = new Map((payers || []).filter((p) => p.document_digits).map((p) => [p.document_digits as string, p.id as string]));
 
   const resolvedIncoming = incoming.map((b) => {
-    const resolvedPayerId = payerById.get(b.payer_id)?.id || (b.payer_code ? payerIdByCode.get(b.payer_code) : null) || b.payer_id;
+    const docCandidate = /^\d{11}$/.test(b.payer_id || "") ? b.payer_id : null;
+    const codeCandidate = b.payer_code || (!/^\d{11}$/.test(b.payer_id || "") ? b.payer_id : null);
+    const resolvedPayerId =
+      (docCandidate ? payerIdByDoc.get(docCandidate) : null) ||
+      (codeCandidate ? payerIdByCode.get(codeCandidate) : null) ||
+      b.payer_id;
     const payerMatch = payerById.get(resolvedPayerId);
     return {
       ...b,
       payer_id: resolvedPayerId,
       _payerFound: !!payerMatch,
       _payerName: payerMatch?.name || b.payer_name || `Pagador ${resolvedPayerId}`,
-      _payerCode: payerMatch?.payer_code || b.payer_code || null,
+      _payerCode: payerMatch?.payer_code || codeCandidate || null,
     };
   });
 
@@ -238,6 +279,44 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
   });
 }
 
+
+const PAYERS_PREVIEW_SELECT =
+  "id, name, document_digits, payer_code, phone, email, address_original, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason";
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function fetchPayersForPreview(docs: string[], codes: string[]) {
+  const byId = new Map<string, any>();
+
+  for (const docChunk of chunkValues(docs, 400)) {
+    const { data, error } = await supabase
+      .from("payers")
+      .select(PAYERS_PREVIEW_SELECT)
+      .in("document_digits", docChunk);
+
+    if (error) throw error;
+    (data || []).forEach((p: any) => byId.set(p.id, p));
+  }
+
+  for (const codeChunk of chunkValues(codes, 400)) {
+    const { data, error } = await supabase
+      .from("payers")
+      .select(PAYERS_PREVIEW_SELECT)
+      .in("payer_code", codeChunk);
+
+    if (error) throw error;
+    (data || []).forEach((p: any) => byId.set(p.id, p));
+  }
+
+  return Array.from(byId.values());
+}
+
 export default function Import() {
   const [activeTab, setActiveTab] = useState("pagadores");
 
@@ -295,6 +374,17 @@ export default function Import() {
 function ImportPayersCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewRows, setPreviewRows] = useState<PayerPreviewRow[]>([]);
+  const [previewSummary, setPreviewSummary] = useState<PayerPreviewSummary>({
+    total: 0,
+    altered: 0,
+    NEW: 0,
+    UPDATE: 0,
+    NO_CHANGE: 0,
+    AMBIGUOUS: 0,
+    CONFLICT: 0,
+  });
   const { importPayers, isImporting, progress, reset } = useOptimizedImportPayers();
 
   const handleDrop = (e: React.DragEvent) => {
@@ -303,6 +393,16 @@ function ImportPayersCard() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
+      setPreviewRows([]);
+      setPreviewSummary({
+        total: 0,
+        altered: 0,
+        NEW: 0,
+        UPDATE: 0,
+        NO_CHANGE: 0,
+        AMBIGUOUS: 0,
+        CONFLICT: 0,
+      });
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -312,6 +412,179 @@ function ImportPayersCard() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
+      setPreviewRows([]);
+      setPreviewSummary({
+        total: 0,
+        altered: 0,
+        NEW: 0,
+        UPDATE: 0,
+        NO_CHANGE: 0,
+        AMBIGUOUS: 0,
+        CONFLICT: 0,
+      });
+    }
+  };
+
+  const handlePreview = async () => {
+    if (!file) return;
+    setIsPreviewing(true);
+    try {
+      const rows = await parseCSV<PayerCSVRow>(file);
+      const transformed = rows
+        .map((row, idx) => ({ rowNumber: idx + 2, payer: transformPayerRow(row) }))
+        .filter((t): t is { rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> } => !!t.payer);
+
+      const docs = Array.from(new Set(transformed.map((t) => t.payer.document_digits).filter((d): d is string => !!d)));
+      const codes = Array.from(new Set(transformed.map((t) => t.payer.payer_code).filter((c): c is string => !!c)));
+
+      const existing = await fetchPayersForPreview(docs, codes);
+
+      const docMap = new Map<string, any[]>();
+      const codeMap = new Map<string, any[]>();
+      (existing || []).forEach((p: any) => {
+        if (p.document_digits) {
+          const list = docMap.get(p.document_digits) || [];
+          list.push(p);
+          docMap.set(p.document_digits, list);
+        }
+        if (p.payer_code) {
+          const list = codeMap.get(p.payer_code) || [];
+          list.push(p);
+          codeMap.set(p.payer_code, list);
+        }
+      });
+
+      const compareKeys = [
+        "name",
+        "document_digits",
+        "payer_code",
+        "phone",
+        "email",
+        "address_original",
+        "street",
+        "number",
+        "neighborhood",
+        "city",
+        "state",
+        "cep",
+        "match_ok",
+        "review_status",
+        "review_reason",
+      ] as const;
+
+      const fieldLabels: Record<(typeof compareKeys)[number], string> = {
+        name: "Nome",
+        document_digits: "CPF",
+        payer_code: "Cdigo",
+        phone: "Telefone",
+        email: "Email",
+        address_original: "Endereo original",
+        street: "Logradouro",
+        number: "Nmero",
+        neighborhood: "Bairro",
+        city: "Cidade",
+        state: "UF",
+        cep: "CEP",
+        match_ok: "Match endereo",
+        review_status: "Status reviso",
+        review_reason: "Motivo reviso",
+      };
+
+      const normalize = (v: unknown) => {
+        if (v === undefined || v === null || v === "") return null;
+        return String(v).trim();
+      };
+
+      const previewAll: PayerPreviewRow[] = transformed.map((item) => {
+        const doc = item.payer.document_digits || null;
+        const code = item.payer.payer_code || null;
+        const docMatches = doc ? (docMap.get(doc) || []) : [];
+        const codeMatches = code ? (codeMap.get(code) || []) : [];
+
+        if (docMatches.length > 1 || codeMatches.length > 1) {
+          return {
+            type: "AMBIGUOUS",
+            rowNumber: item.rowNumber,
+            name: item.payer.name,
+            documentDigits: doc,
+            payerCode: code,
+            matchedId: null,
+            note: "Mais de um cadastro candidato para match.",
+          };
+        }
+
+        const byDoc = docMatches[0] || null;
+        const byCode = codeMatches[0] || null;
+
+        if (byDoc && byCode && byDoc.id !== byCode.id) {
+          return {
+            type: "CONFLICT",
+            rowNumber: item.rowNumber,
+            name: item.payer.name,
+            documentDigits: doc,
+            payerCode: code,
+            matchedId: null,
+            note: `CPF e codigo apontam para IDs diferentes (${byDoc.id} / ${byCode.id}).`,
+          };
+        }
+
+        const existingPayer = byDoc || byCode;
+        if (!existingPayer) {
+          return {
+            type: "NEW",
+            rowNumber: item.rowNumber,
+            name: item.payer.name,
+            documentDigits: doc,
+            payerCode: code,
+            matchedId: null,
+            note: "Novo pagador sera criado.",
+          };
+        }
+
+        const changedFields = compareKeys
+          .filter((k) => normalize((item.payer as any)[k]) !== normalize((existingPayer as any)[k]))
+          .map((k) => fieldLabels[k]);
+
+        return {
+          type: changedFields.length > 0 ? "UPDATE" : "NO_CHANGE",
+          rowNumber: item.rowNumber,
+          name: item.payer.name,
+          documentDigits: doc,
+          payerCode: code,
+          matchedId: existingPayer.id,
+          changedFields,
+          note: changedFields.length > 0 ? "Cadastro existente sera atualizado." : "Sem alteracoes.",
+        };
+      });
+
+      const summary: PayerPreviewSummary = {
+        total: previewAll.length,
+        altered: previewAll.filter((r) => r.type === "UPDATE").length,
+        NEW: previewAll.filter((r) => r.type === "NEW").length,
+        UPDATE: previewAll.filter((r) => r.type === "UPDATE").length,
+        NO_CHANGE: previewAll.filter((r) => r.type === "NO_CHANGE").length,
+        AMBIGUOUS: previewAll.filter((r) => r.type === "AMBIGUOUS").length,
+        CONFLICT: previewAll.filter((r) => r.type === "CONFLICT").length,
+      };
+      const alteredRows = previewAll.filter((r) => r.type === "UPDATE");
+
+      setPreviewSummary(summary);
+      setPreviewRows(alteredRows);
+      toast.success(`Dry-run concluido: ${summary.total} linhas analisadas, ${summary.altered} alteradas.`);
+    } catch (error: any) {
+      toast.error(`Falha no dry-run: ${error.message || String(error)}`);
+      setPreviewRows([]);
+      setPreviewSummary({
+        total: 0,
+        altered: 0,
+        NEW: 0,
+        UPDATE: 0,
+        NO_CHANGE: 0,
+        AMBIGUOUS: 0,
+        CONFLICT: 0,
+      });
+    } finally {
+      setIsPreviewing(false);
     }
   };
 
@@ -319,72 +592,151 @@ function ImportPayersCard() {
     if (!file) return;
     await importPayers(file);
     setFile(null);
+    setPreviewRows([]);
+    setPreviewSummary({
+      total: 0,
+      altered: 0,
+      NEW: 0,
+      UPDATE: 0,
+      NO_CHANGE: 0,
+      AMBIGUOUS: 0,
+      CONFLICT: 0,
+    });
     reset();
   };
 
   const handleClear = () => {
     setFile(null);
+    setPreviewRows([]);
     reset();
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Importar Pagadores
-          </CardTitle>
-          <CardDescription>
-            Importe a lista de alunos/pagadores a partir de um arquivo CSV
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <DropZone
-            file={file}
-            isDragging={isDragging}
-            isImporting={isImporting}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            onFileChange={handleFileChange}
-          />
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Importar Pagadores
+            </CardTitle>
+            <CardDescription>
+              Importe a lista de alunos/pagadores a partir de um arquivo CSV
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <DropZone
+              file={file}
+              isDragging={isDragging}
+              isImporting={isImporting}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              onFileChange={handleFileChange}
+            />
 
-          {isImporting && <ProgressBar progress={progress} />}
+            {isImporting && <ProgressBar progress={progress} />}
 
-          <div className="flex gap-2">
-            {file && (
-              <Button variant="ghost" onClick={handleClear} disabled={isImporting}>
-                <X className="h-4 w-4 mr-2" />
-                Limpar
-              </Button>
-            )}
-            <Button onClick={handleImport} disabled={!file || isImporting} className="ml-auto">
-              {isImporting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Importando...
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Importar
-                </>
+            <div className="flex flex-wrap gap-2">
+              {file && (
+                <Button variant="ghost" onClick={handleClear} disabled={isImporting || isPreviewing}>
+                  <X className="h-4 w-4 mr-2" />
+                  Limpar
+                </Button>
               )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+              <Button variant="outline" onClick={handlePreview} disabled={!file || isImporting || isPreviewing}>
+                {isPreviewing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Analisando...
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="h-4 w-4 mr-2" />
+                    Dry-run
+                  </>
+                )}
+              </Button>
+              <Button onClick={handleImport} disabled={!file || isImporting} className="ml-auto">
+                {isImporting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Importando...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Importar
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-      <FieldsCard
-        title="Campos Esperados"
-        description="O arquivo CSV deve conter os seguintes campos"
-        fields={["Nome", "Identif (CPF)", "Cod Pagador", "Endereco", "CEP", "Cidade", "UF", "Telefone", "Email"]}
-        note="A importação é idempotente. Registros existentes serão atualizados, novos serão criados."
-      />
+        <FieldsCard
+          title="Campos Esperados"
+          description="O arquivo CSV deve conter os seguintes campos"
+          fields={["Nome", "Identif (CPF)", "Cod Pagador", "Endereco", "CEP", "Cidade", "UF", "Telefone", "Email"]}
+          note="A importacao e idempotente. Registros existentes serao atualizados, novos serao criados."
+        />
+      </div>
+
+      {previewSummary.total > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center gap-2 justify-between">
+              <div>
+                <CardTitle className="text-lg">Dry-run de pagadores</CardTitle>
+                <CardDescription>Comparacao antes da gravacao.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">Total registros: {previewSummary.total}</Badge>
+              <Badge variant="secondary">Alterados: {previewSummary.altered}</Badge>
+              <Badge variant="outline">Novos: {previewSummary.NEW}</Badge>
+              <Badge variant="outline">Sem mudanca: {previewSummary.NO_CHANGE}</Badge>
+              <Badge variant="outline" className="text-warning border-warning/50">Ambiguo: {previewSummary.AMBIGUOUS}</Badge>
+              <Badge variant="outline" className="text-destructive border-destructive/50">Conflito: {previewSummary.CONFLICT}</Badge>
+            </div>
+            <div className="max-h-[360px] overflow-auto rounded border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Linha</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>CPF</TableHead>
+                    <TableHead>Cod.</TableHead>
+                    <TableHead>O que sera alterado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {previewRows.map((row) => (
+                    <TableRow key={`${row.rowNumber}-${row.name}-${row.type}`}>
+                      <TableCell>{row.rowNumber}</TableCell>
+                      <TableCell><Badge variant="outline">{row.type}</Badge></TableCell>
+                      <TableCell>{row.name}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.documentDigits || "-"}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.payerCode || "-"}</TableCell>
+                      <TableCell>{row.changedFields?.length ? row.changedFields.join(", ") : row.note}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {previewRows.length === 0 && (
+                <div className="p-4 text-sm text-muted-foreground">Nenhum usuario com alteracao detectada.</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
+
 function ImportBillingsCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -487,14 +839,12 @@ function ImportBillingsCard() {
     await importBillings(file);
     setFile(null);
     setPreviewRows([]);
-    setPreviewFilter("ALL");
     reset();
   };
 
   const handleClear = () => {
     setFile(null);
     setPreviewRows([]);
-    setPreviewFilter("ALL");
     reset();
   };
 
@@ -508,7 +858,7 @@ function ImportBillingsCard() {
             Importar Boletos
           </CardTitle>
           <CardDescription>
-            Importe boletos bancários e atualize status de pagamento
+            Importe boletos bancrios e atualize status de pagamento
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -586,10 +936,10 @@ function ImportBillingsCard() {
             <div className="p-4 rounded-lg bg-muted/50 border">
               <p className="text-sm font-medium mb-2">Regras de Status:</p>
               <ul className="text-xs text-muted-foreground space-y-1">
-                <li>• <strong>Data Pagamento</strong> → PAGO</li>
-                <li>• <strong>Data Baixa (sem pagamento)</strong> → CANCELADO</li>
-                <li>• <strong>Ambas as datas</strong> → REVISÃO</li>
-                <li>• <strong>Nenhuma data</strong> → EM ABERTO</li>
+                <li>" <strong>Data Pagamento</strong>   PAGO</li>
+                <li>" <strong>Data Baixa (sem pagamento)</strong>   CANCELADO</li>
+                <li>" <strong>Ambas as datas</strong>   REVISO</li>
+                <li>" <strong>Nenhuma data</strong>   EM ABERTO</li>
               </ul>
             </div>
 
@@ -597,9 +947,9 @@ function ImportBillingsCard() {
               <div className="flex gap-2">
                 <FileWarning className="h-5 w-5 text-accent shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-accent">Reemissões</p>
+                  <p className="text-sm font-medium text-accent">Reemisses</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Se "Seu Número" contiver ANT ou ANTERIOR, será considerado mês anterior.
+                    Se "Seu Nmero" contiver ANT ou ANTERIOR, ser considerado ms anterior.
                   </p>
                 </div>
               </div>
@@ -649,7 +999,7 @@ function ImportBillingsCard() {
                   <tr>
                     <th className="text-left p-2">Tipo</th>
                     <th className="text-left p-2">Pagador</th>
-                    <th className="text-left p-2">Ref.</th>
+                    <th className="text-left p-2">Reference month</th>
                     <th className="text-left p-2">Status</th>
                     <th className="text-left p-2">Venc.</th>
                     <th className="text-left p-2">Valor</th>
@@ -733,11 +1083,11 @@ function ImportInvoicesCard() {
       return;
     }
     if (!invoiceMonthOverride) {
-      toast.error("Informe o mês da fatura");
+      toast.error("Informe o ms da fatura");
       return;
     }
     if (parsedLines.length === 0) {
-      toast.error("Arquivo não processado ou sem linhas válidas");
+      toast.error("Arquivo no processado ou sem linhas vlidas");
       return;
     }
 
@@ -961,16 +1311,16 @@ function ImportInvoicesCard() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Prévia</CardTitle>
+          <CardTitle className="text-lg">Prvia</CardTitle>
           <CardDescription>
-            Primeiras 50 linhas válidas do arquivo
+            Primeiras 50 linhas vlidas do arquivo
           </CardDescription>
         </CardHeader>
         <CardContent>
           {preview.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <CreditCard className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>Sem prévia disponível</p>
+              <p>Sem prvia disponvel</p>
             </div>
           ) : (
             <div className="space-y-3 max-h-[520px] overflow-auto">
@@ -1046,7 +1396,7 @@ function ImportCEPsCard() {
             Importar CEPs
           </CardTitle>
           <CardDescription>
-            Importe base de CEPs para lookup de endereços
+            Importe base de CEPs para lookup de endereos
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -1090,7 +1440,7 @@ function ImportCEPsCard() {
         title="Campos Esperados"
         description="O arquivo CSV deve conter os seguintes campos"
         fields={["CEP", "Logradouro", "Bairro", "Cidade", "UF"]}
-        note="CEPs duplicados serão atualizados com os novos dados."
+        note="CEPs duplicados sero atualizados com os novos dados."
       />
     </div>
   );
@@ -1225,7 +1575,7 @@ function FieldsCard({
           <div className="flex gap-2">
             <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
             <div>
-              <p className="text-sm font-medium text-amber-600">Atenção</p>
+              <p className="text-sm font-medium text-amber-600">Ateno</p>
               <p className="text-xs text-muted-foreground mt-1">{note}</p>
             </div>
           </div>
@@ -1234,3 +1584,4 @@ function FieldsCard({
     </Card>
   );
 }
+

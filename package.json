@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:encoding": "node scripts/check-encoding.mjs"
+    "check:encoding": "node scripts/check-encoding.mjs",
+    "fix:encoding": "node scripts/fix-encoding.mjs",
+    "verify:encoding": "npm run fix:encoding && npm run check:encoding"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -49,6 +51,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
+    "decimal.js": "^10.6.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.33.0",
     "input-otp": "^1.4.2",

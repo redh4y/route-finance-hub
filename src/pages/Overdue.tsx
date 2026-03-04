@@ -25,7 +25,9 @@ import {
   Users,
   Upload,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Send,
+  ExternalLink
 } from 'lucide-react'
 import { supabase } from '@/integrations/supabase/client'
 import {
@@ -42,6 +44,20 @@ type MessageItem = {
   name: string | null
   phone: string | null
   status: 'ready' | 'no_phone' | 'no_match' | 'no_name' | 'multiple'
+}
+
+type SendState = 'pending' | 'sent' | 'blocked' | 'error'
+
+type SendResultMap = Record<string, SendState>
+
+function normalizePhoneDigits(input: string | null | undefined) {
+  return String(input || '').replace(/\D/g, '')
+}
+
+function buildWhatsAppUrl(phone: string, message: string) {
+  const digits = normalizePhoneDigits(phone)
+  if (!digits) return null
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`
 }
 
 function normalizeName(input: string) {
@@ -92,6 +108,8 @@ export default function Overdue() {
   const [messages, setMessages] = useState<string[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
+  const [isSendingBatch, setIsSendingBatch] = useState(false)
+  const [sendResults, setSendResults] = useState<SendResultMap>({})
 
   const today = useMemo(() => new Date(), [])
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], [])
@@ -192,10 +210,71 @@ export default function Overdue() {
     return { total, ready, noPhone, noMatch, noName, multiple }
   }, [items])
 
+  const readyItems = useMemo(() => items.filter(i => i.status === 'ready'), [items])
+
+  const sendSummary = useMemo(() => {
+    const values = Object.values(sendResults)
+    return {
+      sent: values.filter(v => v === 'sent').length,
+      blocked: values.filter(v => v === 'blocked').length,
+      error: values.filter(v => v === 'error').length,
+      pending: Math.max(readyItems.length - values.length, 0)
+    }
+  }, [readyItems.length, sendResults])
+
+  const sendSingle = (item: MessageItem) => {
+    if (item.status !== 'ready' || !item.phone) return
+    const url = buildWhatsAppUrl(item.phone, item.raw)
+    if (!url) {
+      setSendResults(prev => ({ ...prev, [item.id]: 'error' }))
+      return
+    }
+
+    const opened = window.open(url, '_blank', 'noopener,noreferrer')
+    setSendResults(prev => ({ ...prev, [item.id]: opened ? 'sent' : 'blocked' }))
+  }
+
+  const sendBatch = async () => {
+    if (readyItems.length === 0) {
+      toast.error('Nao ha mensagens prontas para envio.')
+      return
+    }
+
+    setIsSendingBatch(true)
+    let blocked = 0
+
+    for (const item of readyItems) {
+      const url = item.phone ? buildWhatsAppUrl(item.phone, item.raw) : null
+      if (!url) {
+        setSendResults(prev => ({ ...prev, [item.id]: 'error' }))
+        continue
+      }
+
+      const opened = window.open(url, '_blank', 'noopener,noreferrer')
+      if (opened) {
+        setSendResults(prev => ({ ...prev, [item.id]: 'sent' }))
+      } else {
+        blocked += 1
+        setSendResults(prev => ({ ...prev, [item.id]: 'blocked' }))
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 900))
+    }
+
+    setIsSendingBatch(false)
+
+    if (blocked > 0) {
+      toast.warning(`Envio concluido com ${blocked} bloqueio(s) de popup no navegador.`)
+    } else {
+      toast.success('Mensagens abertas no WhatsApp com sucesso.')
+    }
+  }
+
   const handleFile = async (f: File | null) => {
     if (!f) return
     setIsParsing(true)
     setFile(f)
+    setSendResults({})
     const parsed = await parseMessages(f)
     setMessages(parsed)
     setIsParsing(false)
@@ -276,6 +355,7 @@ export default function Overdue() {
                   onClick={() => {
                     setFile(null)
                     setMessages([])
+                    setSendResults({})
                   }}
                   disabled={isParsing}
                 >
@@ -384,6 +464,7 @@ export default function Overdue() {
                         <TableHead className="w-[420px]">Pagador</TableHead>
                         <TableHead className="w-[180px]">Telefone</TableHead>
                         <TableHead className="w-[140px]">Status</TableHead>
+                        <TableHead className="w-[160px]">Envio</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -443,6 +524,25 @@ export default function Overdue() {
                               >
                                 Nome duplicado
                               </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {item.status === 'ready' ? (
+                              <Button size="sm" variant="outline" onClick={() => sendSingle(item)}>
+                                <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                                Enviar
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                            {sendResults[item.id] === 'sent' && (
+                              <Badge className="ml-2 bg-success/10 text-success border-success/30">Enviado</Badge>
+                            )}
+                            {sendResults[item.id] === 'blocked' && (
+                              <Badge variant="outline" className="ml-2 text-warning border-warning/50">Popup bloqueado</Badge>
+                            )}
+                            {sendResults[item.id] === 'error' && (
+                              <Badge variant="outline" className="ml-2 text-destructive border-destructive/50">Erro</Badge>
                             )}
                           </TableCell>
                         </TableRow>
