@@ -428,7 +428,7 @@ export function useOptimizedImportBillings() {
         existingPayers?.filter((p) => p.payer_code).map((p) => [p.payer_code!, p.id]) || []
       );
       const existingPayerByDocument = new Map(
-        existingPayers?.filter((p) => p.document_digits).map((p: any) => [p.document_digits as string, p.id as string]) || []
+        existingPayers?.filter((p) => (p as any).document_digits).map((p: any) => [p.document_digits as string, p.id as string]) || []
       );
       const payerStateById = new Map(
         (existingPayers || []).map((p) => [p.id, p])

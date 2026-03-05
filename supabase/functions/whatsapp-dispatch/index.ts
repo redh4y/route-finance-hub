@@ -85,7 +85,7 @@ serve(async (req) => {
       auth: { persistSession: false },
     });
 
-    const body = (await req.json()) as ProcessPayload;
+    const body = (await req.json()) as Payload;
     if (body.action !== "process_campaign") {
       return new Response(JSON.stringify({ error: "Ação inválida" }), {
         status: 400,

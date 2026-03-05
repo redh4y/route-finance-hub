@@ -1550,6 +1550,161 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_campaigns: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          failed_messages: number
+          id: string
+          name: string
+          provider_id: string | null
+          sent_messages: number
+          source: string
+          status: Database["public"]["Enums"]["whatsapp_campaign_status"]
+          total_messages: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          failed_messages?: number
+          id?: string
+          name: string
+          provider_id?: string | null
+          sent_messages?: number
+          source?: string
+          status?: Database["public"]["Enums"]["whatsapp_campaign_status"]
+          total_messages?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          failed_messages?: number
+          id?: string
+          name?: string
+          provider_id?: string | null
+          sent_messages?: number
+          source?: string
+          status?: Database["public"]["Enums"]["whatsapp_campaign_status"]
+          total_messages?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_campaigns_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_messages: {
+        Row: {
+          attempt_count: number
+          body: string
+          campaign_id: string
+          created_at: string
+          delivered_at: string | null
+          id: string
+          last_error: string | null
+          payer_id: string | null
+          phone_e164: string
+          provider_message_id: string | null
+          read_at: string | null
+          scheduled_at: string
+          sent_at: string | null
+          status: Database["public"]["Enums"]["whatsapp_message_status"]
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          body: string
+          campaign_id: string
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          last_error?: string | null
+          payer_id?: string | null
+          phone_e164: string
+          provider_message_id?: string | null
+          read_at?: string | null
+          scheduled_at?: string
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["whatsapp_message_status"]
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          body?: string
+          campaign_id?: string
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          last_error?: string | null
+          payer_id?: string | null
+          phone_e164?: string
+          provider_message_id?: string | null
+          read_at?: string | null
+          scheduled_at?: string
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["whatsapp_message_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_payer_id_fkey"
+            columns: ["payer_id"]
+            isOneToOne: false
+            referencedRelation: "payers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_providers: {
+        Row: {
+          active: boolean
+          api_key: string
+          base_url: string
+          created_at: string
+          id: string
+          instance_name: string
+          name: string
+          provider_type: Database["public"]["Enums"]["whatsapp_provider_type"]
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          api_key: string
+          base_url: string
+          created_at?: string
+          id?: string
+          instance_name: string
+          name: string
+          provider_type?: Database["public"]["Enums"]["whatsapp_provider_type"]
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          api_key?: string
+          base_url?: string
+          created_at?: string
+          id?: string
+          instance_name?: string
+          name?: string
+          provider_type?: Database["public"]["Enums"]["whatsapp_provider_type"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       excursion_orders: {
@@ -1673,6 +1828,19 @@ export type Database = {
         | "RESERVADO"
         | "CONVERTIDO"
         | "ABANDONADO"
+      whatsapp_campaign_status:
+        | "DRAFT"
+        | "QUEUED"
+        | "PROCESSING"
+        | "COMPLETED"
+        | "FAILED"
+      whatsapp_message_status:
+        | "PENDING"
+        | "SENT"
+        | "DELIVERED"
+        | "READ"
+        | "FAILED"
+      whatsapp_provider_type: "EVOLUTION"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1817,6 +1985,21 @@ export const Constants = {
         "CONVERTIDO",
         "ABANDONADO",
       ],
+      whatsapp_campaign_status: [
+        "DRAFT",
+        "QUEUED",
+        "PROCESSING",
+        "COMPLETED",
+        "FAILED",
+      ],
+      whatsapp_message_status: [
+        "PENDING",
+        "SENT",
+        "DELIVERED",
+        "READ",
+        "FAILED",
+      ],
+      whatsapp_provider_type: ["EVOLUTION"],
     },
   },
 } as const
