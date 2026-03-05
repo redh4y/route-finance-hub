@@ -162,7 +162,7 @@ async function evolutionRequestWithAuthRetry(
             "Content-Type": "application/json",
             "ngrok-skip-browser-warning": "true",
             ...authHeaders,
-          },
+          } as Record<string, string>,
           body: JSON.stringify(body ?? {}),
         },
         timeoutMs,
