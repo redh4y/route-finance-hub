@@ -1600,6 +1600,42 @@ export type Database = {
           },
         ]
       }
+      whatsapp_contacts: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: number
+          instance_name: string
+          provider_id: string
+          raw: Json
+          updated_at: string
+          wa_jid: string | null
+          wa_number: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id?: number
+          instance_name: string
+          provider_id: string
+          raw?: Json
+          updated_at?: string
+          wa_jid?: string | null
+          wa_number: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: number
+          instance_name?: string
+          provider_id?: string
+          raw?: Json
+          updated_at?: string
+          wa_jid?: string | null
+          wa_number?: string
+        }
+        Relationships: []
+      }
       whatsapp_messages: {
         Row: {
           attempt_count: number
