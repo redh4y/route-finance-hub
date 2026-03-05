@@ -1,6 +1,10 @@
 ﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+function rid() {
+  return crypto.randomUUID().slice(0, 8);
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -211,6 +215,7 @@ serve(async (req) => {
       })
       .eq("id", campaign.id);
 
+    console.log(`[whatsapp-dispatch:${requestId}] campaign_done campaignId=${campaign.id} sent=${sent} failed=${failed} pending=${pendingCount || 0}`);
     return new Response(
       JSON.stringify({
         ok: true,
@@ -219,6 +224,7 @@ serve(async (req) => {
         sent,
         failed,
         pending: pendingCount || 0,
+        requestId,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

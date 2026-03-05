@@ -55,3 +55,17 @@
 - [ ] Curto prazo: itens 1, 2, 4.
 - [ ] Médio prazo: itens 3, 5, 7.
 - [ ] Longo prazo: itens 8, 9, 10.
+
+
+## 11) Sincroniza??o de Contatos WhatsApp (Evolution + Supabase)
+- [ ] Criar fluxo completo para sincronizar contatos da inst?ncia conectada na Evolution API.
+- [ ] Buscar lista completa de contatos via endpoint da Evolution.
+- [ ] Criar tabela cache no Supabase com campos m?nimos: `provider_id`, `instance_name`, `wa_number`, `wa_jid`, `display_name`, `raw (json)`, `updated_at`, `created_at`.
+- [ ] Criar chave ?nica por `provider_id + instance_name + wa_number`.
+- [ ] Implementar action/endpoint (Edge Function) para o bot?o `Atualizar lista de contatos`.
+- [ ] Na action: consultar provider (`base_url`, `api_key`, `instance_name`), buscar contatos, normalizar e fazer upsert.
+- [ ] Regra obrigat?ria: se j? existir o mesmo `wa_number`, atualizar `display_name` e `raw` quando houver mudan?a.
+- [ ] Garantir que n?o haja duplicidade para o mesmo n?mero.
+- [ ] Listar contatos no frontend consumindo a tabela do Supabase (nome + n?mero).
+- [ ] Recarregar a listagem automaticamente ap?s clicar em `Atualizar lista de contatos`.
+- [ ] Entrega t?cnica esperada: SQL da tabela/?ndices, c?digo da fun??o de sincroniza??o, frontend com bot?o/listagem, erros/logs b?sicos, pronto para Supabase (sem pseudo-c?digo).
