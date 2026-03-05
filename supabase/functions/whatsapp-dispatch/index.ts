@@ -74,6 +74,17 @@ function sanitizeApiKey(input: unknown) {
   return String(input ?? "").trim().replace(/^['"]|['"]$/g, "");
 }
 
+function providerDebugMeta(provider: any) {
+  const key = sanitizeApiKey(provider?.api_key);
+  return {
+    provider_id: provider?.id ?? null,
+    instance_name: provider?.instance_name ?? null,
+    base_url: provider?.base_url ?? null,
+    api_key_len: key.length,
+    api_key_prefix: key ? `${key.slice(0, 4)}***` : null,
+  };
+}
+
 function buildAuthHeadersCandidates(apiKeyInput: unknown) {
   const apiKey = sanitizeApiKey(apiKeyInput);
   if (!apiKey) return [];
@@ -132,9 +143,17 @@ async function evolutionRequestWithAuthRetry(
   let lastPayload: any = null;
   let lastError = "Falha de autenticacao no provider";
 
-  for (const authHeaders of authCandidates) {
+  for (let i = 0; i < authCandidates.length; i++) {
+    const authHeaders = authCandidates[i];
     let response: Response;
     try {
+      console.log("[whatsapp-dispatch] evolution_attempt", {
+        endpoint,
+        attempt: i + 1,
+        total_attempts: authCandidates.length,
+        header_keys: Object.keys(authHeaders),
+        provider: providerDebugMeta(provider),
+      });
       response = await fetchWithTimeout(
         endpoint,
         {
@@ -149,6 +168,11 @@ async function evolutionRequestWithAuthRetry(
         timeoutMs,
       );
     } catch (err) {
+      console.error("[whatsapp-dispatch] evolution_network_error", {
+        endpoint,
+        attempt: i + 1,
+        message: err instanceof Error ? err.message : String(err),
+      });
       return {
         ok: false,
         status: 0,
@@ -162,8 +186,20 @@ async function evolutionRequestWithAuthRetry(
 
     const payload = await parseJsonSafe(response);
     if (response.ok) {
+      console.log("[whatsapp-dispatch] evolution_success", {
+        endpoint,
+        attempt: i + 1,
+        status: response.status,
+      });
       return { ok: true, status: response.status, payload, error: null };
     }
+
+    console.warn("[whatsapp-dispatch] evolution_non_2xx", {
+      endpoint,
+      attempt: i + 1,
+      status: response.status,
+      payload,
+    });
 
     lastStatus = response.status;
     lastPayload = payload;
@@ -364,6 +400,7 @@ serve(async (req) => {
         }
       }
 
+      console.log(`[whatsapp-dispatch:${requestId}] sync_contacts_done total=${rows.length}`);
       return json(200, { ok: true, total: rows.length, requestId });
     }
 
@@ -394,6 +431,7 @@ serve(async (req) => {
         return json(400, { ok: false, error: sent.error, requestId });
       }
 
+      console.log(`[whatsapp-dispatch:${requestId}] send_test_ok providerMessageId=${sent.providerMessageId ?? "null"}`);
       return json(200, {
         ok: true,
         providerMessageId: sent.providerMessageId,
