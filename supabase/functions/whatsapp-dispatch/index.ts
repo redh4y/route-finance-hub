@@ -301,20 +301,6 @@ serve(async (req) => {
         return json(400, { ok: false, error: providerErr, requestId });
       if (!provider.active)
         return json(400, { ok: false, error: "Provider inativo", requestId });
-
-      const probe = await probeEvolution(provider);
-      if (!probe.ok) {
-        console.error(
-          `[whatsapp-dispatch:${requestId}] probe_fail`,
-          probe.error,
-        );
-        return json(400, {
-          ok: false,
-          error: `Provider indisponível: ${probe.error}`,
-          requestId,
-        });
-      }
-
       const base = String(provider.base_url || "").replace(/\/+$/, "");
       const instance = encodeURIComponent(provider.instance_name);
       const endpoint = `${base}/chat/findContacts/${instance}`;
@@ -399,20 +385,6 @@ serve(async (req) => {
         return json(400, { ok: false, error: providerErr, requestId });
       if (!provider.active)
         return json(400, { ok: false, error: "Provider inativo", requestId });
-
-      const probe = await probeEvolution(provider);
-      if (!probe.ok) {
-        console.error(
-          `[whatsapp-dispatch:${requestId}] probe_fail`,
-          probe.error,
-        );
-        return json(400, {
-          ok: false,
-          error: `Provider indisponível: ${probe.error}`,
-          requestId,
-        });
-      }
-
       const sent = await sendEvolutionText(provider, phone, message);
       if (!sent.ok) {
         console.error(
@@ -501,21 +473,6 @@ serve(async (req) => {
         });
       if (!provider.active)
         return json(400, { ok: false, error: "Provider inativo", requestId });
-
-      const probe = await probeEvolution(provider);
-      if (!probe.ok) {
-        await sb
-          .from("whatsapp_campaigns")
-          .update({ status: "FAILED" })
-          .eq("id", campaign.id)
-          .eq("status", "PROCESSING");
-        return json(400, {
-          ok: false,
-          error: `Provider indisponível: ${probe.error}`,
-          requestId,
-        });
-      }
-
       const { data: pendingMessages, error: pendingError } = await sb
         .from("whatsapp_messages")
         .select("id, phone_e164, body, attempt_count")
