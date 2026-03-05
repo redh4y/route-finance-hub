@@ -1,19 +1,48 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function json(status: number, payload: unknown) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { text, vehicles } = await req.json();
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !anonKey) throw new Error("SUPABASE_URL/SUPABASE_ANON_KEY not configured");
+
+    const authHeader = req.headers.get("Authorization") || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) return json(401, { error: "Nao autenticado" });
+
+    const authClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
+    const { data: authData, error: authError } = await authClient.auth.getUser(token);
+    if (authError || !authData?.user) return json(401, { error: "Token invalido" });
+
+    const body = await req.json();
+    const text = String(body?.text || "").trim();
+    const vehicles = Array.isArray(body?.vehicles) ? body.vehicles : [];
+
+    if (!text) return json(400, { error: "Campo 'text' obrigatorio" });
+    if (text.length > 3000) return json(400, { error: "Texto muito grande (max 3000 caracteres)" });
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const vehicleList = (vehicles || []).map((v: { name: string; plate: string }) => `${v.name} (${v.plate || "sem placa"})`).join(", ");
+    const vehicleList = vehicles
+      .slice(0, 200)
+      .map((v: { name?: string; plate?: string }) => `${v?.name || "sem nome"} (${v?.plate || "sem placa"})`)
+      .join(", ");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -39,42 +68,15 @@ Retorne SOMENTE o JSON, sem markdown.`,
           },
           { role: "user", content: text },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "parse_maintenance_report",
-              description: "Parse a maintenance report into structured data",
-              parameters: {
-                type: "object",
-                properties: {
-                  vehicle_suggestion: { type: "string", nullable: true },
-                  title: { type: "string" },
-                  category: { type: "string" },
-                  subcategory: { type: "string" },
-                  priority: { type: "string", enum: ["BAIXA", "MEDIA", "ALTA", "CRITICA"] },
-                  impact_type: { type: "string", enum: ["seguranca", "conforto", "operacao"] },
-                  description: { type: "string" },
-                },
-                required: ["title", "category", "priority", "impact_type", "description"],
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "parse_maintenance_report" } },
       }),
     });
 
     if (!response.ok) {
       if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Limite de requisições atingido. Tente novamente em instantes." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return json(429, { error: "Limite de requisições atingido. Tente novamente em instantes." });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos insuficientes para IA." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return json(402, { error: "Créditos insuficientes para IA." });
       }
       const t = await response.text();
       console.error("AI error:", response.status, t);
@@ -82,23 +84,12 @@ Retorne SOMENTE o JSON, sem markdown.`,
     }
 
     const result = await response.json();
-    const toolCall = result.choices?.[0]?.message?.tool_calls?.[0];
-    let parsed;
-    if (toolCall?.function?.arguments) {
-      parsed = JSON.parse(toolCall.function.arguments);
-    } else {
-      // Fallback: try to parse content as JSON
-      const content = result.choices?.[0]?.message?.content || "";
-      parsed = JSON.parse(content);
-    }
+    const content = result.choices?.[0]?.message?.content || "{}";
+    const parsed = JSON.parse(content);
 
-    return new Response(JSON.stringify(parsed), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json(200, parsed);
   } catch (e) {
     console.error("maintenance-ai error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json(500, { error: e instanceof Error ? e.message : "Unknown error" });
   }
 });
