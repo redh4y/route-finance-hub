@@ -69,60 +69,139 @@ function getProviderFromResponsePayload(payload: any) {
   );
 }
 
+
+function sanitizeApiKey(input: unknown) {
+  return String(input ?? "").trim().replace(/^['"]|['"]$/g, "");
+}
+
+function buildAuthHeadersCandidates(apiKeyInput: unknown) {
+  const apiKey = sanitizeApiKey(apiKeyInput);
+  if (!apiKey) return [];
+
+  return [
+    { apikey: apiKey },
+    { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+    { apikey: apiKey, authorization: `Bearer ${apiKey}` },
+    { "x-api-key": apiKey },
+    { Authorization: `Bearer ${apiKey}` },
+    { authorization: `Bearer ${apiKey}` },
+  ];
+}
+
+async function parseJsonSafe(response: Response) {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
+function parseProviderErrorPayload(payload: any, status: number) {
+  const baseError =
+    payload?.message ||
+    payload?.error ||
+    payload?.response?.message ||
+    payload?.response ||
+    `HTTP ${status}`;
+
+  if (status === 401) {
+    return `${baseError} (verifique api_key da instancia, base_url e instance_name)`;
+  }
+  return baseError;
+}
+
+async function evolutionRequestWithAuthRetry(
+  provider: any,
+  endpoint: string,
+  body: unknown,
+  timeoutMs = 10000,
+) {
+  const authCandidates = buildAuthHeadersCandidates(provider?.api_key);
+  if (authCandidates.length === 0) {
+    return {
+      ok: false,
+      status: 400,
+      payload: null,
+      error: "api_key do provider esta vazio",
+    };
+  }
+
+  let lastStatus = 0;
+  let lastPayload: any = null;
+  let lastError = "Falha de autenticacao no provider";
+
+  for (const authHeaders of authCandidates) {
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+            ...authHeaders,
+          },
+          body: JSON.stringify(body ?? {}),
+        },
+        timeoutMs,
+      );
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        payload: null,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Falha de rede/timeout no provider",
+      };
+    }
+
+    const payload = await parseJsonSafe(response);
+    if (response.ok) {
+      return { ok: true, status: response.status, payload, error: null };
+    }
+
+    lastStatus = response.status;
+    lastPayload = payload;
+    lastError = parseProviderErrorPayload(payload, response.status);
+
+    if (response.status !== 401) break;
+  }
+
+  return {
+    ok: false,
+    status: lastStatus,
+    payload: lastPayload,
+    error: lastError,
+  };
+}
+
 async function sendEvolutionText(provider: any, phone: string, text: string) {
   const base = String(provider.base_url || "").replace(/\/+$/, "");
   const instance = encodeURIComponent(provider.instance_name);
   const endpoint = `${base}/message/sendText/${instance}`;
 
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(
-      endpoint,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: provider.api_key,
-          "ngrok-skip-browser-warning": "true",
-        },
-        body: JSON.stringify({ number: phone, text }),
-      },
-      10000,
-    );
-  } catch (err) {
+  const res = await evolutionRequestWithAuthRetry(
+    provider,
+    endpoint,
+    { number: phone, text },
+    10000,
+  );
+  if (!res.ok) {
     return {
       ok: false,
-      error:
-        err instanceof Error
-          ? err.message
-          : "Falha de rede/timeout no provider",
-      providerMessageId: null,
-    };
-  }
-
-  const responseText = await response.text();
-  let payload: any = null;
-  try {
-    payload = responseText ? JSON.parse(responseText) : null;
-  } catch {
-    payload = { raw: responseText };
-  }
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      error:
-        payload?.message ||
-        payload?.error ||
-        payload?.response ||
-        `HTTP ${response.status}`,
+      error: res.error || "Falha ao enviar mensagem",
       providerMessageId: null,
     };
   }
 
   return {
     ok: true,
-    providerMessageId: getProviderFromResponsePayload(payload),
+    providerMessageId: getProviderFromResponsePayload(res.payload),
     error: null,
   };
 }
@@ -131,33 +210,9 @@ async function probeEvolution(provider: any) {
   const base = String(provider.base_url || "").replace(/\/+$/, "");
   const instance = encodeURIComponent(provider.instance_name);
   const endpoint = `${base}/chat/findContacts/${instance}`;
-
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(
-      endpoint,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: provider.api_key,
-          "ngrok-skip-browser-warning": "true",
-        },
-        body: JSON.stringify({}),
-      },
-      10000,
-    );
-  } catch (err) {
-    return {
-      ok: false,
-      error:
-        err instanceof Error ? err.message : "Falha de rede/timeout no probe",
-    };
-  }
-
-  if (response.ok) return { ok: true, error: null };
-  const text = await response.text();
-  return { ok: false, error: text || `HTTP ${response.status}` };
+  const res = await evolutionRequestWithAuthRetry(provider, endpoint, {}, 10000);
+  if (res.ok) return { ok: true, error: null };
+  return { ok: false, error: res.error || `HTTP ${res.status || 0}` };
 }
 
 async function getProvider(sb: any, providerId?: string) {
@@ -177,8 +232,9 @@ async function getProvider(sb: any, providerId?: string) {
     .from("whatsapp_providers")
     .select("id, active, base_url, instance_name, api_key")
     .eq("active", true)
+    .order("updated_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (error || !data)
     return { provider: null, error: "Provider ativo não encontrado" };
@@ -263,48 +319,28 @@ serve(async (req) => {
       const instance = encodeURIComponent(provider.instance_name);
       const endpoint = `${base}/chat/findContacts/${instance}`;
 
-      let contactRes: Response;
-      try {
-        contactRes = await fetchWithTimeout(
-          endpoint,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              apikey: provider.api_key,
-              "ngrok-skip-browser-warning": "true",
-            },
-            body: JSON.stringify({}),
-          },
-          10000,
-        );
-      } catch (err) {
-        return json(400, {
-          ok: false,
-          error:
-            err instanceof Error ? err.message : "Falha ao buscar contatos",
-          requestId,
-        });
-      }
-
-      const rawText = await contactRes.text();
-      let payload: any;
-      try {
-        payload = rawText ? JSON.parse(rawText) : [];
-      } catch {
-        payload = [];
-      }
-
+      const contactRes = await evolutionRequestWithAuthRetry(
+        provider,
+        endpoint,
+        {},
+        10000,
+      );
       if (!contactRes.ok) {
         return json(400, {
           ok: false,
-          error:
-            payload?.message || payload?.error || `HTTP ${contactRes.status}`,
+          error: contactRes.error || `HTTP ${contactRes.status || 0}`,
           requestId,
         });
       }
 
-      const list = Array.isArray(payload) ? payload : [];
+      const payload = contactRes.payload;
+      const list = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.response)
+            ? payload.response
+            : [];
       const rows = list
         .map((c: any) => {
           const wa_jid = c?.id ?? c?.remoteJid ?? null;
@@ -621,3 +657,4 @@ serve(async (req) => {
     });
   }
 });
+
