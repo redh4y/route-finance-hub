@@ -30,6 +30,7 @@ import {
   ExternalLink
 } from 'lucide-react'
 import { supabase } from '@/integrations/supabase/client'
+import { toast } from 'sonner'
 import {
   Tooltip,
   TooltipContent,
@@ -43,6 +44,7 @@ type MessageItem = {
   raw: string
   name: string | null
   phone: string | null
+  payerId: string | null
   status: 'ready' | 'no_phone' | 'no_match' | 'no_name' | 'multiple'
 }
 
@@ -58,6 +60,13 @@ function buildWhatsAppUrl(phone: string, message: string) {
   const digits = normalizePhoneDigits(phone)
   if (!digits) return null
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`
+}
+
+function toE164BR(phone: string | null | undefined) {
+  const digits = normalizePhoneDigits(phone)
+  if (!digits) return null
+  if (digits.startsWith('55')) return `+${digits}`
+  return `+55${digits}`
 }
 
 function normalizeName(input: string) {
@@ -109,6 +118,9 @@ export default function Overdue() {
   const [isDragging, setIsDragging] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
   const [isSendingBatch, setIsSendingBatch] = useState(false)
+  const [isQueueing, setIsQueueing] = useState(false)
+  const [isDispatching, setIsDispatching] = useState(false)
+  const [lastCampaignId, setLastCampaignId] = useState<string | null>(null)
   const [sendResults, setSendResults] = useState<SendResultMap>({})
 
   const today = useMemo(() => new Date(), [])
@@ -132,6 +144,21 @@ export default function Overdue() {
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as PayerLite[]
+    }
+  })
+
+
+  const { data: activeProviderId } = useQuery({
+    queryKey: ['whatsapp-provider-active'],
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await (supabase as any)
+        .from('whatsapp_providers')
+        .select('id')
+        .eq('active', true)
+        .limit(1)
+        .maybeSingle()
+      if (error) throw error
+      return data?.id ?? null
     }
   })
 
@@ -182,21 +209,22 @@ export default function Overdue() {
           raw,
           name: null,
           phone: null,
+          payerId: null,
           status: 'no_name'
         }
       }
       const key = normalizeName(name)
       if (payerIndex.duplicates.has(key)) {
-        return { id: String(idx), raw, name, phone: null, status: 'multiple' }
+        return { id: String(idx), raw, name, phone: null, payerId: null, status: 'multiple' }
       }
       const payer = payerIndex.map.get(key)
       if (!payer) {
-        return { id: String(idx), raw, name, phone: null, status: 'no_match' }
+        return { id: String(idx), raw, name, phone: null, payerId: null, status: 'no_match' }
       }
       if (!payer.phone) {
-        return { id: String(idx), raw, name, phone: null, status: 'no_phone' }
+        return { id: String(idx), raw, name, phone: null, payerId: payer.id, status: 'no_phone' }
       }
-      return { id: String(idx), raw, name, phone: payer.phone, status: 'ready' }
+      return { id: String(idx), raw, name, phone: payer.phone, payerId: payer.id, status: 'ready' }
     })
   }, [messages, payerIndex])
 
@@ -267,6 +295,88 @@ export default function Overdue() {
       toast.warning(`Envio concluido com ${blocked} bloqueio(s) de popup no navegador.`)
     } else {
       toast.success('Mensagens abertas no WhatsApp com sucesso.')
+    }
+  }
+
+
+
+  const enqueueCampaign = async () => {
+    if (readyItems.length === 0) {
+      toast.error('N?o h? mensagens prontas para enviar.')
+      return
+    }
+    if (!activeProviderId) {
+      toast.error('Cadastre/ative um provider WhatsApp antes de enfileirar.')
+      return
+    }
+
+    setIsQueueing(true)
+    try {
+      const campaignName = `Atrasos ${new Date().toLocaleString('pt-BR')}`
+      const { data: campaign, error: campaignError } = await (supabase as any)
+        .from('whatsapp_campaigns')
+        .insert({
+          provider_id: activeProviderId,
+          name: campaignName,
+          source: 'overdue',
+          status: 'QUEUED',
+          total_messages: readyItems.length,
+        })
+        .select('id')
+        .single()
+
+      if (campaignError || !campaign?.id) throw campaignError || new Error('Falha ao criar campanha')
+
+      const messageRows = readyItems
+        .map(item => {
+          const phone = toE164BR(item.phone)
+          if (!phone) return null
+          return {
+            campaign_id: campaign.id,
+            payer_id: item.payerId,
+            phone_e164: phone,
+            body: item.raw,
+            status: 'PENDING',
+          }
+        })
+        .filter(Boolean)
+
+      const { error: msgError } = await (supabase as any)
+        .from('whatsapp_messages')
+        .insert(messageRows)
+
+      if (msgError) throw msgError
+
+      setLastCampaignId(campaign.id)
+      toast.success(`Campanha enfileirada com ${messageRows.length} mensagem(ns).`)
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao enfileirar campanha')
+    } finally {
+      setIsQueueing(false)
+    }
+  }
+
+  const dispatchCampaign = async () => {
+    if (!lastCampaignId) {
+      toast.error('Enfileire uma campanha antes de disparar.')
+      return
+    }
+
+    setIsDispatching(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('whatsapp-dispatch', {
+        body: { action: 'process_campaign', campaignId: lastCampaignId, limit: 200 },
+      })
+      if (error) throw error
+
+      const sent = data?.sent ?? 0
+      const failed = data?.failed ?? 0
+      const pending = data?.pending ?? 0
+      toast.success(`Disparo conclu?do: ${sent} enviados, ${failed} falhas, ${pending} pendentes.`)
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao disparar campanha')
+    } finally {
+      setIsDispatching(false)
     }
   }
 
@@ -582,12 +692,48 @@ export default function Overdue() {
                 </div>
                 <Input placeholder="Dias úteis apenas" disabled />
               </div>
-              <Button className="w-full" disabled>
-                <MessageCircle className="h-4 w-4 mr-2" />
-                Enviar mensagens (em breve)
-              </Button>
+              <div className="space-y-2">
+                <Button className="w-full" onClick={sendBatch} disabled={isSendingBatch || readyItems.length === 0}>
+                  {isSendingBatch ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Enviando manual...
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Envio manual (abas)
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" className="w-full" onClick={enqueueCampaign} disabled={isQueueing || readyItems.length === 0}>
+                  {isQueueing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Enfileirando...
+                    </>
+                  ) : (
+                    <>Enfileirar campanha (Evolution)</>
+                  )}
+                </Button>
+                <Button variant="secondary" className="w-full" onClick={dispatchCampaign} disabled={isDispatching || !lastCampaignId}>
+                  {isDispatching ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Disparando...
+                    </>
+                  ) : (
+                    <>Disparar autom?tico</>
+                  )}
+                </Button>
+              </div>
+              {lastCampaignId && (
+                <p className="text-xs text-muted-foreground">
+                  Campanha ativa: <span className="font-mono">{lastCampaignId}</span>
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Integração com bot WhatsApp será adicionada futuramente.
+                Fluxo autom?tico via Evolution API (fila + processamento por campanha).
               </p>
             </CardContent>
           </Card>

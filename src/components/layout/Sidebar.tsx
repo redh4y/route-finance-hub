@@ -101,6 +101,11 @@ const navItems = [
     ],
   },
   {
+    label: "WhatsApp",
+    path: "/whatsapp",
+    icon: MessageCircle,
+  },
+  {
     label: "Configurações",
     path: "/configuracoes",
     icon: Settings2,

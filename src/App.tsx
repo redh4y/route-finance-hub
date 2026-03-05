@@ -36,6 +36,7 @@ import NotFound from "./pages/NotFound";
 import Maintenance from "./pages/Maintenance";
 import DriversPage from "./pages/Drivers";
 import InspectionChecklists from "./pages/InspectionChecklists";
+import WhatsappPage from "./pages/Whatsapp";
 
 const queryClient = new QueryClient();
 
@@ -166,6 +167,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Audit />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/whatsapp"
+                element={
+                  <ProtectedRoute>
+                    <WhatsappPage />
                   </ProtectedRoute>
                 }
               />
