@@ -99,10 +99,10 @@ export default function PublicBoletoLinksPage() {
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="rounded-2xl border bg-white/90 backdrop-blur-sm shadow-sm p-6 md:p-8 text-center space-y-2">
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">
-            2a via de boletos
+            2ª via de boletos
           </h1>
           <p className="text-sm md:text-base text-slate-600">
-            Consulte seus boletos rapidamente com CPF.
+            Consulte seus boletos rapidamente com o seu CPF.
           </p>
         </div>
 
