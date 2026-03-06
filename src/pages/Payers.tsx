@@ -173,6 +173,7 @@ export default function Payers() {
     try {
       const insertPayload = {
         id: crypto.randomUUID(),
+        legacy_id: crypto.randomUUID(),
         name,
         document: newPayer.document.trim() || null,
         document_digits: documentDigits || null,
