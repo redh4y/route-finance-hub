@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { usePayers } from "@/hooks/usePayers";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +13,16 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import {
   Table,
   TableBody,
@@ -35,6 +45,7 @@ import {
   XCircle,
   Clock,
   Edit,
+  Plus,
   UserCheck,
   UserX,
   AlertTriangle,
@@ -63,11 +74,22 @@ function isImportedWithoutRegister(
 }
 
 export default function Payers() {
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilterKey>("active");
   const [selectedPayerId, setSelectedPayerId] = useState<string | null>(null);
   const [editPayerId, setEditPayerId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newPayer, setNewPayer] = useState({
+    name: "",
+    document: "",
+    phone: "",
+    neighborhood: "",
+    billingMode: "BOLETO",
+    status: "ATIVO",
+  });
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -125,6 +147,57 @@ export default function Payers() {
     setSearchTerm("");
   };
 
+
+  const resetNewPayer = () => {
+    setNewPayer({
+      name: "",
+      document: "",
+      phone: "",
+      neighborhood: "",
+      billingMode: "BOLETO",
+      status: "ATIVO",
+    });
+  };
+
+  const handleCreatePayer = async () => {
+    const name = newPayer.name.trim();
+    if (!name) {
+      toast.error("Informe o nome do pagador.");
+      return;
+    }
+
+    const documentDigits = newPayer.document.replace(/\D/g, "");
+    const phoneDigits = newPayer.phone.replace(/\D/g, "");
+
+    setIsCreating(true);
+    try {
+      const insertPayload = {
+        id: crypto.randomUUID(),
+        name,
+        document: newPayer.document.trim() || null,
+        document_digits: documentDigits || null,
+        document_valid: documentDigits.length === 11 ? true : null,
+        phone: phoneDigits || null,
+        neighborhood: newPayer.neighborhood.trim() || null,
+        billing_mode: newPayer.billingMode,
+        status: newPayer.status,
+        needs_review: false,
+      };
+
+      const { error } = await supabase.from("payers").insert(insertPayload);
+      if (error) throw error;
+
+      toast.success("Pagador criado com sucesso.");
+      setIsCreateOpen(false);
+      resetNewPayer();
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+    } catch (error: any) {
+      toast.error(`Erro ao criar pagador: ${error?.message || "falha desconhecida"}`);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return (
     <MainLayout>
       <PageTransition>
@@ -140,6 +213,14 @@ export default function Payers() {
 
             {/* Stats pills */}
             <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setIsCreateOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                Novo pagador
+              </Button>
               <StatPill icon={Users} label="Total" value={stats.total} />
               <StatPill
                 icon={CheckCircle2}
@@ -329,6 +410,119 @@ export default function Payers() {
           payerId={editPayerId}
           onClose={() => setEditPayerId(null)}
         />
+
+        <Dialog
+          open={isCreateOpen}
+          onOpenChange={(open) => {
+            setIsCreateOpen(open);
+            if (!open) resetNewPayer();
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Novo pagador</DialogTitle>
+              <DialogDescription>
+                Cadastre manualmente um pagador.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-payer-name">Nome</Label>
+                <Input
+                  id="new-payer-name"
+                  value={newPayer.name}
+                  onChange={(e) =>
+                    setNewPayer((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  placeholder="Nome completo"
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="new-payer-document">CPF</Label>
+                  <Input
+                    id="new-payer-document"
+                    value={newPayer.document}
+                    onChange={(e) =>
+                      setNewPayer((prev) => ({ ...prev, document: e.target.value }))
+                    }
+                    placeholder="000.000.000-00"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-payer-phone">Telefone</Label>
+                  <Input
+                    id="new-payer-phone"
+                    value={newPayer.phone}
+                    onChange={(e) =>
+                      setNewPayer((prev) => ({ ...prev, phone: e.target.value }))
+                    }
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="new-payer-neighborhood">Bairro</Label>
+                <Input
+                  id="new-payer-neighborhood"
+                  value={newPayer.neighborhood}
+                  onChange={(e) =>
+                    setNewPayer((prev) => ({ ...prev, neighborhood: e.target.value }))
+                  }
+                  placeholder="Bairro"
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="new-payer-billing-mode">Modo de cobranca</Label>
+                  <select
+                    id="new-payer-billing-mode"
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={newPayer.billingMode}
+                    onChange={(e) =>
+                      setNewPayer((prev) => ({ ...prev, billingMode: e.target.value }))
+                    }
+                  >
+                    <option value="BOLETO">BOLETO</option>
+                    <option value="PIX_ONLY">PIX_ONLY</option>
+                    <option value="MIXED">MIXED</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-payer-status">Status</Label>
+                  <select
+                    id="new-payer-status"
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={newPayer.status}
+                    onChange={(e) =>
+                      setNewPayer((prev) => ({ ...prev, status: e.target.value }))
+                    }
+                  >
+                    <option value="ATIVO">ATIVO</option>
+                    <option value="INATIVO">INATIVO</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsCreateOpen(false)}
+                disabled={isCreating}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={handleCreatePayer} disabled={isCreating}>
+                {isCreating ? "Salvando..." : "Adicionar pagador"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </PageTransition>
     </MainLayout>
   );
@@ -564,7 +758,7 @@ function PayerCard({
             </span>
             {payer.neighborhood && (
               <>
-                <span>•</span>
+                <span>⬢</span>
                 <span className="truncate">{payer.neighborhood}</span>
               </>
             )}
@@ -830,7 +1024,7 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
               <InfoRow
                 icon={Receipt}
                 label="Ultima ref."
-                value={selectedPayer.last_billing_ref || "—"}
+                value={selectedPayer.last_billing_ref || "-"}
               />
               <InfoRow
                 icon={Clock}
@@ -916,3 +1110,4 @@ function InfoRow({
     </div>
   );
 }
+

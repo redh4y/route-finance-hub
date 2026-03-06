@@ -66,6 +66,9 @@ type PayerPreviewSummary = {
   CONFLICT: number;
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+
 type BillingPreviewRow = {
   type: BillingPreviewType;
   payerName: string;
@@ -152,22 +155,30 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
     const resolvedPayerId =
       (docCandidate ? payerIdByDoc.get(docCandidate) : null) ||
       (codeCandidate ? payerIdByCode.get(codeCandidate) : null) ||
-      b.payer_id;
-    const payerMatch = payerById.get(resolvedPayerId);
+      null;
+    const payerMatch = resolvedPayerId ? payerById.get(resolvedPayerId) : null;
     return {
       ...b,
-      payer_id: resolvedPayerId,
+      payer_id: resolvedPayerId || "",
       _payerFound: !!payerMatch,
-      _payerName: payerMatch?.name || b.payer_name || `Pagador ${resolvedPayerId}`,
+      _payerName: payerMatch?.name || b.payer_name || `Pagador ${codeCandidate || docCandidate || "sem identificador"}`,
       _payerCode: payerMatch?.payer_code || codeCandidate || null,
     };
   });
 
-  const resolvedPayerIds = Array.from(new Set(resolvedIncoming.map((b) => b.payer_id)));
-  const { data: existingBillings, error: billingErr } = await supabase
-    .from("billings")
-    .select("payer_id, reference_month, nosso_numero, seu_numero, due_date, status")
-    .in("payer_id", resolvedPayerIds.length > 0 ? resolvedPayerIds : ["__none__"]);
+  const resolvedPayerIds = Array.from(
+    new Set(
+      resolvedIncoming
+        .map((b) => b.payer_id)
+        .filter((id): id is string => !!id && UUID_REGEX.test(id))
+    )
+  );
+  const { data: existingBillings, error: billingErr } = resolvedPayerIds.length > 0
+    ? await supabase
+        .from("billings")
+        .select("payer_id, reference_month, nosso_numero, seu_numero, due_date, status")
+        .in("payer_id", resolvedPayerIds)
+    : { data: [], error: null as any };
   if (billingErr) throw billingErr;
 
   const existingByStatusKey = new Map<string, (typeof existingBillings)[number]>();

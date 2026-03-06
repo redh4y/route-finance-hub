@@ -37,6 +37,8 @@ import Maintenance from "./pages/Maintenance";
 import DriversPage from "./pages/Drivers";
 import InspectionChecklists from "./pages/InspectionChecklists";
 import WhatsappPage from "./pages/Whatsapp";
+import BoletoLinksPage from "./pages/BoletoLinks";
+import PublicBoletoLinksPage from "./pages/PublicBoletoLinks";
 
 const queryClient = new QueryClient();
 
@@ -163,6 +165,14 @@ const App = () => (
                 }
               />
               <Route
+                path="/boletos-links"
+                element={
+                  <ProtectedRoute>
+                    <BoletoLinksPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/auditoria"
                 element={
                   <ProtectedRoute>
@@ -262,6 +272,7 @@ const App = () => (
               <Route path="/site" element={<LandingPage />} />
               <Route path="/public/excursoes" element={<PublicExcursions />} />
               <Route path="/public/excursoes/:token" element={<PublicExcursion />} />
+              <Route path="/2-via-boletos" element={<PublicBoletoLinksPage />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

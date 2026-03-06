@@ -363,11 +363,16 @@ serve(async (req) => {
           : Array.isArray(payload?.response)
             ? payload.response
             : [];
-      const rows = list
+      const mappedRows = list
         .map((c: any) => {
-          const wa_jid = c?.id ?? c?.remoteJid ?? null;
+          const wa_jid = String(c?.id ?? c?.remoteJid ?? "");
+          const isGroup = /@g\.us$/i.test(wa_jid) || c?.isGroup === true;
+          const isBroadcast = /@broadcast$/i.test(wa_jid);
+          const isStatus = /^status@broadcast$/i.test(wa_jid);
+          if (isGroup || isBroadcast || isStatus) return null;
+
           const wa_number = String(
-            wa_jid?.split("@")[0] ?? c?.number ?? "",
+            wa_jid.split("@")[0] || c?.number || "",
           ).replace(/\D/g, "");
           const display_name = c?.name ?? c?.pushName ?? c?.notify ?? null;
 
@@ -375,13 +380,24 @@ serve(async (req) => {
             provider_id: provider.id,
             instance_name: provider.instance_name,
             wa_number,
-            wa_jid,
+            wa_jid: wa_jid || null,
             display_name,
             raw: c,
             updated_at: new Date().toISOString(),
           };
         })
-        .filter((r: any) => r.wa_number);
+        .filter((r: any) => r?.wa_number);
+
+      const dedupMap = new Map<string, any>();
+      for (const row of mappedRows) {
+        const key = `${row.provider_id}|${row.instance_name}|${row.wa_number}`;
+        dedupMap.set(key, row);
+      }
+      const rows = Array.from(dedupMap.values());
+      const dedupedCount = mappedRows.length - rows.length;
+      if (dedupedCount > 0) {
+        console.warn(`[whatsapp-dispatch:${requestId}] sync_contacts_deduped duplicates=${dedupedCount}`);
+      }
 
       if (rows.length > 0) {
         const { error: upsertError } = await sb

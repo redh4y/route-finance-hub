@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Progress } from '@/components/ui/progress'
 import {
   Table,
   TableBody,
@@ -38,6 +39,7 @@ import {
 } from '@/components/ui/tooltip'
 
 type PayerLite = { id: string; name: string; phone: string | null }
+type WhatsAppContactLite = { wa_number: string; display_name: string | null }
 
 type MessageItem = {
   id: string
@@ -46,6 +48,7 @@ type MessageItem = {
   phone: string | null
   payerId: string | null
   status: 'ready' | 'no_phone' | 'no_match' | 'no_name' | 'multiple'
+  matchNote?: string
 }
 
 type SendState = 'pending' | 'sent' | 'blocked' | 'error'
@@ -82,6 +85,22 @@ function extractName(message: string) {
   const match = message.match(/^(?:Olá|Ola)\s+(.+?)[!\n\r]/i)
   if (!match) return null
   return match[1].trim()
+}
+
+
+function isPartialNameMatch(a: string, b: string) {
+  if (!a || !b) return false
+  return a.includes(b) || b.includes(a)
+}
+
+function isPartialPhoneMatch(a: string | null | undefined, b: string | null | undefined) {
+  const da = normalizePhoneDigits(a)
+  const db = normalizePhoneDigits(b)
+  if (!da || !db) return false
+  if (da.includes(db) || db.includes(da)) return true
+  const ta = da.slice(-8)
+  const tb = db.slice(-8)
+  return !!ta && !!tb && ta === tb
 }
 
 async function parseMessages(file: File): Promise<string[]> {
@@ -122,6 +141,8 @@ export default function Overdue() {
   const [isDispatching, setIsDispatching] = useState(false)
   const [lastCampaignId, setLastCampaignId] = useState<string | null>(null)
   const [sendResults, setSendResults] = useState<SendResultMap>({})
+  const [dispatchIntervalSec, setDispatchIntervalSec] = useState(6)
+  const [dispatchProgress, setDispatchProgress] = useState<{ processed: number; total: number; pending: number } | null>(null)
 
   const today = useMemo(() => new Date(), [])
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], [])
@@ -162,6 +183,21 @@ export default function Overdue() {
     }
   })
 
+
+  const { data: whatsappContacts } = useQuery({
+    queryKey: ['whatsapp-contacts-lite', activeProviderId],
+    enabled: !!activeProviderId,
+    queryFn: async (): Promise<WhatsAppContactLite[]> => {
+      const { data, error } = await (supabase as any)
+        .from('whatsapp_contacts')
+        .select('wa_number, display_name')
+        .eq('provider_id', activeProviderId)
+        .limit(3000)
+      if (error) throw error
+      return (data || []) as WhatsAppContactLite[]
+    }
+  })
+
   const payerIndex = useMemo(() => {
     const map = new Map<string, PayerLite>()
     const duplicates = new Set<string>()
@@ -176,6 +212,22 @@ export default function Overdue() {
     })
     return { map, duplicates }
   }, [payers])
+
+  const payerListNormalized = useMemo(() => {
+    return (payers || []).map(p => ({
+      payer: p,
+      nameNorm: normalizeName(p.name || ''),
+      phoneDigits: normalizePhoneDigits(p.phone)
+    }))
+  }, [payers])
+
+  const whatsappListNormalized = useMemo(() => {
+    return (whatsappContacts || []).map(c => ({
+      contact: c,
+      nameNorm: normalizeName(c.display_name || ''),
+      phoneDigits: normalizePhoneDigits(c.wa_number)
+    }))
+  }, [whatsappContacts])
 
   const { data: overdueBillings } = useQuery({
     queryKey: ['overdue-billings', todayStr],
@@ -213,20 +265,77 @@ export default function Overdue() {
           status: 'no_name'
         }
       }
+
       const key = normalizeName(name)
+      if (!key) {
+        return { id: String(idx), raw, name, phone: null, payerId: null, status: 'no_name' }
+      }
+
       if (payerIndex.duplicates.has(key)) {
-        return { id: String(idx), raw, name, phone: null, payerId: null, status: 'multiple' }
+        return { id: String(idx), raw, name, phone: null, payerId: null, status: 'multiple', matchNote: 'Nome duplicado no cadastro' }
       }
-      const payer = payerIndex.map.get(key)
-      if (!payer) {
-        return { id: String(idx), raw, name, phone: null, payerId: null, status: 'no_match' }
+
+      const exactPayer = payerIndex.map.get(key)
+      if (exactPayer) {
+        if (exactPayer.phone) {
+          return { id: String(idx), raw, name, phone: exactPayer.phone, payerId: exactPayer.id, status: 'ready', matchNote: 'Match exato no cadastro' }
+        }
+
+        const waByName = whatsappListNormalized.filter(w => w.nameNorm && isPartialNameMatch(w.nameNorm, key))
+        if (waByName.length === 1) {
+          return {
+            id: String(idx),
+            raw,
+            name,
+            phone: waByName[0].contact.wa_number,
+            payerId: exactPayer.id,
+            status: 'ready',
+            matchNote: 'Telefone obtido via contato WhatsApp (nome parcial)'
+          }
+        }
+
+        return { id: String(idx), raw, name, phone: null, payerId: exactPayer.id, status: 'no_phone' }
       }
-      if (!payer.phone) {
-        return { id: String(idx), raw, name, phone: null, payerId: payer.id, status: 'no_phone' }
+
+      const payerByPartialName = payerListNormalized.filter(p => p.nameNorm && isPartialNameMatch(p.nameNorm, key))
+      if (payerByPartialName.length === 1) {
+        const candidate = payerByPartialName[0].payer
+        if (candidate.phone) {
+          return { id: String(idx), raw, name, phone: candidate.phone, payerId: candidate.id, status: 'ready', matchNote: 'Match parcial de nome no cadastro' }
+        }
       }
-      return { id: String(idx), raw, name, phone: payer.phone, payerId: payer.id, status: 'ready' }
+
+      const waByName = whatsappListNormalized.filter(w => w.nameNorm && isPartialNameMatch(w.nameNorm, key))
+      if (waByName.length === 1) {
+        const phoneFromWa = waByName[0].phoneDigits
+        const payerByPhone = payerListNormalized.filter(p => isPartialPhoneMatch(p.phoneDigits, phoneFromWa))
+
+        if (payerByPhone.length === 1) {
+          return {
+            id: String(idx),
+            raw,
+            name,
+            phone: payerByPhone[0].payer.phone || waByName[0].contact.wa_number,
+            payerId: payerByPhone[0].payer.id,
+            status: 'ready',
+            matchNote: 'Vinculado por contato WhatsApp (nome/telefone parcial)'
+          }
+        }
+
+        return {
+          id: String(idx),
+          raw,
+          name,
+          phone: waByName[0].contact.wa_number,
+          payerId: null,
+          status: 'ready',
+          matchNote: 'Contato WhatsApp encontrado por nome parcial'
+        }
+      }
+
+      return { id: String(idx), raw, name, phone: null, payerId: null, status: 'no_match' }
     })
-  }, [messages, payerIndex])
+  }, [messages, payerIndex, payerListNormalized, whatsappListNormalized])
 
   const stats = useMemo(() => {
     const total = items.length
@@ -239,6 +348,7 @@ export default function Overdue() {
   }, [items])
 
   const readyItems = useMemo(() => items.filter(i => i.status === 'ready'), [items])
+
 
   const sendSummary = useMemo(() => {
     const values = Object.values(sendResults)
@@ -362,17 +472,51 @@ export default function Overdue() {
       return
     }
 
+    const limit = 1
+    const intervalMs = Math.max(1000, Math.min((dispatchIntervalSec || 1) * 1000, 300000))
+
+    const totalToSend = readyItems.length
+    setDispatchProgress({ processed: 0, total: totalToSend, pending: totalToSend })
     setIsDispatching(true)
     try {
-      const { data, error } = await supabase.functions.invoke('whatsapp-dispatch', {
-        body: { action: 'process_campaign', campaignId: lastCampaignId, limit: 200 },
-      })
-      if (error) throw error
+      let totalSent = 0
+      let totalFailed = 0
+      let pending = totalToSend
+      let processed = 0
+      let round = 0
+      const maxRounds = 500
 
-      const sent = data?.sent ?? 0
-      const failed = data?.failed ?? 0
-      const pending = data?.pending ?? 0
-      toast.success(`Disparo conclu?do: ${sent} enviados, ${failed} falhas, ${pending} pendentes.`)
+      while (round < maxRounds) {
+        round += 1
+        const { data, error } = await supabase.functions.invoke('whatsapp-dispatch', {
+          body: { action: 'process_campaign', campaignId: lastCampaignId, limit },
+        })
+        if (error) throw error
+        if (!data?.ok) throw new Error(data?.error || 'Falha no disparo da campanha')
+
+        const sentNow = data?.sent ?? 0
+        const failedNow = data?.failed ?? 0
+        const processedNow = data?.processed ?? (sentNow + failedNow)
+
+        totalSent += sentNow
+        totalFailed += failedNow
+        processed += processedNow
+        pending = data?.pending ?? Math.max(totalToSend - processed, 0)
+
+        setDispatchProgress({
+          processed: Math.min(processed, totalToSend),
+          total: totalToSend,
+          pending,
+        })
+
+        if (pending <= 0) break
+
+        toast.info(`Rodada ${round} concluida. Pendentes: ${pending}. Proxima em ${Math.round(intervalMs / 1000)}s.`)
+        await new Promise((resolve) => setTimeout(resolve, intervalMs))
+      }
+
+      setDispatchProgress({ processed: totalToSend - pending, total: totalToSend, pending })
+      toast.success(`Disparo concluido: ${totalSent} enviados, ${totalFailed} falhas, ${pending} pendentes.`)
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao disparar campanha')
     } finally {
@@ -559,6 +703,37 @@ export default function Overdue() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {items.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className="bg-success/10 text-success border-success/30">
+                      Match OK: {stats.ready}
+                    </Badge>
+                    <Badge variant="outline" className="text-destructive border-destructive/50">
+                      Sem match: {stats.noMatch}
+                    </Badge>
+                    <Badge variant="outline" className="text-warning border-warning/50">
+                      Sem telefone: {stats.noPhone}
+                    </Badge>
+                    <Badge variant="outline">Sem nome: {stats.noName}</Badge>
+                    <Badge variant="outline" className="text-warning border-warning/50">
+                      Nome duplicado: {stats.multiple}
+                    </Badge>
+                  </div>
+
+                  {stats.noMatch > 0 && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                      <p className="text-sm font-medium text-destructive">
+                        Atencao: existem mensagens sem cadastro correspondente no banco.
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Revise os nomes marcados como "Sem match" antes de enviar.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <ScrollArea className="h-[420px] pr-2">
                 {items.length === 0 ? (
                   <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
@@ -585,6 +760,9 @@ export default function Overdue() {
                               <p className="font-medium truncate">
                                 {item.name || '(nome não identificado)'}
                               </p>
+                              {item.matchNote && (
+                                <p className="text-[11px] text-primary mb-1">{item.matchNote}</p>
+                              )}
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <p className="text-xs text-muted-foreground truncate cursor-help">
@@ -684,13 +862,19 @@ export default function Overdue() {
               </div>
               <div className="rounded-lg border p-4 space-y-3">
                 <p className="font-medium text-sm">
-                  Regras de envio (em breve)
+                  Regras de envio
                 </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input placeholder="Janela: 09:00 - 18:00" disabled />
-                  <Input placeholder="Limite: 30/min" disabled />
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Intervalo entre envios (segundos)</p>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={300}
+                    value={dispatchIntervalSec}
+                    onChange={(e) => setDispatchIntervalSec(Number(e.target.value || 1))}
+                  />
+                  <p className="text-[11px] text-muted-foreground">A campanha envia 1 mensagem por vez e aguarda esse intervalo para o proximo envio.</p>
                 </div>
-                <Input placeholder="Dias úteis apenas" disabled />
               </div>
               <div className="space-y-2">
                 <Button className="w-full" onClick={sendBatch} disabled={isSendingBatch || readyItems.length === 0}>
@@ -726,6 +910,27 @@ export default function Overdue() {
                     <>Disparar autom?tico</>
                   )}
                 </Button>
+                {(isDispatching || dispatchProgress) && (
+                  <div className="rounded-md border p-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Progresso de envio</span>
+                      <span>
+                        {dispatchProgress?.processed ?? 0} de {dispatchProgress?.total ?? 0}
+                      </span>
+                    </div>
+                    <Progress
+                      value={
+                        dispatchProgress?.total
+                          ? ((dispatchProgress.processed / dispatchProgress.total) * 100)
+                          : 0
+                      }
+                      className="h-2"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Pendentes: {dispatchProgress?.pending ?? 0}
+                    </p>
+                  </div>
+                )}
               </div>
               {lastCampaignId && (
                 <p className="text-xs text-muted-foreground">
@@ -742,3 +947,4 @@ export default function Overdue() {
     </MainLayout>
   )
 }
+
