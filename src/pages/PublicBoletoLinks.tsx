@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -69,9 +69,36 @@ export default function PublicBoletoLinksPage() {
   const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(
     null,
   );
+  const [previewReferenceMonth, setPreviewReferenceMonth] = useState<string | null>(null);
+  const [previewStudentName, setPreviewStudentName] = useState<string | null>(null);
 
   const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
   const canSearch = cpfDigits.length === 11;
+
+  const logDownload = async (params: { driveUrl: string; referenceMonth?: string | null; studentName?: string | null }) => {
+    try {
+      await supabase.functions.invoke("public-boleto-links", {
+        body: {
+          action: "log_download",
+          cpf: cpfDigits,
+          driveUrl: params.driveUrl,
+          referenceMonth: params.referenceMonth || null,
+          studentName: params.studentName || null,
+        },
+      });
+    } catch {
+      // best effort
+    }
+  };
+
+  const handleDownloadClick = async (
+    e: MouseEvent<HTMLAnchorElement>,
+    params: { driveUrl: string; referenceMonth?: string | null; studentName?: string | null },
+  ) => {
+    e.preventDefault();
+    await logDownload(params);
+    window.open(params.driveUrl, "_blank", "noopener,noreferrer");
+  };
 
   const handleSearchBills = async () => {
     if (!canSearch) {
@@ -159,6 +186,15 @@ export default function PublicBoletoLinksPage() {
           </CardContent>
         </Card>
 
+
+        <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
+          <CardContent className="pt-6">
+            <p className="text-sm text-amber-900">
+              Antes de pagar, confira atentamente os dados do boleto para evitar equivocos: <strong>nome do pagador</strong>, <strong>CPF</strong>, <strong>data de vencimento</strong> e <strong>valor</strong>.
+            </p>
+          </CardContent>
+        </Card>
+
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle>Boletos disponíveis</CardTitle>
@@ -214,11 +250,24 @@ export default function PublicBoletoLinksPage() {
                         }
                         setPreviewUrl(preview);
                         setPreviewDownloadUrl(item.drive_url);
+                        setPreviewReferenceMonth(item.reference_month);
+                        setPreviewStudentName(item.student_name || "Aluno");
                       }}
                     >
                       <Eye className="h-4 w-4" /> Visualizar
                     </Button>
-                    <a href={item.drive_url} target="_blank" rel="noreferrer">
+                    <a
+                      href={item.drive_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) =>
+                        handleDownloadClick(e, {
+                          driveUrl: item.drive_url,
+                          referenceMonth: item.reference_month,
+                          studentName: item.student_name || "Aluno",
+                        })
+                      }
+                    >
                       <Button size="sm" className="gap-1.5 w-full sm:w-auto">
                         <Download className="h-4 w-4" /> Baixar
                       </Button>
@@ -253,6 +302,8 @@ export default function PublicBoletoLinksPage() {
             if (!open) {
               setPreviewUrl(null);
               setPreviewDownloadUrl(null);
+              setPreviewReferenceMonth(null);
+              setPreviewStudentName(null);
             }
           }}
         >
@@ -267,6 +318,13 @@ export default function PublicBoletoLinksPage() {
                   target="_blank"
                   rel="noreferrer"
                   className="shrink-0"
+                  onClick={(e) =>
+                    handleDownloadClick(e, {
+                      driveUrl: previewDownloadUrl,
+                      referenceMonth: previewReferenceMonth,
+                      studentName: previewStudentName,
+                    })
+                  }
                 >
                   <Button size="sm" className="gap-1.5">
                     <Download className="h-4 w-4" /> Baixar

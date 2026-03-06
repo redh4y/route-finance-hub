@@ -7,6 +7,8 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "OPTIONS, POST",
 };
 
+type Action = "list_bills" | "log_download";
+
 function rid() {
   return crypto.randomUUID().slice(0, 8);
 }
@@ -25,6 +27,13 @@ function digits(value: string | null | undefined) {
 function maskCpf(cpf: string) {
   if (!cpf) return "";
   return cpf.length === 11 ? `${cpf.slice(0, 3)}***${cpf.slice(-2)}` : "invalid";
+}
+
+async function writeAccessLog(sb: any, payload: Record<string, unknown>) {
+  const { error } = await sb.from("public_boleto_access_logs").insert([payload]);
+  if (error) {
+    console.warn("[public-boleto-links] failed_to_write_log", error.message);
+  }
 }
 
 serve(async (req) => {
@@ -49,10 +58,13 @@ serve(async (req) => {
       return json(400, { ok: false, error: "Body invalido", requestId });
     }
 
+    const action = (String(body?.action || "list_bills").trim() || "list_bills") as Action;
     const cpf = digits(body?.cpf);
     const referenceMonth = String(body?.referenceMonth || "").trim();
+    const userAgent = String(req.headers.get("user-agent") || "").slice(0, 500);
 
     console.log(`[public-boleto-links:${requestId}] request_received`, {
+      action,
       cpf: maskCpf(cpf),
       reference_month: referenceMonth || null,
     });
@@ -62,6 +74,20 @@ serve(async (req) => {
     }
 
     const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+
+    if (action === "log_download") {
+      await writeAccessLog(sb, {
+        action: "DOWNLOAD",
+        cpf_digits: cpf,
+        reference_month: referenceMonth || null,
+        student_name: String(body?.studentName || "") || null,
+        drive_url: String(body?.driveUrl || "") || null,
+        user_agent: userAgent || null,
+        request_id: requestId,
+      });
+
+      return json(200, { ok: true, requestId });
+    }
 
     const { data: payer, error: payerError } = await sb
       .from("payers")
@@ -99,6 +125,15 @@ serve(async (req) => {
       student_name: row.student_name,
       drive_url: row.drive_url,
     }));
+
+    await writeAccessLog(sb, {
+      action: "SEARCH",
+      cpf_digits: cpf,
+      reference_month: referenceMonth || null,
+      found_count: items.length,
+      user_agent: userAgent || null,
+      request_id: requestId,
+    });
 
     return json(200, { ok: true, items, requestId });
   } catch (error) {

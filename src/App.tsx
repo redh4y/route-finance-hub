@@ -39,6 +39,7 @@ import InspectionChecklists from "./pages/InspectionChecklists";
 import WhatsappPage from "./pages/Whatsapp";
 import BoletoLinksPage from "./pages/BoletoLinks";
 import PublicBoletoLinksPage from "./pages/PublicBoletoLinks";
+import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
 
 const queryClient = new QueryClient();
 
@@ -170,6 +171,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <BoletoLinksPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/logs/2via-boletos"
+                element={
+                  <ProtectedRoute>
+                    <BoletoAccessLogsPage />
                   </ProtectedRoute>
                 }
               />

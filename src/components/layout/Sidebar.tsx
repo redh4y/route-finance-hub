@@ -122,6 +122,11 @@ const navItems = [
     icon: FileText,
   },
   {
+    label: "Logs 2a via",
+    path: "/logs/2via-boletos",
+    icon: FileText,
+  },
+  {
     label: "Diagnóstico",
     path: "/diagnostico",
     icon: Bug,
