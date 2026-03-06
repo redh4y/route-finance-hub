@@ -22,6 +22,11 @@ type PayerLite = {
   phone: string | null;
 };
 
+type MonthActivePayer = {
+  id: string;
+  name: string;
+};
+
 type ParsedLine = {
   id: string;
   raw: string;
@@ -101,6 +106,7 @@ export default function BoletoLinksPage() {
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lines, setLines] = useState<ParsedLine[]>([]);
+  const [searchPreview, setSearchPreview] = useState("");
 
   const { data: payers = [] } = useQuery({
     queryKey: ["payers-lite-boleto-links"],
@@ -123,6 +129,46 @@ export default function BoletoLinksPage() {
     [payers],
   );
 
+  const { data: activeMonthPayers = [] } = useQuery({
+    queryKey: ["boleto-links-active-month", referenceMonth],
+    queryFn: async (): Promise<MonthActivePayer[]> => {
+      const { data, error } = await (supabase as any)
+        .from("billings")
+        .select("payer_id,payers(id,name,status)")
+        .eq("reference_month", referenceMonth)
+        .in("status", ["OPEN", "PAID"]);
+
+      if (error) throw error;
+
+      const unique = new Map<string, MonthActivePayer>();
+      for (const row of data || []) {
+        const payerId = row?.payer_id as string | null;
+        const payerRel = Array.isArray(row?.payers) ? row.payers[0] : row?.payers;
+        const payerStatus = String(payerRel?.status || "");
+        if (!payerId || payerStatus !== "ATIVO") continue;
+        unique.set(payerId, {
+          id: payerId,
+          name: String(payerRel?.name || payerId),
+        });
+      }
+
+      return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
+    },
+  });
+
+  const { data: existingMonthLinks = [] } = useQuery({
+    queryKey: ["boleto-links-existing-month", referenceMonth],
+    queryFn: async (): Promise<Array<{ payer_id: string }>> => {
+      const { data, error } = await (supabase as any)
+        .from("payer_boleto_links")
+        .select("payer_id")
+        .eq("reference_month", referenceMonth);
+      if (error) throw error;
+      return (data || []) as Array<{ payer_id: string }>;
+    },
+  });
+
+
   const stats = useMemo(() => {
     const total = lines.length;
     const match = lines.filter((l) => l.match_status === "MATCH").length;
@@ -132,6 +178,44 @@ export default function BoletoLinksPage() {
     const missingData = lines.filter((l) => l.match_status === "MISSING_DATA").length;
     return { total, match, noMatch, multiple, missingUrl, missingData };
   }, [lines]);
+
+
+  const monthCoverage = useMemo(() => {
+    const linkedIds = new Set<string>();
+
+    for (const row of existingMonthLinks) {
+      if (row?.payer_id) linkedIds.add(String(row.payer_id));
+    }
+
+    for (const line of lines) {
+      if (line.match_status === "MATCH" && line.payer_id) {
+        linkedIds.add(String(line.payer_id));
+      }
+    }
+
+    const missing = activeMonthPayers.filter((payer) => !linkedIds.has(payer.id));
+
+    return {
+      expected: activeMonthPayers.length,
+      linked: activeMonthPayers.length - missing.length,
+      missing,
+    };
+  }, [activeMonthPayers, existingMonthLinks, lines]);
+
+  const filteredLines = useMemo(() => {
+    const q = searchPreview.trim().toLowerCase();
+    if (!q) return lines;
+    return lines.filter((line) => {
+      const haystack = [
+        line.student_name || "",
+        line.cpf_digits || "",
+        line.phone_digits || "",
+        line.drive_url || "",
+        line.match_status || "",
+      ].join(" ").toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [lines, searchPreview]);
 
   const handleFile = async (f: File | null) => {
     if (!f) return;
@@ -205,14 +289,14 @@ export default function BoletoLinksPage() {
         const cpf = normalizeDigits(payer.document_digits);
         const phone = normalizeDigits(payer.phone);
 
-        if (!cpf || !phone) {
+        if (!cpf) {
           return {
             id: String(idx),
             raw,
             student_name: studentName,
             drive_url: driveUrl,
             payer_id: payer.id,
-            cpf_digits: cpf || null,
+            cpf_digits: null,
             phone_digits: phone || null,
             match_status: "MISSING_DATA",
           };
@@ -225,7 +309,7 @@ export default function BoletoLinksPage() {
           drive_url: driveUrl,
           payer_id: payer.id,
           cpf_digits: cpf,
-          phone_digits: phone,
+          phone_digits: phone || null,
           match_status: "MATCH",
         };
       });
@@ -240,7 +324,7 @@ export default function BoletoLinksPage() {
   };
 
   const handleImport = async () => {
-    const valid = lines.filter((l) => l.match_status === "MATCH" && l.drive_url && l.cpf_digits && l.phone_digits);
+    const valid = lines.filter((l) => l.match_status === "MATCH" && l.drive_url && l.cpf_digits);
     if (valid.length === 0) {
       toast.error("Nenhuma linha valida para importar.");
       return;
@@ -248,12 +332,38 @@ export default function BoletoLinksPage() {
 
     setIsSaving(true);
     try {
-      const payload = valid.map((l) => ({
+      const cpfList = Array.from(new Set(valid.map((l) => String(l.cpf_digits))));
+      const urlList = Array.from(new Set(valid.map((l) => String(l.drive_url))));
+
+      const { data: existingRows, error: existingError } = await (supabase as any)
+        .from("payer_boleto_links")
+        .select("cpf_digits,drive_url")
+        .in("cpf_digits", cpfList)
+        .in("drive_url", urlList);
+
+      if (existingError) throw existingError;
+
+      const existingKey = new Set(
+        (existingRows || []).map((row: any) => `${String(row.cpf_digits)}|${String(row.drive_url)}`),
+      );
+
+      const dedupedValid = valid.filter(
+        (l) => !existingKey.has(`${String(l.cpf_digits)}|${String(l.drive_url)}`),
+      );
+
+      const skippedDuplicates = valid.length - dedupedValid.length;
+
+      if (dedupedValid.length === 0) {
+        toast.info("Todos os links ja existem para os CPFs informados. Nada para importar.");
+        return;
+      }
+
+      const payload = dedupedValid.map((l) => ({
         reference_month: referenceMonth,
         payer_id: l.payer_id,
         student_name: l.student_name,
         cpf_digits: l.cpf_digits,
-        phone_digits: l.phone_digits,
+        phone_digits: l.phone_digits || "",
         drive_url: l.drive_url,
         created_at: new Date().toISOString(),
       }));
@@ -264,7 +374,7 @@ export default function BoletoLinksPage() {
 
       if (error) throw error;
 
-      toast.success(`Importacao concluida: ${valid.length} links salvos.`);
+      toast.success(`Importacao concluida: ${dedupedValid.length} links salvos${skippedDuplicates > 0 ? `, ${skippedDuplicates} duplicados ignorados` : ""}.`);
     } catch (error: any) {
       toast.error(`Erro na importacao: ${error?.message || "falha"}`);
     } finally {
@@ -303,7 +413,24 @@ export default function BoletoLinksPage() {
                 <Badge variant="outline" className="text-destructive border-destructive/50">Sem match: {stats.noMatch}</Badge>
                 <Badge variant="outline" className="text-warning border-warning/50">Multiplos: {stats.multiple}</Badge>
                 <Badge variant="outline">Sem link: {stats.missingUrl}</Badge>
-                <Badge variant="outline">Sem CPF/WhatsApp: {stats.missingData}</Badge>
+                <Badge variant="outline">Sem CPF: {stats.missingData}</Badge>
+              </div>
+
+              <div className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm font-medium">Validacao de cobertura do mes {referenceMonth}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline">Ativos no mes: {monthCoverage.expected}</Badge>
+                  <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30">Com link: {monthCoverage.linked}</Badge>
+                  <Badge variant="outline" className={monthCoverage.missing.length > 0 ? "text-destructive border-destructive/50" : ""}>
+                    Sem link: {monthCoverage.missing.length}
+                  </Badge>
+                </div>
+                {monthCoverage.missing.length > 0 && (
+                  <p className="text-xs text-destructive">
+                    Faltando link para: {monthCoverage.missing.slice(0, 8).map((p) => p.name).join(", ")}
+                    {monthCoverage.missing.length > 8 ? " ..." : ""}
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -319,7 +446,15 @@ export default function BoletoLinksPage() {
             <CardHeader>
               <CardTitle>Previa</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2 md:max-w-sm">
+                <Label>Buscar na lista</Label>
+                <Input
+                  value={searchPreview}
+                  onChange={(e) => setSearchPreview(e.target.value)}
+                  placeholder="Nome, CPF, link ou status"
+                />
+              </div>
               <ScrollArea className="h-[520px]">
                 <Table>
                   <TableHeader>
@@ -332,7 +467,7 @@ export default function BoletoLinksPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {lines.map((line) => (
+                    {filteredLines.map((line) => (
                       <TableRow key={line.id}>
                         <TableCell>{line.student_name || "-"}</TableCell>
                         <TableCell className="font-mono text-xs">{line.cpf_digits || "-"}</TableCell>
@@ -348,14 +483,14 @@ export default function BoletoLinksPage() {
                           {line.match_status === "MATCH" && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30"><CheckCircle2 className="h-3 w-3 mr-1" />Match</Badge>}
                           {line.match_status === "NO_MATCH" && <Badge variant="outline" className="text-destructive border-destructive/50"><AlertTriangle className="h-3 w-3 mr-1" />Sem match</Badge>}
                           {line.match_status === "MISSING_URL" && <Badge variant="outline">Sem link</Badge>}
-                          {line.match_status === "MISSING_DATA" && <Badge variant="outline">Sem CPF/WhatsApp</Badge>}
+                          {line.match_status === "MISSING_DATA" && <Badge variant="outline">Sem CPF</Badge>}
                           {line.match_status === "MULTIPLE" && <Badge variant="outline" className="text-warning border-warning/50">Multiplos</Badge>}
                         </TableCell>
                       </TableRow>
                     ))}
-                    {lines.length === 0 && (
+                    {filteredLines.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-10">Selecione um arquivo para visualizar a previa.</TableCell>
+                        <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-10">{lines.length === 0 ? "Selecione um arquivo para visualizar a previa." : "Nenhum resultado para a busca."}</TableCell>
                       </TableRow>
                     )}
                   </TableBody>

@@ -28,7 +28,8 @@ export default function Auth() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/";
+  const fromPath = (location.state as { from?: { pathname: string } })?.from?.pathname;
+  const from = fromPath && fromPath !== "/auth" ? fromPath : "/dashboard";
 
   useEffect(() => {
     if (user && !isLoading) {
