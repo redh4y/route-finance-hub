@@ -230,6 +230,23 @@ export default function PublicBoletoLinksPage() {
           </CardContent>
         </Card>
 
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="pt-6">
+            <p className="text-sm text-slate-700">
+              Solicitações de alteração de boleto e outras questões, contatar
+              aqui:{" "}
+              <a
+                href="https://wa.me/5517981606721"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100"
+              >
+                WhatsApp (17) 98160-6721
+              </a>
+            </p>
+          </CardContent>
+        </Card>
+
         <Dialog
           open={!!previewUrl}
           onOpenChange={(open) => {
