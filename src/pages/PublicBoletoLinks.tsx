@@ -42,10 +42,23 @@ function getDrivePreviewUrl(url: string) {
   return null;
 }
 
-function formatMonth(ref: string) {
+function formatMonthShort(ref: string) {
   if (!ref || !/^\d{4}-\d{2}$/.test(ref)) return ref;
   const [y, m] = ref.split("-");
-  return `${m}/${y}`;
+  const date = new Date(Number(y), Number(m) - 1, 1);
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
+    date,
+  );
+  const monthName = label.charAt(0).toUpperCase() + label.slice(1);
+  return `${monthName}/${y}`;
+}
+
+function sortByReferenceMonthDesc(items: PublicBoletoItem[]) {
+  return [...items].sort((a, b) =>
+    String(b.reference_month || "").localeCompare(
+      String(a.reference_month || ""),
+    ),
+  );
 }
 
 export default function PublicBoletoLinksPage() {
@@ -82,7 +95,9 @@ export default function PublicBoletoLinksPage() {
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Falha na consulta");
 
-      const foundItems = (data.items || []) as PublicBoletoItem[];
+      const foundItems = sortByReferenceMonthDesc(
+        (data.items || []) as PublicBoletoItem[],
+      );
       setItems(foundItems);
       if (foundItems.length === 0) {
         toast.warning("Nenhum boleto encontrado para o CPF informado.");
@@ -150,6 +165,11 @@ export default function PublicBoletoLinksPage() {
             <Badge variant="secondary">{items.length}</Badge>
           </CardHeader>
           <CardContent className="space-y-3">
+            {items.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Ordenado do mais recente para o mais antigo.
+              </p>
+            )}
             {isLoading ? (
               <div className="rounded-lg border p-4 flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -169,12 +189,13 @@ export default function PublicBoletoLinksPage() {
                     <p className="font-medium text-sm">
                       {item.student_name || "Aluno"}
                     </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">
-                        {formatMonth(item.reference_month)}
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <Badge variant="outline" className="font-semibold">
+                        {formatMonthShort(item.reference_month)}
                       </Badge>
                       <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                        <FileText className="h-3 w-3" /> Boleto
+                        <FileText className="h-3 w-3" /> Boleto referente à
+                        competencia {formatMonthShort(item.reference_month)}
                       </span>
                     </div>
                   </div>

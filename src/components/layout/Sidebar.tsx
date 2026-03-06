@@ -37,7 +37,7 @@ import {
 const navItems = [
   {
     label: "Dashboard",
-    path: "/",
+    path: "/dashboard",
     icon: LayoutDashboard,
   },
   {
@@ -138,10 +138,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const isActive = (path: string) => {
-    if (path === "/") {
-      return location.pathname === "/";
-    }
-    return location.pathname.startsWith(path);
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
   const isChildActive = (child: { path: string; exact?: boolean }) => {
