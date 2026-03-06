@@ -218,7 +218,7 @@ export type Database = {
           liquidation_at: string | null
           nosso_numero: string | null
           payer_code: string | null
-          payer_id: string
+          payer_id: string | null
           payment_method: string | null
           reference_month: string
           route: string | null
@@ -238,7 +238,7 @@ export type Database = {
           liquidation_at?: string | null
           nosso_numero?: string | null
           payer_code?: string | null
-          payer_id: string
+          payer_id?: string | null
           payment_method?: string | null
           reference_month: string
           route?: string | null
@@ -258,7 +258,7 @@ export type Database = {
           liquidation_at?: string | null
           nosso_numero?: string | null
           payer_code?: string | null
-          payer_id?: string
+          payer_id?: string | null
           payment_method?: string | null
           reference_month?: string
           route?: string | null
@@ -1137,6 +1137,47 @@ export type Database = {
         }
         Relationships: []
       }
+      payer_boleto_links: {
+        Row: {
+          cpf_digits: string
+          created_at: string
+          drive_url: string
+          id: string
+          payer_id: string | null
+          phone_digits: string
+          reference_month: string
+          student_name: string
+        }
+        Insert: {
+          cpf_digits: string
+          created_at?: string
+          drive_url: string
+          id?: string
+          payer_id?: string | null
+          phone_digits: string
+          reference_month: string
+          student_name: string
+        }
+        Update: {
+          cpf_digits?: string
+          created_at?: string
+          drive_url?: string
+          id?: string
+          payer_id?: string | null
+          phone_digits?: string
+          reference_month?: string
+          student_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payer_boleto_links_payer_id_fkey"
+            columns: ["payer_id"]
+            isOneToOne: false
+            referencedRelation: "payers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payers: {
         Row: {
           address_base: string | null
@@ -1157,6 +1198,7 @@ export type Database = {
           is_coordinator: boolean | null
           last_billing_ref: string | null
           last_payment_at: string | null
+          legacy_id: string
           manual_active_until: string | null
           match_ok: boolean | null
           name: string
@@ -1193,10 +1235,11 @@ export type Database = {
           document_valid?: boolean | null
           email?: string | null
           extra_contacts?: Json | null
-          id: string
+          id?: string
           is_coordinator?: boolean | null
           last_billing_ref?: string | null
           last_payment_at?: string | null
+          legacy_id: string
           manual_active_until?: string | null
           match_ok?: boolean | null
           name: string
@@ -1237,6 +1280,7 @@ export type Database = {
           is_coordinator?: boolean | null
           last_billing_ref?: string | null
           last_payment_at?: string | null
+          legacy_id?: string
           manual_active_until?: string | null
           match_ok?: boolean | null
           name?: string
