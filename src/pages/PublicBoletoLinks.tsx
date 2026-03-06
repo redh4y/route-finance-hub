@@ -18,6 +18,25 @@ function onlyDigits(input: string) {
   return input.replace(/\D/g, "");
 }
 
+
+function formatCpfMask(value: string) {
+  const d = onlyDigits(value).slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+function formatPhoneMask(value: string) {
+  const d = onlyDigits(value).slice(0, 13);
+  const local = d.startsWith("55") ? d.slice(2) : d;
+
+  if (local.length <= 2) return local.length ? `(${local}` : "";
+  if (local.length <= 6) return `(${local.slice(0, 2)}) ${local.slice(2)}`;
+  if (local.length <= 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+  return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7, 11)}`;
+}
+
 function formatMonth(ref: string) {
   if (!ref || !/^\d{4}-\d{2}$/.test(ref)) return ref;
   const [y, m] = ref.split("-");
@@ -80,11 +99,11 @@ export default function PublicBoletoLinksPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>CPF</Label>
-                <Input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" />
+                <Input value={cpf} onChange={(e) => setCpf(formatCpfMask(e.target.value))} placeholder="000.000.000-00" />
               </div>
               <div className="space-y-2">
                 <Label>WhatsApp</Label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(00) 00000-0000" />
+                <Input value={phone} onChange={(e) => setPhone(formatPhoneMask(e.target.value))} placeholder="(00) 00000-0000" />
               </div>
             </div>
             <div className="space-y-2">
