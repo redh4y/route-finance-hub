@@ -513,6 +513,7 @@ export function useOptimizedImportBillings() {
             review_status: "REVIEW",
             review_reason: "IMPORT_BILLING_SEM_CADASTRO",
             default_route: payerRoute,
+            birth_date: null,
           });
           payerStateById.set(payerId, {
             id: payerId,

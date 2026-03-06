@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,6 @@ function onlyDigits(input: string) {
   return input.replace(/\D/g, "");
 }
 
-
 function formatCpfMask(value: string) {
   const d = onlyDigits(value).slice(0, 11);
   if (d.length <= 3) return d;
@@ -27,17 +26,6 @@ function formatCpfMask(value: string) {
   if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
-
-function formatPhoneMask(value: string) {
-  const d = onlyDigits(value).slice(0, 13);
-  const local = d.startsWith("55") ? d.slice(2) : d;
-
-  if (local.length <= 2) return local.length ? `(${local}` : "";
-  if (local.length <= 6) return `(${local.slice(0, 2)}) ${local.slice(2)}`;
-  if (local.length <= 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
-  return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7, 11)}`;
-}
-
 
 function getDrivePreviewUrl(url: string) {
   const direct = String(url || "").trim();
@@ -60,17 +48,17 @@ function formatMonth(ref: string) {
 
 export default function PublicBoletoLinksPage() {
   const [cpf, setCpf] = useState("");
-  const [phone, setPhone] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [items, setItems] = useState<PublicBoletoItem[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null);
 
-  const canSearch = useMemo(() => onlyDigits(cpf).length === 11 && onlyDigits(phone).length >= 10, [cpf, phone]);
+  const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
+  const canSearch = cpfDigits.length === 11;
 
-  const handleSearch = async () => {
+  const handleSearchBills = async () => {
     if (!canSearch) {
-      toast.error("Informe CPF e WhatsApp validos.");
+      toast.error("Informe um CPF valido.");
       return;
     }
 
@@ -79,17 +67,18 @@ export default function PublicBoletoLinksPage() {
     try {
       const { data, error } = await supabase.functions.invoke("public-boleto-links", {
         body: {
-          cpf: onlyDigits(cpf),
-          phone: onlyDigits(phone),
+          action: "list_bills",
+          cpf: cpfDigits,
         },
       });
 
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Falha na consulta");
 
-      setItems((data.items || []) as PublicBoletoItem[]);
-      if ((data.items || []).length === 0) {
-        toast.warning("Nenhum boleto encontrado para os dados informados.");
+      const foundItems = (data.items || []) as PublicBoletoItem[];
+      setItems(foundItems);
+      if (foundItems.length === 0) {
+        toast.warning("Nenhum boleto encontrado para o CPF informado.");
       }
     } catch (error: any) {
       toast.error(error?.message || "Erro ao buscar boletos");
@@ -99,56 +88,67 @@ export default function PublicBoletoLinksPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
-      <div className="mx-auto max-w-3xl space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">2a via de boletos</h1>
-          <p className="text-sm text-slate-600">Acesse seus links com WhatsApp + CPF.</p>
+    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-white p-4 md:p-8">
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div className="rounded-2xl border bg-white/90 backdrop-blur-sm shadow-sm p-6 md:p-8 text-center space-y-2">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">2a via de boletos</h1>
+          <p className="text-sm md:text-base text-slate-600">Consulte seus boletos rapidamente com CPF.</p>
         </div>
 
-        <Card>
+        <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>Consultar boletos</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
               <div className="space-y-2">
                 <Label>CPF</Label>
-                <Input value={cpf} onChange={(e) => setCpf(formatCpfMask(e.target.value))} placeholder="000.000.000-00" disabled={isLoading} className="w-full" />
+                <Input
+                  value={cpf}
+                  onChange={(e) => {
+                    setCpf(formatCpfMask(e.target.value));
+                    setItems([]);
+                  }}
+                  placeholder="000.000.000-00"
+                  disabled={isLoading}
+                  className="w-full md:max-w-sm"
+                />
               </div>
-              <div className="space-y-2">
-                <Label>WhatsApp</Label>
-                <Input value={phone} onChange={(e) => setPhone(formatPhoneMask(e.target.value))} placeholder="(00) 00000-0000" disabled={isLoading} className="w-full" />
-              </div>
+
+              <Button
+                onClick={handleSearchBills}
+                disabled={!canSearch || isLoading}
+                className="w-full md:w-auto md:min-w-[190px]"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Buscando boletos...
+                  </>
+                ) : (
+                  "Buscar boletos"
+                )}
+              </Button>
             </div>
-            <Button onClick={handleSearch} disabled={isLoading || !canSearch} className="w-full md:w-auto min-w-[180px]">
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Buscando boletos...
-                </>
-              ) : (
-                "Buscar boletos"
-              )}
-            </Button>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle>Boletos disponiveis</CardTitle>
+            <Badge variant="secondary">{items.length}</Badge>
           </CardHeader>
           <CardContent className="space-y-3">
             {isLoading ? (
               <div className="rounded-lg border p-4 flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Consultando e validando seus boletos...
+                Consultando seus boletos...
               </div>
             ) : items.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum boleto para exibir.</p>
+              <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">Nenhum boleto para exibir.</p>
             ) : (
               items.map((item, idx) => (
-                <div key={`${item.reference_month}-${idx}`} className="rounded-lg border p-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div key={`${item.reference_month}-${idx}`} className="rounded-xl border bg-white p-3 md:p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between hover:shadow-sm transition-shadow">
                   <div>
                     <p className="font-medium text-sm">{item.student_name || "Aluno"}</p>
                     <div className="flex items-center gap-2 mt-1">
@@ -187,12 +187,15 @@ export default function PublicBoletoLinksPage() {
           </CardContent>
         </Card>
 
-        <Dialog open={!!previewUrl} onOpenChange={(open) => {
-          if (!open) {
-            setPreviewUrl(null);
-            setPreviewDownloadUrl(null);
-          }
-        }}>
+        <Dialog
+          open={!!previewUrl}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPreviewUrl(null);
+              setPreviewDownloadUrl(null);
+            }
+          }}
+        >
           <DialogContent className="w-[96vw] max-w-6xl h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-2">
             <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
               <DialogTitle className="m-0">Pre-visualizacao do boleto</DialogTitle>
@@ -206,11 +209,7 @@ export default function PublicBoletoLinksPage() {
             </div>
             {previewUrl && (
               <div className="flex-1 min-h-0 bg-slate-100">
-                <iframe
-                  src={previewUrl}
-                  className="w-full h-full border-0"
-                  title="Pre-visualizacao do boleto"
-                />
+                <iframe src={previewUrl} className="w-full h-full border-0" title="Pre-visualizacao do boleto" />
               </div>
             )}
           </DialogContent>
@@ -219,5 +218,3 @@ export default function PublicBoletoLinksPage() {
     </div>
   );
 }
-
-

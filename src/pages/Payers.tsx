@@ -183,6 +183,7 @@ export default function Payers() {
         billing_mode: newPayer.billingMode,
         status: newPayer.status,
         needs_review: false,
+        birth_date: null,
       };
 
       const { error } = await supabase.from("payers").insert([insertPayload]);

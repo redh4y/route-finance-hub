@@ -615,6 +615,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
     review_status: "REVIEW",
     review_reason: "IMPORT_BILLING_SEM_CADASTRO",
     default_route: billing.amount_expected_cents > 50000 ? "FRANCA" : "BARRETOS",
+    birth_date: null,
   };
 
   const { data: newPayer, error } = await supabase
