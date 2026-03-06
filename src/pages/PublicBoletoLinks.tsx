@@ -32,10 +32,12 @@ function getDrivePreviewUrl(url: string) {
   if (!direct) return null;
 
   const byFilePath = direct.match(/\/file\/d\/([^/]+)/i);
-  if (byFilePath?.[1]) return `https://drive.google.com/file/d/${byFilePath[1]}/preview`;
+  if (byFilePath?.[1])
+    return `https://drive.google.com/file/d/${byFilePath[1]}/preview`;
 
   const byIdQuery = direct.match(/[?&]id=([^&]+)/i);
-  if (byIdQuery?.[1]) return `https://drive.google.com/file/d/${byIdQuery[1]}/preview`;
+  if (byIdQuery?.[1])
+    return `https://drive.google.com/file/d/${byIdQuery[1]}/preview`;
 
   return null;
 }
@@ -51,7 +53,9 @@ export default function PublicBoletoLinksPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [items, setItems] = useState<PublicBoletoItem[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null);
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(
+    null,
+  );
 
   const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
   const canSearch = cpfDigits.length === 11;
@@ -65,12 +69,15 @@ export default function PublicBoletoLinksPage() {
     setIsLoading(true);
     setItems([]);
     try {
-      const { data, error } = await supabase.functions.invoke("public-boleto-links", {
-        body: {
-          action: "list_bills",
-          cpf: cpfDigits,
+      const { data, error } = await supabase.functions.invoke(
+        "public-boleto-links",
+        {
+          body: {
+            action: "list_bills",
+            cpf: cpfDigits,
+          },
         },
-      });
+      );
 
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Falha na consulta");
@@ -91,8 +98,12 @@ export default function PublicBoletoLinksPage() {
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-white p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="rounded-2xl border bg-white/90 backdrop-blur-sm shadow-sm p-6 md:p-8 text-center space-y-2">
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">2a via de boletos</h1>
-          <p className="text-sm md:text-base text-slate-600">Consulte seus boletos rapidamente com CPF.</p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">
+            2a via de boletos
+          </h1>
+          <p className="text-sm md:text-base text-slate-600">
+            Consulte seus boletos rapidamente com CPF.
+          </p>
         </div>
 
         <Card className="border-slate-200 shadow-sm">
@@ -135,7 +146,7 @@ export default function PublicBoletoLinksPage() {
 
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle>Boletos disponiveis</CardTitle>
+            <CardTitle>Boletos disponíveis</CardTitle>
             <Badge variant="secondary">{items.length}</Badge>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -145,14 +156,23 @@ export default function PublicBoletoLinksPage() {
                 Consultando seus boletos...
               </div>
             ) : items.length === 0 ? (
-              <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">Nenhum boleto para exibir.</p>
+              <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">
+                Nenhum boleto para exibir.
+              </p>
             ) : (
               items.map((item, idx) => (
-                <div key={`${item.reference_month}-${idx}`} className="rounded-xl border bg-white p-3 md:p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between hover:shadow-sm transition-shadow">
+                <div
+                  key={`${item.reference_month}-${idx}`}
+                  className="rounded-xl border bg-white p-3 md:p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between hover:shadow-sm transition-shadow"
+                >
                   <div>
-                    <p className="font-medium text-sm">{item.student_name || "Aluno"}</p>
+                    <p className="font-medium text-sm">
+                      {item.student_name || "Aluno"}
+                    </p>
                     <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">{formatMonth(item.reference_month)}</Badge>
+                      <Badge variant="outline">
+                        {formatMonth(item.reference_month)}
+                      </Badge>
                       <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
                         <FileText className="h-3 w-3" /> Boleto
                       </span>
@@ -166,7 +186,9 @@ export default function PublicBoletoLinksPage() {
                       onClick={() => {
                         const preview = getDrivePreviewUrl(item.drive_url);
                         if (!preview) {
-                          toast.error("Link do Google Drive invalido para pre-visualizacao.");
+                          toast.error(
+                            "Link do Google Drive invalido para pre-visualizacao.",
+                          );
                           return;
                         }
                         setPreviewUrl(preview);
@@ -198,9 +220,16 @@ export default function PublicBoletoLinksPage() {
         >
           <DialogContent className="w-[96vw] max-w-6xl h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-2">
             <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
-              <DialogTitle className="m-0">Pre-visualizacao do boleto</DialogTitle>
+              <DialogTitle className="m-0">
+                Pre-visualizacao do boleto
+              </DialogTitle>
               {previewDownloadUrl && (
-                <a href={previewDownloadUrl} target="_blank" rel="noreferrer" className="shrink-0">
+                <a
+                  href={previewDownloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0"
+                >
                   <Button size="sm" className="gap-1.5">
                     <Download className="h-4 w-4" /> Baixar
                   </Button>
@@ -209,7 +238,11 @@ export default function PublicBoletoLinksPage() {
             </div>
             {previewUrl && (
               <div className="flex-1 min-h-0 bg-slate-100">
-                <iframe src={previewUrl} className="w-full h-full border-0" title="Pre-visualizacao do boleto" />
+                <iframe
+                  src={previewUrl}
+                  className="w-full h-full border-0"
+                  title="Pre-visualizacao do boleto"
+                />
               </div>
             )}
           </DialogContent>
