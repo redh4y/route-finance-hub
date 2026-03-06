@@ -2,7 +2,7 @@
 create table if not exists public.payer_boleto_links (
   id uuid primary key default gen_random_uuid(),
   reference_month text not null check (reference_month ~ '^\d{4}-\d{2}$'),
-  payer_id uuid null references public.payers(id) on delete set null,
+  payer_id text null references public.payers(id) on delete set null,
   student_name text not null,
   cpf_digits varchar(11) not null,
   phone_digits varchar(20) not null,
@@ -42,3 +42,4 @@ create policy "payer_boleto_links_update_auth"
   to authenticated
   using (true)
   with check (true);
+
