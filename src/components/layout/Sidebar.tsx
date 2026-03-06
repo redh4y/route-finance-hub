@@ -54,6 +54,7 @@ const navItems = [
       { label: "Importar", path: "/importar", icon: Upload },
       { label: "Atrasos", path: "/atrasos", icon: MessageCircle },
       { label: "2a via boletos", path: "/boletos-links", icon: FileText },
+      { label: "Logs 2a via", path: "/logs/2via-boletos", icon: FileText },
       { label: "Rotas", path: "/rotas", icon: MapPin },
     ],
   },
@@ -119,11 +120,6 @@ const navItems = [
   {
     label: "Auditoria",
     path: "/auditoria",
-    icon: FileText,
-  },
-  {
-    label: "Logs 2a via",
-    path: "/logs/2via-boletos",
     icon: FileText,
   },
   {
