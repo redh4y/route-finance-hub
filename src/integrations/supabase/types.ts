@@ -1184,6 +1184,7 @@ export type Database = {
           address_original: string | null
           billing_mode: string
           billing_seen_in_month: string | null
+          birth_date: string | null
           cep: string | null
           change_log: Json | null
           city: string | null
@@ -1225,6 +1226,7 @@ export type Database = {
           address_original?: string | null
           billing_mode?: string
           billing_seen_in_month?: string | null
+          birth_date?: string | null
           cep?: string | null
           change_log?: Json | null
           city?: string | null
@@ -1266,6 +1268,7 @@ export type Database = {
           address_original?: string | null
           billing_mode?: string
           billing_seen_in_month?: string | null
+          birth_date?: string | null
           cep?: string | null
           change_log?: Json | null
           city?: string | null
