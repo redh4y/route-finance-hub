@@ -4,9 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Download, FileText, Loader2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2 } from "lucide-react";
 
 type PublicBoletoItem = {
   reference_month: string;
@@ -37,6 +38,20 @@ function formatPhoneMask(value: string) {
   return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7, 11)}`;
 }
 
+
+function getDrivePreviewUrl(url: string) {
+  const direct = String(url || "").trim();
+  if (!direct) return null;
+
+  const byFilePath = direct.match(/\/file\/d\/([^/]+)/i);
+  if (byFilePath?.[1]) return `https://drive.google.com/file/d/${byFilePath[1]}/preview`;
+
+  const byIdQuery = direct.match(/[?&]id=([^&]+)/i);
+  if (byIdQuery?.[1]) return `https://drive.google.com/file/d/${byIdQuery[1]}/preview`;
+
+  return null;
+}
+
 function formatMonth(ref: string) {
   if (!ref || !/^\d{4}-\d{2}$/.test(ref)) return ref;
   const [y, m] = ref.split("-");
@@ -46,9 +61,9 @@ function formatMonth(ref: string) {
 export default function PublicBoletoLinksPage() {
   const [cpf, setCpf] = useState("");
   const [phone, setPhone] = useState("");
-  const [referenceMonth, setReferenceMonth] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [items, setItems] = useState<PublicBoletoItem[]>([]);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const canSearch = useMemo(() => onlyDigits(cpf).length === 11 && onlyDigits(phone).length >= 10, [cpf, phone]);
 
@@ -65,7 +80,6 @@ export default function PublicBoletoLinksPage() {
         body: {
           cpf: onlyDigits(cpf),
           phone: onlyDigits(phone),
-          referenceMonth: referenceMonth || null,
         },
       });
 
@@ -96,26 +110,21 @@ export default function PublicBoletoLinksPage() {
             <CardTitle>Consultar boletos</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>CPF</Label>
-                <Input value={cpf} onChange={(e) => setCpf(formatCpfMask(e.target.value))} placeholder="000.000.000-00" />
+                <Input value={cpf} onChange={(e) => setCpf(formatCpfMask(e.target.value))} placeholder="000.000.000-00" disabled={isLoading} className="w-full" />
               </div>
               <div className="space-y-2">
                 <Label>WhatsApp</Label>
-                <Input value={phone} onChange={(e) => setPhone(formatPhoneMask(e.target.value))} placeholder="(00) 00000-0000" />
+                <Input value={phone} onChange={(e) => setPhone(formatPhoneMask(e.target.value))} placeholder="(00) 00000-0000" disabled={isLoading} className="w-full" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Competencia (opcional)</Label>
-              <Input type="month" value={referenceMonth} onChange={(e) => setReferenceMonth(e.target.value)} />
-            </div>
-
-            <Button onClick={handleSearch} disabled={isLoading || !canSearch} className="w-full md:w-auto">
+            <Button onClick={handleSearch} disabled={isLoading || !canSearch} className="w-full md:w-auto min-w-[180px]">
               {isLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Consultando...
+                  Buscando boletos...
                 </>
               ) : (
                 "Buscar boletos"
@@ -129,11 +138,16 @@ export default function PublicBoletoLinksPage() {
             <CardTitle>Boletos disponiveis</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {items.length === 0 ? (
+            {isLoading ? (
+              <div className="rounded-lg border p-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Consultando e validando seus boletos...
+              </div>
+            ) : items.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhum boleto para exibir.</p>
             ) : (
               items.map((item, idx) => (
-                <div key={`${item.reference_month}-${idx}`} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                <div key={`${item.reference_month}-${idx}`} className="rounded-lg border p-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-medium text-sm">{item.student_name || "Aluno"}</p>
                     <div className="flex items-center gap-2 mt-1">
@@ -143,17 +157,53 @@ export default function PublicBoletoLinksPage() {
                       </span>
                     </div>
                   </div>
-                  <a href={item.drive_url} target="_blank" rel="noreferrer">
-                    <Button size="sm" className="gap-1.5">
-                      <Download className="h-4 w-4" /> Baixar
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 w-full sm:w-auto"
+                      onClick={() => {
+                        const preview = getDrivePreviewUrl(item.drive_url);
+                        if (!preview) {
+                          toast.error("Link do Google Drive invalido para pre-visualizacao.");
+                          return;
+                        }
+                        setPreviewUrl(preview);
+                      }}
+                    >
+                      <Eye className="h-4 w-4" /> Visualizar
                     </Button>
-                  </a>
+                    <a href={item.drive_url} target="_blank" rel="noreferrer">
+                      <Button size="sm" className="gap-1.5 w-full sm:w-auto">
+                        <Download className="h-4 w-4" /> Baixar
+                      </Button>
+                    </a>
+                  </div>
                 </div>
               ))
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={!!previewUrl} onOpenChange={(open) => !open && setPreviewUrl(null)}>
+          <DialogContent className="w-[96vw] max-w-6xl h-[95vh] p-0 overflow-hidden">
+            <DialogHeader className="px-4 py-3 border-b shrink-0">
+              <DialogTitle>Pre-visualizacao do boleto</DialogTitle>
+            </DialogHeader>
+            {previewUrl && (
+              <div className="flex-1 min-h-0 bg-slate-100">
+                <iframe
+                  src={previewUrl}
+                  className="w-full h-full border-0"
+                  title="Pre-visualizacao do boleto"
+                />
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
 }
+
+
