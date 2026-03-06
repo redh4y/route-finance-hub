@@ -184,7 +184,7 @@ export default function Payers() {
         needs_review: false,
       };
 
-      const { error } = await supabase.from("payers").insert(insertPayload);
+      const { error } = await supabase.from("payers").insert([insertPayload]);
       if (error) throw error;
 
       toast.success("Pagador criado com sucesso.");

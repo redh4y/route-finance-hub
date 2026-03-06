@@ -618,7 +618,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
 
   const { data: newPayer, error } = await supabase
     .from("payers")
-    .insert(placeholderPayer)
+    .insert([placeholderPayer])
     .select(PAYER_UPDATE_FIELDS)
     .single();
 
