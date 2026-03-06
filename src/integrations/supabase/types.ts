@@ -1307,6 +1307,48 @@ export type Database = {
         }
         Relationships: []
       }
+      public_boleto_access_logs: {
+        Row: {
+          action: string
+          cpf_digits: string
+          created_at: string
+          drive_url: string | null
+          found_count: number | null
+          id: string
+          reference_month: string | null
+          request_id: string | null
+          source: string
+          student_name: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          cpf_digits: string
+          created_at?: string
+          drive_url?: string | null
+          found_count?: number | null
+          id?: string
+          reference_month?: string | null
+          request_id?: string | null
+          source?: string
+          student_name?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          cpf_digits?: string
+          created_at?: string
+          drive_url?: string | null
+          found_count?: number | null
+          id?: string
+          reference_month?: string | null
+          request_id?: string | null
+          source?: string
+          student_name?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       public_excursion_leads: {
         Row: {
           address: string | null
