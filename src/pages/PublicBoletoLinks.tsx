@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Download, Eye, FileText, Loader2 } from "lucide-react";
@@ -64,6 +64,7 @@ export default function PublicBoletoLinksPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [items, setItems] = useState<PublicBoletoItem[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null);
 
   const canSearch = useMemo(() => onlyDigits(cpf).length === 11 && onlyDigits(phone).length >= 10, [cpf, phone]);
 
@@ -169,6 +170,7 @@ export default function PublicBoletoLinksPage() {
                           return;
                         }
                         setPreviewUrl(preview);
+                        setPreviewDownloadUrl(item.drive_url);
                       }}
                     >
                       <Eye className="h-4 w-4" /> Visualizar
@@ -185,11 +187,23 @@ export default function PublicBoletoLinksPage() {
           </CardContent>
         </Card>
 
-        <Dialog open={!!previewUrl} onOpenChange={(open) => !open && setPreviewUrl(null)}>
-          <DialogContent className="w-[96vw] max-w-6xl h-[95vh] p-0 overflow-hidden">
-            <DialogHeader className="px-4 py-3 border-b shrink-0">
-              <DialogTitle>Pre-visualizacao do boleto</DialogTitle>
-            </DialogHeader>
+        <Dialog open={!!previewUrl} onOpenChange={(open) => {
+          if (!open) {
+            setPreviewUrl(null);
+            setPreviewDownloadUrl(null);
+          }
+        }}>
+          <DialogContent className="w-[96vw] max-w-6xl h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-2">
+            <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
+              <DialogTitle className="m-0">Pre-visualizacao do boleto</DialogTitle>
+              {previewDownloadUrl && (
+                <a href={previewDownloadUrl} target="_blank" rel="noreferrer" className="shrink-0">
+                  <Button size="sm" className="gap-1.5">
+                    <Download className="h-4 w-4" /> Baixar
+                  </Button>
+                </a>
+              )}
+            </div>
             {previewUrl && (
               <div className="flex-1 min-h-0 bg-slate-100">
                 <iframe
