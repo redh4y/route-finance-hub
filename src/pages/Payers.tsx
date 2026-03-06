@@ -173,6 +173,7 @@ export default function Payers() {
     try {
       const insertPayload = {
         id: crypto.randomUUID(),
+        legacy_id: crypto.randomUUID(),
         name,
         document: newPayer.document.trim() || null,
         document_digits: documentDigits || null,
@@ -184,7 +185,7 @@ export default function Payers() {
         needs_review: false,
       };
 
-      const { error } = await supabase.from("payers").insert(insertPayload);
+      const { error } = await supabase.from("payers").insert([insertPayload]);
       if (error) throw error;
 
       toast.success("Pagador criado com sucesso.");

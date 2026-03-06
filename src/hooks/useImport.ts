@@ -603,6 +603,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
 
   const placeholderPayer = {
     id: crypto.randomUUID(),
+    legacy_id: codeCandidate || crypto.randomUUID(),
     name: billing.payer_name || `Pagador ${codeCandidate || billing.payer_id}`,
     document: docCandidate,
     document_digits: docCandidate,
@@ -618,7 +619,7 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
 
   const { data: newPayer, error } = await supabase
     .from("payers")
-    .insert(placeholderPayer)
+    .insert([placeholderPayer])
     .select(PAYER_UPDATE_FIELDS)
     .single();
 
