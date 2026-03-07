@@ -106,9 +106,11 @@ serve(async (req) => {
 
     let query = sb
       .from("payer_boleto_links")
-      .select("reference_month, student_name, drive_url")
+      .select("reference_month, student_name, drive_url, due_date, amount_cents, our_number, digitable_line, created_at")
       .eq("cpf_digits", cpf)
+      .order("due_date", { ascending: false, nullsFirst: false })
       .order("reference_month", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(100);
 
     if (/^\d{4}-\d{2}$/.test(referenceMonth)) {
@@ -124,6 +126,10 @@ serve(async (req) => {
       reference_month: row.reference_month,
       student_name: row.student_name,
       drive_url: row.drive_url,
+      due_date: row.due_date,
+      amount_cents: row.amount_cents,
+      our_number: row.our_number,
+      digitable_line: row.digitable_line,
     }));
 
     await writeAccessLog(sb, {

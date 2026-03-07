@@ -7,12 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Download, Eye, FileText, Loader2 } from "lucide-react";
+import { Copy, Download, Eye, Loader2 } from "lucide-react";
 
 type PublicBoletoItem = {
   reference_month: string;
   student_name: string;
   drive_url: string;
+  due_date?: string | null;
+  amount_cents?: number | null;
+  our_number?: string | null;
+  digitable_line?: string | null;
 };
 
 function onlyDigits(input: string) {
@@ -32,33 +36,48 @@ function getDrivePreviewUrl(url: string) {
   if (!direct) return null;
 
   const byFilePath = direct.match(/\/file\/d\/([^/]+)/i);
-  if (byFilePath?.[1])
+  if (byFilePath?.[1]) {
     return `https://drive.google.com/file/d/${byFilePath[1]}/preview`;
+  }
 
   const byIdQuery = direct.match(/[?&]id=([^&]+)/i);
-  if (byIdQuery?.[1])
+  if (byIdQuery?.[1]) {
     return `https://drive.google.com/file/d/${byIdQuery[1]}/preview`;
+  }
 
   return null;
 }
 
-function formatMonthShort(ref: string) {
+function formatMonth(ref: string) {
   if (!ref || !/^\d{4}-\d{2}$/.test(ref)) return ref;
   const [y, m] = ref.split("-");
   const date = new Date(Number(y), Number(m) - 1, 1);
-  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
-    date,
-  );
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(date);
   const monthName = label.charAt(0).toUpperCase() + label.slice(1);
   return `${monthName}/${y}`;
 }
 
-function sortByReferenceMonthDesc(items: PublicBoletoItem[]) {
-  return [...items].sort((a, b) =>
-    String(b.reference_month || "").localeCompare(
-      String(a.reference_month || ""),
-    ),
-  );
+function formatDateBR(value: string | null | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "-";
+  const [y, m, d] = value.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function formatCurrency(cents: number | null | undefined) {
+  if (typeof cents !== "number") return "-";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(cents / 100);
+}
+
+function sortBills(items: PublicBoletoItem[]) {
+  return [...items].sort((a, b) => {
+    const ad = String(a.due_date || "");
+    const bd = String(b.due_date || "");
+    if (ad !== bd) return bd.localeCompare(ad);
+    return String(b.reference_month || "").localeCompare(String(a.reference_month || ""));
+  });
 }
 
 export default function PublicBoletoLinksPage() {
@@ -66,16 +85,18 @@ export default function PublicBoletoLinksPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [items, setItems] = useState<PublicBoletoItem[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(
-    null,
-  );
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null);
   const [previewReferenceMonth, setPreviewReferenceMonth] = useState<string | null>(null);
   const [previewStudentName, setPreviewStudentName] = useState<string | null>(null);
 
   const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
   const canSearch = cpfDigits.length === 11;
 
-  const logDownload = async (params: { driveUrl: string; referenceMonth?: string | null; studentName?: string | null }) => {
+  const logDownload = async (params: {
+    driveUrl: string;
+    referenceMonth?: string | null;
+    studentName?: string | null;
+  }) => {
     try {
       await supabase.functions.invoke("public-boleto-links", {
         body: {
@@ -93,11 +114,30 @@ export default function PublicBoletoLinksPage() {
 
   const handleDownloadClick = async (
     e: MouseEvent<HTMLAnchorElement>,
-    params: { driveUrl: string; referenceMonth?: string | null; studentName?: string | null },
+    params: {
+      driveUrl: string;
+      referenceMonth?: string | null;
+      studentName?: string | null;
+    },
   ) => {
     e.preventDefault();
     await logDownload(params);
     window.open(params.driveUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const handleCopyDigitableLine = async (line: string | null | undefined) => {
+    const value = String(line || "").trim();
+    if (!value) {
+      toast.error("Codigo de barras indisponivel para este boleto.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success("Codigo de barras copiado.");
+    } catch {
+      toast.error("Nao foi possivel copiar o codigo de barras.");
+    }
   };
 
   const handleSearchBills = async () => {
@@ -109,22 +149,17 @@ export default function PublicBoletoLinksPage() {
     setIsLoading(true);
     setItems([]);
     try {
-      const { data, error } = await supabase.functions.invoke(
-        "public-boleto-links",
-        {
-          body: {
-            action: "list_bills",
-            cpf: cpfDigits,
-          },
+      const { data, error } = await supabase.functions.invoke("public-boleto-links", {
+        body: {
+          action: "list_bills",
+          cpf: cpfDigits,
         },
-      );
+      });
 
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Falha na consulta");
 
-      const foundItems = sortByReferenceMonthDesc(
-        (data.items || []) as PublicBoletoItem[],
-      );
+      const foundItems = sortBills((data.items || []) as PublicBoletoItem[]);
       setItems(foundItems);
       if (foundItems.length === 0) {
         toast.warning("Nenhum boleto encontrado para o CPF informado.");
@@ -140,12 +175,8 @@ export default function PublicBoletoLinksPage() {
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-white p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="rounded-2xl border bg-white/90 backdrop-blur-sm shadow-sm p-6 md:p-8 text-center space-y-2">
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">
-            2ª via de boletos
-          </h1>
-          <p className="text-sm md:text-base text-slate-600">
-            Consulte seus boletos rapidamente com o seu CPF.
-          </p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">2a via de boletos</h1>
+          <p className="text-sm md:text-base text-slate-600">Consulte seus boletos rapidamente com o seu CPF.</p>
         </div>
 
         <Card className="border-slate-200 shadow-sm">
@@ -168,11 +199,7 @@ export default function PublicBoletoLinksPage() {
                 />
               </div>
 
-              <Button
-                onClick={handleSearchBills}
-                disabled={!canSearch || isLoading}
-                className="w-full md:w-auto md:min-w-[190px]"
-              >
+              <Button onClick={handleSearchBills} disabled={!canSearch || isLoading} className="w-full md:w-auto md:min-w-[190px]">
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -186,7 +213,6 @@ export default function PublicBoletoLinksPage() {
           </CardContent>
         </Card>
 
-
         <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
           <CardContent className="pt-6">
             <p className="text-sm text-amber-900">
@@ -197,44 +223,45 @@ export default function PublicBoletoLinksPage() {
 
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle>Boletos disponíveis</CardTitle>
+            <CardTitle>Boletos disponiveis</CardTitle>
             <Badge variant="secondary">{items.length}</Badge>
           </CardHeader>
           <CardContent className="space-y-3">
-            {items.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Ordenado do mais recente para o mais antigo.
-              </p>
-            )}
+            {items.length > 0 && <p className="text-xs text-muted-foreground">Ordenado do mais recente para o mais antigo.</p>}
+
             {isLoading ? (
               <div className="rounded-lg border p-4 flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Consultando seus boletos...
               </div>
             ) : items.length === 0 ? (
-              <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">
-                Nenhum boleto para exibir.
-              </p>
+              <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">Nenhum boleto para exibir.</p>
             ) : (
               items.map((item, idx) => (
                 <div
-                  key={`${item.reference_month}-${idx}`}
+                  key={`${item.reference_month}-${item.our_number || idx}`}
                   className="rounded-xl border bg-white p-3 md:p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between hover:shadow-sm transition-shadow"
                 >
-                  <div>
-                    <p className="font-medium text-sm">
-                      {item.student_name || "Aluno"}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <Badge variant="outline" className="font-semibold">
-                        {formatMonthShort(item.reference_month)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                        <FileText className="h-3 w-3" /> Boleto referente à
-                        competencia {formatMonthShort(item.reference_month)}
-                      </span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm">{item.student_name || "Aluno"}</p>
+                    <div className="mt-1 space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap text-xs">
+                        <Badge variant="outline" className="font-semibold">Competencia: {formatMonth(item.reference_month)}</Badge>
+                        <span className="text-muted-foreground">Vencimento: {formatDateBR(item.due_date)}</span>
+                        <span className="font-semibold text-slate-700">Valor: {formatCurrency(item.amount_cents)}</span>
+                        <span className="text-muted-foreground">Nosso numero: {item.our_number || "-"}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-mono rounded-md border bg-slate-50 px-2 py-1 text-slate-700 break-all">
+                          {item.digitable_line || "Codigo de barras indisponivel"}
+                        </span>
+                        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleCopyDigitableLine(item.digitable_line)}>
+                          <Copy className="h-3.5 w-3.5" /> Copiar
+                        </Button>
+                      </div>
                     </div>
                   </div>
+
                   <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                     <Button
                       size="sm"
@@ -243,9 +270,7 @@ export default function PublicBoletoLinksPage() {
                       onClick={() => {
                         const preview = getDrivePreviewUrl(item.drive_url);
                         if (!preview) {
-                          toast.error(
-                            "Link do Google Drive invalido para pre-visualizacao.",
-                          );
+                          toast.error("Link do Google Drive invalido para pre-visualizacao.");
                           return;
                         }
                         setPreviewUrl(preview);
@@ -282,8 +307,7 @@ export default function PublicBoletoLinksPage() {
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="pt-6">
             <p className="text-sm text-slate-700">
-              Solicitações de alteração de boleto e outras questões, contatar
-              aqui:{" "}
+              Solicitacoes de alteracao de boleto e outras questoes, contatar aqui:{" "}
               <a
                 href="https://wa.me/5517981606721"
                 target="_blank"
@@ -309,9 +333,7 @@ export default function PublicBoletoLinksPage() {
         >
           <DialogContent className="w-[96vw] max-w-6xl h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-2">
             <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
-              <DialogTitle className="m-0">
-                Pre-visualizacao do boleto
-              </DialogTitle>
+              <DialogTitle className="m-0">Pre-visualizacao do boleto</DialogTitle>
               {previewDownloadUrl && (
                 <a
                   href={previewDownloadUrl}
@@ -334,11 +356,7 @@ export default function PublicBoletoLinksPage() {
             </div>
             {previewUrl && (
               <div className="flex-1 min-h-0 bg-slate-100">
-                <iframe
-                  src={previewUrl}
-                  className="w-full h-full border-0"
-                  title="Pre-visualizacao do boleto"
-                />
+                <iframe src={previewUrl} className="w-full h-full border-0" title="Pre-visualizacao do boleto" />
               </div>
             )}
           </DialogContent>

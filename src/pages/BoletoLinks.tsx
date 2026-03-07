@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useMemo, useRef, useState, type DragEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
@@ -35,7 +35,30 @@ type ParsedLine = {
   payer_id: string | null;
   cpf_digits: string | null;
   phone_digits: string | null;
+  reference_month: string | null;
+  due_date: string | null;
+  amount_cents: number | null;
+  digitable_line: string | null;
+  our_number: string | null;
+  file_id: string | null;
+  view_url: string | null;
+  read_source: string | null;
   match_status: "MATCH" | "NO_MATCH" | "MISSING_URL" | "MISSING_DATA" | "MULTIPLE";
+};
+
+type BoletoJsonRow = {
+  read_source?: string | null;
+  payer_name?: string | null;
+  payer_cpf?: string | null;
+  our_number?: string | null;
+  digitable_line?: string | null;
+  amount?: string | null;
+  due_date?: string | null;
+  file_id?: string | null;
+  download_link?: string | null;
+  view_link?: string | null;
+  success?: boolean | null;
+  error?: string | null;
 };
 
 function normalizeName(input: string) {
@@ -64,6 +87,59 @@ function extractName(raw: string) {
 function extractDriveUrl(raw: string) {
   const match = raw.match(/https?:\/\/drive\.google\.com\/[^\s"']+/i);
   return match?.[0] || null;
+}
+
+function parseBrDateToIso(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function deriveReferenceMonthFromDueDate(dueDateIso: string | null) {
+  if (!dueDateIso || !/^\d{4}-\d{2}-\d{2}$/.test(dueDateIso)) return null;
+  const [y, m, d] = dueDateIso.split("-").map(Number);
+  const date = new Date(y, (m || 1) - 1, d || 1);
+  if ((d || 0) <= 10) {
+    date.setMonth(date.getMonth() - 1);
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function parseAmountToCents(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/\./g, "").replace(",", ".");
+  const num = Number(normalized);
+  if (Number.isNaN(num)) return null;
+  return Math.round(num * 100);
+}
+
+function parseBoletoJsonRows(text: string): BoletoJsonRow[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const tryParse = (input: string) => {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return null;
+    }
+  };
+
+  let parsed = tryParse(trimmed);
+  if (!parsed) {
+    parsed = tryParse(`[${trimmed}]`);
+  }
+
+  if (Array.isArray(parsed)) return parsed as BoletoJsonRow[];
+  if (parsed && Array.isArray((parsed as any).items)) return (parsed as any).items as BoletoJsonRow[];
+  if (parsed && Array.isArray((parsed as any).data)) return (parsed as any).data as BoletoJsonRow[];
+
+  return [];
 }
 
 function isPartialNameMatch(a: string, b: string) {
@@ -105,7 +181,9 @@ export default function BoletoLinksPage() {
   const [file, setFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [lines, setLines] = useState<ParsedLine[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [searchPreview, setSearchPreview] = useState("");
 
   const { data: payers = [] } = useQuery({
@@ -128,6 +206,15 @@ export default function BoletoLinksPage() {
       })),
     [payers],
   );
+
+  const payerByDocument = useMemo(() => {
+    const map = new Map<string, PayerLite>();
+    for (const p of payers) {
+      const doc = normalizeDigits(p.document_digits);
+      if (doc) map.set(doc, p);
+    }
+    return map;
+  }, [payers]);
 
   const { data: activeMonthPayers = [] } = useQuery({
     queryKey: ["boleto-links-active-month", referenceMonth],
@@ -217,102 +304,263 @@ export default function BoletoLinksPage() {
     });
   }, [lines, searchPreview]);
 
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const selected = e.dataTransfer.files?.[0] || null;
+    if (selected) {
+      void handleFile(selected);
+    }
+  };
+
   const handleFile = async (f: File | null) => {
     if (!f) return;
     setFile(f);
     setIsParsing(true);
     try {
-      const rows = await readRows(f);
+      let parsed: ParsedLine[] = [];
+      const ext = f.name.toLowerCase().split(".").pop();
 
-      const parsed = rows.map((raw, idx): ParsedLine => {
-        const studentName = extractName(raw);
-        const driveUrl = extractDriveUrl(raw);
+      if (ext === "json") {
+        const text = await f.text();
+        const rows = parseBoletoJsonRows(text).filter((r) => r && r.success !== false && !r.error);
 
-        if (!driveUrl) {
+        parsed = rows.map((row, idx): ParsedLine => {
+          const studentName = String(row.payer_name || "").trim() || null;
+          const cpfFromFile = normalizeDigits(row.payer_cpf);
+          const driveUrl = String(row.download_link || row.view_link || "").trim() || null;
+          const dueDateIso = parseBrDateToIso(row.due_date);
+          const derivedRefMonth = deriveReferenceMonthFromDueDate(dueDateIso);
+
+          if (!driveUrl) {
+            return {
+              id: String(idx),
+              raw: JSON.stringify(row),
+              student_name: studentName,
+              drive_url: null,
+              payer_id: null,
+              cpf_digits: cpfFromFile || null,
+              phone_digits: null,
+              reference_month: derivedRefMonth,
+              due_date: dueDateIso,
+              amount_cents: parseAmountToCents(row.amount),
+              digitable_line: row.digitable_line || null,
+              our_number: row.our_number || null,
+              file_id: row.file_id || null,
+              view_url: row.view_link || null,
+              read_source: row.read_source || null,
+              match_status: "MISSING_URL",
+            };
+          }
+
+          if (!cpfFromFile) {
+            return {
+              id: String(idx),
+              raw: JSON.stringify(row),
+              student_name: studentName,
+              drive_url: driveUrl,
+              payer_id: null,
+              cpf_digits: null,
+              phone_digits: null,
+              reference_month: derivedRefMonth,
+              due_date: dueDateIso,
+              amount_cents: parseAmountToCents(row.amount),
+              digitable_line: row.digitable_line || null,
+              our_number: row.our_number || null,
+              file_id: row.file_id || null,
+              view_url: row.view_link || null,
+              read_source: row.read_source || null,
+              match_status: "MISSING_DATA",
+            };
+          }
+
+          const payerByCpf = payerByDocument.get(cpfFromFile) || null;
+          if (!payerByCpf) {
+            return {
+              id: String(idx),
+              raw: JSON.stringify(row),
+              student_name: studentName,
+              drive_url: driveUrl,
+              payer_id: null,
+              cpf_digits: cpfFromFile,
+              phone_digits: null,
+              reference_month: derivedRefMonth,
+              due_date: dueDateIso,
+              amount_cents: parseAmountToCents(row.amount),
+              digitable_line: row.digitable_line || null,
+              our_number: row.our_number || null,
+              file_id: row.file_id || null,
+              view_url: row.view_link || null,
+              read_source: row.read_source || null,
+              match_status: "NO_MATCH",
+            };
+          }
+
           return {
             id: String(idx),
-            raw,
-            student_name: studentName,
-            drive_url: null,
-            payer_id: null,
-            cpf_digits: null,
-            phone_digits: null,
-            match_status: "MISSING_URL",
-          };
-        }
-
-        if (!studentName) {
-          return {
-            id: String(idx),
-            raw,
-            student_name: null,
+            raw: JSON.stringify(row),
+            student_name: studentName || payerByCpf.name,
             drive_url: driveUrl,
-            payer_id: null,
-            cpf_digits: null,
-            phone_digits: null,
-            match_status: "NO_MATCH",
+            payer_id: payerByCpf.id,
+            cpf_digits: cpfFromFile,
+            phone_digits: normalizeDigits(payerByCpf.phone) || null,
+            reference_month: derivedRefMonth,
+            due_date: dueDateIso,
+            amount_cents: parseAmountToCents(row.amount),
+            digitable_line: row.digitable_line || null,
+            our_number: row.our_number || null,
+            file_id: row.file_id || null,
+            view_url: row.view_link || null,
+            read_source: row.read_source || null,
+            match_status: "MATCH",
           };
-        }
+        });
+      } else {
+        const rows = await readRows(f);
 
-        const key = normalizeName(studentName);
-        const exact = payerNormalized.filter((p) => p.nameNorm === key);
-        const partial = exact.length === 0 ? payerNormalized.filter((p) => isPartialNameMatch(p.nameNorm, key)) : [];
-        const matches = exact.length > 0 ? exact : partial;
+        parsed = rows.map((raw, idx): ParsedLine => {
+          const studentName = extractName(raw);
+          const driveUrl = extractDriveUrl(raw);
 
-        if (matches.length > 1) {
-          return {
-            id: String(idx),
-            raw,
-            student_name: studentName,
-            drive_url: driveUrl,
-            payer_id: null,
-            cpf_digits: null,
-            phone_digits: null,
-            match_status: "MULTIPLE",
-          };
-        }
+          if (!driveUrl) {
+            return {
+              id: String(idx),
+              raw,
+              student_name: studentName,
+              drive_url: null,
+              payer_id: null,
+              cpf_digits: null,
+              phone_digits: null,
+              reference_month: referenceMonth,
+              due_date: null,
+              amount_cents: null,
+              digitable_line: null,
+              our_number: null,
+              file_id: null,
+              view_url: null,
+              read_source: null,
+              match_status: "MISSING_URL",
+            };
+          }
 
-        if (matches.length === 0) {
-          return {
-            id: String(idx),
-            raw,
-            student_name: studentName,
-            drive_url: driveUrl,
-            payer_id: null,
-            cpf_digits: null,
-            phone_digits: null,
-            match_status: "NO_MATCH",
-          };
-        }
+          if (!studentName) {
+            return {
+              id: String(idx),
+              raw,
+              student_name: null,
+              drive_url: driveUrl,
+              payer_id: null,
+              cpf_digits: null,
+              phone_digits: null,
+              reference_month: referenceMonth,
+              due_date: null,
+              amount_cents: null,
+              digitable_line: null,
+              our_number: null,
+              file_id: null,
+              view_url: null,
+              read_source: null,
+              match_status: "NO_MATCH",
+            };
+          }
 
-        const payer = matches[0].payer;
-        const cpf = normalizeDigits(payer.document_digits);
-        const phone = normalizeDigits(payer.phone);
+          const key = normalizeName(studentName);
+          const exact = payerNormalized.filter((p) => p.nameNorm === key);
+          const partial = exact.length === 0 ? payerNormalized.filter((p) => isPartialNameMatch(p.nameNorm, key)) : [];
+          const matches = exact.length > 0 ? exact : partial;
 
-        if (!cpf) {
+          if (matches.length > 1) {
+            return {
+              id: String(idx),
+              raw,
+              student_name: studentName,
+              drive_url: driveUrl,
+              payer_id: null,
+              cpf_digits: null,
+              phone_digits: null,
+              reference_month: referenceMonth,
+              due_date: null,
+              amount_cents: null,
+              digitable_line: null,
+              our_number: null,
+              file_id: null,
+              view_url: null,
+              read_source: null,
+              match_status: "MULTIPLE",
+            };
+          }
+
+          if (matches.length === 0) {
+            return {
+              id: String(idx),
+              raw,
+              student_name: studentName,
+              drive_url: driveUrl,
+              payer_id: null,
+              cpf_digits: null,
+              phone_digits: null,
+              reference_month: referenceMonth,
+              due_date: null,
+              amount_cents: null,
+              digitable_line: null,
+              our_number: null,
+              file_id: null,
+              view_url: null,
+              read_source: null,
+              match_status: "NO_MATCH",
+            };
+          }
+
+          const payer = matches[0].payer;
+          const cpf = normalizeDigits(payer.document_digits);
+          const phone = normalizeDigits(payer.phone);
+
+          if (!cpf) {
+            return {
+              id: String(idx),
+              raw,
+              student_name: studentName,
+              drive_url: driveUrl,
+              payer_id: payer.id,
+              cpf_digits: null,
+              phone_digits: phone || null,
+              reference_month: referenceMonth,
+              due_date: null,
+              amount_cents: null,
+              digitable_line: null,
+              our_number: null,
+              file_id: null,
+              view_url: null,
+              read_source: null,
+              match_status: "MISSING_DATA",
+            };
+          }
+
           return {
             id: String(idx),
             raw,
             student_name: studentName,
             drive_url: driveUrl,
             payer_id: payer.id,
-            cpf_digits: null,
+            cpf_digits: cpf,
             phone_digits: phone || null,
-            match_status: "MISSING_DATA",
+            reference_month: referenceMonth,
+            due_date: null,
+            amount_cents: null,
+            digitable_line: null,
+            our_number: null,
+            file_id: null,
+            view_url: null,
+            read_source: null,
+            match_status: "MATCH",
           };
-        }
+        });
+      }
 
-        return {
-          id: String(idx),
-          raw,
-          student_name: studentName,
-          drive_url: driveUrl,
-          payer_id: payer.id,
-          cpf_digits: cpf,
-          phone_digits: phone || null,
-          match_status: "MATCH",
-        };
-      });
+      const firstRef = parsed.find((x) => x.reference_month)?.reference_month;
+      if (firstRef && /^\d{4}-\d{2}$/.test(firstRef)) {
+        setReferenceMonth(firstRef);
+      }
 
       setLines(parsed);
       toast.success(`Arquivo lido: ${parsed.length} linhas.`);
@@ -332,49 +580,38 @@ export default function BoletoLinksPage() {
 
     setIsSaving(true);
     try {
-      const cpfList = Array.from(new Set(valid.map((l) => String(l.cpf_digits))));
-      const urlList = Array.from(new Set(valid.map((l) => String(l.drive_url))));
-
-      const { data: existingRows, error: existingError } = await (supabase as any)
-        .from("payer_boleto_links")
-        .select("cpf_digits,drive_url")
-        .in("cpf_digits", cpfList)
-        .in("drive_url", urlList);
-
-      if (existingError) throw existingError;
-
-      const existingKey = new Set(
-        (existingRows || []).map((row: any) => `${String(row.cpf_digits)}|${String(row.drive_url)}`),
-      );
-
-      const dedupedValid = valid.filter(
-        (l) => !existingKey.has(`${String(l.cpf_digits)}|${String(l.drive_url)}`),
-      );
-
-      const skippedDuplicates = valid.length - dedupedValid.length;
-
-      if (dedupedValid.length === 0) {
-        toast.info("Todos os links ja existem para os CPFs informados. Nada para importar.");
-        return;
+      const uniqueByKey = new Map<string, ParsedLine>();
+      for (const row of valid) {
+        const key = `${String(row.cpf_digits)}|${String(row.drive_url)}`;
+        uniqueByKey.set(key, row);
       }
 
+      const dedupedValid = Array.from(uniqueByKey.values());
+      const repeatedInFile = valid.length - dedupedValid.length;
+
       const payload = dedupedValid.map((l) => ({
-        reference_month: referenceMonth,
+        reference_month: l.reference_month || referenceMonth,
         payer_id: l.payer_id,
         student_name: l.student_name,
         cpf_digits: l.cpf_digits,
         phone_digits: l.phone_digits || "",
         drive_url: l.drive_url,
-        created_at: new Date().toISOString(),
+        due_date: l.due_date,
+        amount_cents: l.amount_cents,
+        digitable_line: l.digitable_line,
+        our_number: l.our_number,
+        file_id: l.file_id,
+        view_url: l.view_url,
+        source: l.read_source,
       }));
 
       const { error } = await (supabase as any)
         .from("payer_boleto_links")
-        .upsert(payload, { onConflict: "reference_month,cpf_digits,phone_digits,drive_url", ignoreDuplicates: false });
+        .upsert(payload, { onConflict: "cpf_digits,drive_url" });
 
       if (error) throw error;
 
-      toast.success(`Importacao concluida: ${dedupedValid.length} links salvos${skippedDuplicates > 0 ? `, ${skippedDuplicates} duplicados ignorados` : ""}.`);
+      toast.success(`Importacao concluida: ${dedupedValid.length} linhas processadas${repeatedInFile > 0 ? `, ${repeatedInFile} repetidas no arquivo consolidadas` : ""}.`);
     } catch (error: any) {
       toast.error(`Erro na importacao: ${error?.message || "falha"}`);
     } finally {
@@ -393,17 +630,37 @@ export default function BoletoLinksPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Importar links (XLSX/CSV)</CardTitle>
+              <CardTitle>Importar links (JSON/XLSX/CSV)</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Competencia (YYYY-MM)</Label>
-                  <Input type="month" value={referenceMonth} onChange={(e) => setReferenceMonth(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Arquivo</Label>
-                  <Input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => handleFile(e.target.files?.[0] || null)} />
+              <div className="space-y-2">
+                <Label>Arquivo</Label>
+                <input
+                  id="boletos-links-file"
+                  type="file"
+                  accept=".json,.xlsx,.xls,.csv"
+                  className="hidden"
+                  ref={fileInputRef}
+                  onChange={(e) => void handleFile(e.target.files?.[0] || null)}
+                />
+                <div
+                  className={`cursor-pointer rounded-xl border-2 border-dashed p-5 text-center transition-colors ${
+                    isDragging ? "border-primary bg-primary/5" : "border-border bg-muted/20"
+                  }`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
+                  <p className="mt-3 text-base font-medium">Arraste um arquivo aqui</p>
+                  <p className="text-sm text-muted-foreground">ou clique para selecionar</p>
+                  {file && (
+                    <p className="mt-3 text-xs text-muted-foreground">Selecionado: {file.name}</p>
+                  )}
                 </div>
               </div>
 
