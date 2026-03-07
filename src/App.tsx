@@ -32,6 +32,7 @@ import PublicSiteSettings from "./pages/PublicSiteSettings";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import AdminPanel from "./pages/AdminPanel";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import Maintenance from "./pages/Maintenance";
 import DriversPage from "./pages/Drivers";
@@ -53,6 +54,7 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/auth" element={<Auth />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/" element={<Navigate to="/site" replace />} />
               <Route
                 path="/dashboard"
