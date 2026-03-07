@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,8 @@ export default function Auth() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("login");
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
   
   const { signIn, signUp, user, isLoading } = useAuth();
   const navigate = useNavigate();
@@ -191,6 +194,13 @@ export default function Auth() {
                       "Entrar"
                     )}
                   </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotMode(true); setError(null); setSuccess(null); }}
+                    className="w-full text-sm text-primary hover:underline mt-2"
+                  >
+                    Esqueci minha senha
+                  </button>
                 </form>
               </TabsContent>
 
