@@ -124,6 +124,81 @@ export default function Auth() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {forgotMode ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Informe seu e-mail e enviaremos um link para redefinir sua senha.
+                </p>
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                {success && (
+                  <Alert className="border-success/50 bg-success/10 text-success">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <AlertDescription>{success}</AlertDescription>
+                  </Alert>
+                )}
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setError(null);
+                    setSuccess(null);
+                    if (!forgotEmail.trim()) {
+                      setError("Informe o e-mail");
+                      return;
+                    }
+                    setIsSubmitting(true);
+                    try {
+                      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+                        redirectTo: `${window.location.origin}/reset-password`,
+                      });
+                      if (error) {
+                        setError(error.message);
+                      } else {
+                        setSuccess("Link de recuperação enviado! Verifique seu e-mail.");
+                      }
+                    } finally {
+                      setIsSubmitting(false);
+                    }
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="forgot-email">E-mail</Label>
+                    <Input
+                      id="forgot-email"
+                      type="email"
+                      placeholder="seu@email.com"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isSubmitting}>
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Enviando...
+                      </>
+                    ) : (
+                      "Enviar link de recuperação"
+                    )}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotMode(false); setError(null); setSuccess(null); }}
+                    className="w-full text-sm text-muted-foreground hover:underline"
+                  >
+                    Voltar ao login
+                  </button>
+                </form>
+              </div>
+            ) : (
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-2 mb-6">
                 <TabsTrigger value="login">Entrar</TabsTrigger>
