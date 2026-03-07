@@ -52,7 +52,9 @@ function formatMonth(ref: string) {
   if (!ref || !/^\d{4}-\d{2}$/.test(ref)) return ref;
   const [y, m] = ref.split("-");
   const date = new Date(Number(y), Number(m) - 1, 1);
-  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(date);
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
+    date,
+  );
   const monthName = label.charAt(0).toUpperCase() + label.slice(1);
   return `${monthName}/${y}`;
 }
@@ -76,7 +78,9 @@ function sortBills(items: PublicBoletoItem[]) {
     const ad = String(a.due_date || "");
     const bd = String(b.due_date || "");
     if (ad !== bd) return bd.localeCompare(ad);
-    return String(b.reference_month || "").localeCompare(String(a.reference_month || ""));
+    return String(b.reference_month || "").localeCompare(
+      String(a.reference_month || ""),
+    );
   });
 }
 
@@ -85,12 +89,19 @@ export default function PublicBoletoLinksPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [items, setItems] = useState<PublicBoletoItem[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null);
-  const [previewReferenceMonth, setPreviewReferenceMonth] = useState<string | null>(null);
-  const [previewStudentName, setPreviewStudentName] = useState<string | null>(null);
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(
+    null,
+  );
+  const [previewReferenceMonth, setPreviewReferenceMonth] = useState<
+    string | null
+  >(null);
+  const [previewStudentName, setPreviewStudentName] = useState<string | null>(
+    null,
+  );
 
   const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
   const canSearch = cpfDigits.length === 11;
+  const welcomeName = items[0]?.student_name || "";
 
   const logDownload = async (params: {
     driveUrl: string;
@@ -149,12 +160,15 @@ export default function PublicBoletoLinksPage() {
     setIsLoading(true);
     setItems([]);
     try {
-      const { data, error } = await supabase.functions.invoke("public-boleto-links", {
-        body: {
-          action: "list_bills",
-          cpf: cpfDigits,
+      const { data, error } = await supabase.functions.invoke(
+        "public-boleto-links",
+        {
+          body: {
+            action: "list_bills",
+            cpf: cpfDigits,
+          },
         },
-      });
+      );
 
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Falha na consulta");
@@ -175,8 +189,12 @@ export default function PublicBoletoLinksPage() {
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-white p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="rounded-2xl border bg-white/90 backdrop-blur-sm shadow-sm p-6 md:p-8 text-center space-y-2">
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">2a via de boletos</h1>
-          <p className="text-sm md:text-base text-slate-600">Consulte seus boletos rapidamente com o seu CPF.</p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">
+            2a via de boletos
+          </h1>
+          <p className="text-sm md:text-base text-slate-600">
+            Consulte seus boletos rapidamente com o seu CPF.
+          </p>
         </div>
 
         <Card className="border-slate-200 shadow-sm">
@@ -184,6 +202,11 @@ export default function PublicBoletoLinksPage() {
             <CardTitle>Consultar boletos</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {welcomeName ? (
+              <p className="text-sm font-medium text-primary">
+                Bem-vindo, {welcomeName}
+              </p>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
               <div className="space-y-2">
                 <Label>CPF</Label>
@@ -199,7 +222,11 @@ export default function PublicBoletoLinksPage() {
                 />
               </div>
 
-              <Button onClick={handleSearchBills} disabled={!canSearch || isLoading} className="w-full md:w-auto md:min-w-[190px]">
+              <Button
+                onClick={handleSearchBills}
+                disabled={!canSearch || isLoading}
+                className="w-full md:w-auto md:min-w-[190px]"
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -216,7 +243,9 @@ export default function PublicBoletoLinksPage() {
         <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
           <CardContent className="pt-6">
             <p className="text-sm text-amber-900">
-              Antes de pagar, confira atentamente os dados do boleto para evitar equivocos: <strong>nome do pagador</strong>, <strong>CPF</strong>, <strong>data de vencimento</strong> e <strong>valor</strong>.
+              Antes de pagar, confira atentamente os dados do boleto para evitar
+              equivocos: <strong>nome do pagador</strong>, <strong>CPF</strong>,{" "}
+              <strong>data de vencimento</strong> e <strong>valor</strong>.
             </p>
           </CardContent>
         </Card>
@@ -227,15 +256,36 @@ export default function PublicBoletoLinksPage() {
             <Badge variant="secondary">{items.length}</Badge>
           </CardHeader>
           <CardContent className="space-y-3">
-            {items.length > 0 && <p className="text-xs text-muted-foreground">Ordenado do mais recente para o mais antigo.</p>}
+            {items.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Ordenado do mais recente para o mais antigo.
+              </p>
+            )}
 
             {isLoading ? (
-              <div className="rounded-lg border p-4 flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Consultando seus boletos...
+              <div className="space-y-3">
+                {[0, 1, 2].map((k) => (
+                  <div
+                    key={k}
+                    className="rounded-xl border bg-white p-3 md:p-4 animate-pulse"
+                  >
+                    <div className="h-5 w-36 rounded bg-slate-200" />
+                    <div className="mt-3 flex gap-2">
+                      <div className="h-4 w-28 rounded bg-slate-200" />
+                      <div className="h-4 w-24 rounded bg-slate-200" />
+                    </div>
+                    <div className="mt-3 h-7 w-full rounded bg-slate-200" />
+                    <div className="mt-3 flex gap-2">
+                      <div className="h-8 w-24 rounded bg-slate-200" />
+                      <div className="h-8 w-20 rounded bg-slate-200" />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : items.length === 0 ? (
-              <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">Nenhum boleto para exibir.</p>
+              <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">
+                Nenhum boleto para exibir.
+              </p>
             ) : (
               items.map((item, idx) => (
                 <div
@@ -243,20 +293,33 @@ export default function PublicBoletoLinksPage() {
                   className="rounded-xl border bg-white p-3 md:p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between hover:shadow-sm transition-shadow"
                 >
                   <div className="min-w-0">
-                    <p className="font-medium text-sm">{item.student_name || "Aluno"}</p>
+                    <p className="font-semibold text-base">
+                      {formatMonth(item.reference_month)}
+                    </p>
                     <div className="mt-1 space-y-1.5">
                       <div className="flex items-center gap-2 flex-wrap text-xs">
-                        <Badge variant="outline" className="font-semibold">Competencia: {formatMonth(item.reference_month)}</Badge>
-                        <span className="text-muted-foreground">Vencimento: {formatDateBR(item.due_date)}</span>
-                        <span className="font-semibold text-slate-700">Valor: {formatCurrency(item.amount_cents)}</span>
-                        <span className="text-muted-foreground">Nosso numero: {item.our_number || "-"}</span>
+                        <span className="text-muted-foreground">
+                          Vencimento: {formatDateBR(item.due_date)}
+                        </span>
+                        <span className="font-semibold text-slate-700">
+                          Valor: {formatCurrency(item.amount_cents)}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] font-mono rounded-md border bg-slate-50 px-2 py-1 text-slate-700 break-all">
-                          {item.digitable_line || "Codigo de barras indisponivel"}
+                          {item.digitable_line ||
+                            "Codigo de barras indisponivel"}
                         </span>
-                        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleCopyDigitableLine(item.digitable_line)}>
-                          <Copy className="h-3.5 w-3.5" /> Copiar
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          onClick={() =>
+                            handleCopyDigitableLine(item.digitable_line)
+                          }
+                        >
+                          <Copy className="h-3.5 w-3.5" /> Copiar Código de
+                          Barras
                         </Button>
                       </div>
                     </div>
@@ -270,7 +333,9 @@ export default function PublicBoletoLinksPage() {
                       onClick={() => {
                         const preview = getDrivePreviewUrl(item.drive_url);
                         if (!preview) {
-                          toast.error("Link do Google Drive invalido para pre-visualizacao.");
+                          toast.error(
+                            "Link do Google Drive invalido para pre-visualizacao.",
+                          );
                           return;
                         }
                         setPreviewUrl(preview);
@@ -307,7 +372,8 @@ export default function PublicBoletoLinksPage() {
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="pt-6">
             <p className="text-sm text-slate-700">
-              Solicitacoes de alteracao de boleto e outras questoes, contatar aqui:{" "}
+              Solicitacoes de alteracao de boleto e outras questoes, contatar
+              aqui:{" "}
               <a
                 href="https://wa.me/5517981606721"
                 target="_blank"
@@ -333,7 +399,9 @@ export default function PublicBoletoLinksPage() {
         >
           <DialogContent className="w-[96vw] max-w-6xl h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-2">
             <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
-              <DialogTitle className="m-0">Pre-visualizacao do boleto</DialogTitle>
+              <DialogTitle className="m-0">
+                Pre-visualizacao do boleto
+              </DialogTitle>
               {previewDownloadUrl && (
                 <a
                   href={previewDownloadUrl}
@@ -356,7 +424,11 @@ export default function PublicBoletoLinksPage() {
             </div>
             {previewUrl && (
               <div className="flex-1 min-h-0 bg-slate-100">
-                <iframe src={previewUrl} className="w-full h-full border-0" title="Pre-visualizacao do boleto" />
+                <iframe
+                  src={previewUrl}
+                  className="w-full h-full border-0"
+                  title="Pre-visualizacao do boleto"
+                />
               </div>
             )}
           </DialogContent>
