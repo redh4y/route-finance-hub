@@ -1139,34 +1139,55 @@ export type Database = {
       }
       payer_boleto_links: {
         Row: {
+          amount_cents: number | null
           cpf_digits: string
           created_at: string
+          digitable_line: string | null
           drive_url: string
+          due_date: string | null
+          file_id: string | null
           id: string
+          our_number: string | null
           payer_id: string | null
           phone_digits: string
           reference_month: string
+          source: string | null
           student_name: string
+          view_url: string | null
         }
         Insert: {
+          amount_cents?: number | null
           cpf_digits: string
           created_at?: string
+          digitable_line?: string | null
           drive_url: string
+          due_date?: string | null
+          file_id?: string | null
           id?: string
+          our_number?: string | null
           payer_id?: string | null
           phone_digits: string
           reference_month: string
+          source?: string | null
           student_name: string
+          view_url?: string | null
         }
         Update: {
+          amount_cents?: number | null
           cpf_digits?: string
           created_at?: string
+          digitable_line?: string | null
           drive_url?: string
+          due_date?: string | null
+          file_id?: string | null
           id?: string
+          our_number?: string | null
           payer_id?: string | null
           phone_digits?: string
           reference_month?: string
+          source?: string | null
           student_name?: string
+          view_url?: string | null
         }
         Relationships: [
           {
