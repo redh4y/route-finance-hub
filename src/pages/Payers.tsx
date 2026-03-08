@@ -681,9 +681,12 @@ function PayerRow({
               )}
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-              <span className="font-mono">
+              <span className={cn("font-mono", payer.document_valid === false && "text-rose-500")}>
                 {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "-"}
               </span>
+              {payer.document_valid === false && (
+                <ShieldAlert className="h-3 w-3 text-rose-500 shrink-0" />
+              )}
               {payer.phone && (
                 <>
                   <span className="text-muted-foreground/50">•</span>
