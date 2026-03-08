@@ -372,7 +372,7 @@ export default function AddressMatch() {
         summary: { total, matched, review, failed },
         diagnostics: { topBairros, failures },
         config,
-        cep_base_size: cachedCepBase?.length || 0,
+        cep_base_size: 0,
         bairro_index_size: 0,
         phone_summary: phoneSummary as MatchResponse["phone_summary"],
       };
