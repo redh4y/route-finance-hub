@@ -406,14 +406,6 @@ export default function Excursions() {
                                     </DropdownMenuItem>
                                   </>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => setDeleteTarget({ id: exc.id, name: exc.name })}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                  Excluir Excursão
-                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
