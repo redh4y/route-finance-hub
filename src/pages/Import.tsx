@@ -15,8 +15,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { PageTransition } from "@/components/ui/page-transition";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs } from "@/hooks/useOptimizedImport";
 import { useInvoiceImport } from "@/hooks/useInvoiceImport";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,10 +44,13 @@ import {
   Loader2,
   X,
   FileWarning,
+  History,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
 import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow } from "@/lib/csv-import";
+import { format } from "date-fns";
 
 
 
