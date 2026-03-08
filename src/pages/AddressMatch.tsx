@@ -447,7 +447,8 @@ export default function AddressMatch() {
 
       setResponse(matchResponse);
       toast.dismiss("match-progress");
-      toast.success(`Processamento concluído em ${elapsed}s: ${matched} matches de ${total}`);
+      const phonePart = phoneMatchTotal > 0 ? ` | Telefones: ${phoneMatchCount}/${phoneMatchTotal}` : waContacts.length === 0 ? " | ⚠️ JSON de contatos não carregado" : "";
+      toast.success(`Processamento concluído em ${elapsed}s: ${matched} matches de ${total}${phonePart}`);
     } catch (err: unknown) {
       toast.dismiss("match-progress");
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
