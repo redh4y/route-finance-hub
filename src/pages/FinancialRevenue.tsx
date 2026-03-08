@@ -177,8 +177,6 @@ export default function FinancialRevenue() {
     () => billings.map((b) => b.id),
     [billings]
   )
-    [billings]
-  )
 
   const { data: dueDateChangedIds } = useQuery({
     queryKey: ['billings-due-date-changes', selectedMonth, billingIds],
