@@ -1204,15 +1204,12 @@ export default function AddressMatch() {
                               </TableCell>
                               <TableCell className="text-xs font-mono">
                                 {(() => {
-                                  const rawPhone = String(r[phoneCol] || "");
-                                  const norm = normalizePhone(rawPhone);
-                                  const pm = norm.length >= 8
-                                    ? (phoneResultsMap.get(norm) || phoneResultsMap.get(norm.slice(-8)))
-                                    : phoneResultsMap.get(String(r[nameCol] || "").toLowerCase());
-                                  if (pm?.wa_found && pm.wa_phone) {
-                                    return <span className="text-emerald-600">{pm.wa_phone}</span>;
+                                  const pm = phoneResultsByName.get(String(r[nameCol] || "").toLowerCase());
+                                  if (pm && pm.phone_final) {
+                                    const isUpdated = pm.phone_match_status === "ATUALIZADO" || pm.phone_match_status === "ATUALIZADO_DUPLICADO";
+                                    return <span className={isUpdated ? "text-emerald-600" : ""}>{pm.phone_final}</span>;
                                   }
-                                  return rawPhone || "—";
+                                  return String(r[phoneCol] || "") || "—";
                                 })()}
                               </TableCell>
                               <TableCell>
