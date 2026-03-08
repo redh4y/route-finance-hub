@@ -11,7 +11,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   Plus, Bus, MapPin, Calendar, Users, Search, Ticket, TrendingUp,
   ShoppingBag, Eye, Play, Pause, Copy, ExternalLink, MoreHorizontal,
-  Edit, XCircle, CheckCircle2, Link2
+  Edit, XCircle, CheckCircle2, Link2, Trash2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
