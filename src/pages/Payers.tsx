@@ -248,6 +248,7 @@ export default function Payers() {
       case "inactive": return stats.inactive;
       case "review": return stats.review;
       case "uncatalogued": return stats.uncatalogued;
+      case "invalidCpf": return stats.invalidCpf;
     }
   };
 
