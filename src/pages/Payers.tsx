@@ -826,9 +826,9 @@ function EmptyState({
 
 // Quick view panel for desktop
 function QuickViewPanel({ payerId }: { payerId: string | null }) {
-  const { data: payer, isLoading } = usePayers({});
+  const { data: payerData } = usePayerById(payerId || "");
 
-  const selectedPayer = payer?.find((p) => p.id === payerId);
+  const selectedPayer = payerData;
 
   const payerCode = selectedPayer?.payer_code || null;
 
