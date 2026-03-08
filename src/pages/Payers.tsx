@@ -712,10 +712,10 @@ function PayerRow({
                   ? formatCPF(payer.document_digits)
                   : payer.payer_code || "-"}
               </span>
-              {payer.neighborhood && (
+              {payer.phone && (
                 <>
                   <span className="text-muted-foreground/50">{"\u2022"}</span>
-                  <span className="truncate">{payer.neighborhood}</span>
+                  <span className="truncate">{formatPhone(payer.phone)}</span>
                 </>
               )}
             </div>
@@ -833,10 +833,10 @@ function PayerCard({
                 ? formatCPF(payer.document_digits)
                 : payer.payer_code || "-"}
             </span>
-            {payer.neighborhood && (
+            {payer.phone && (
               <>
                 <span>⬢</span>
-                <span className="truncate">{payer.neighborhood}</span>
+                <span className="truncate">{formatPhone(payer.phone)}</span>
               </>
             )}
           </div>
