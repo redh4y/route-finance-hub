@@ -220,49 +220,24 @@ export default function FinancialRevenue() {
   const totalEntries = entriesResult?.count || 0
   const totalEntriesPages = Math.max(1, Math.ceil(totalEntries / BILLINGS_PAGE_SIZE))
 
-  // Summary stats using head counts to avoid 1000-row limit
+  // Summary stats using server-side aggregation (no row limit)
   const { data: billingSummary } = useQuery({
     queryKey: ['billings-summary', selectedMonth],
     queryFn: async () => {
-      const [
-        { data: allBillings },
-        { data: paidBillings },
-        { data: openBillings },
-      ] = await Promise.all([
-        supabase.rpc('get_dre_summary', { p_month: selectedMonth }),
-        supabase
-          .from('billings')
-          .select('amount_paid_cents, amount_expected_cents')
-          .eq('reference_month', selectedMonth)
-          .eq('status', 'PAID')
-          .limit(1000),
-        supabase
-          .from('billings')
-          .select('amount_expected_cents')
-          .eq('reference_month', selectedMonth)
-          .eq('status', 'OPEN')
-          .limit(1000),
-      ])
-
-      // For large datasets we use the DRE summary for billing_revenue
-      const dreData = allBillings as { billing_revenue: number } | null
-
-      const expectedAll = await supabase
-        .from('billings')
-        .select('amount_expected_cents')
-        .eq('reference_month', selectedMonth)
-        .neq('status', 'CANCELADO')
-        .limit(1000)
-
-      const expectedRevenue = (expectedAll.data || []).reduce(
-        (sum, b) => sum + (b.amount_expected_cents || 0), 0
-      )
-      const paidRevenue = dreData?.billing_revenue || 0
-      const pendingRevenue = (openBillings || []).reduce(
-        (sum, b) => sum + (b.amount_expected_cents || 0), 0
-      )
-
-      return { expectedRevenue, paidRevenue, pendingRevenue }
+      const { data, error } = await supabase.rpc('get_billings_summary', {
+        p_month: selectedMonth,
+      })
+      if (error) throw error
+      const result = data as {
+        expected_revenue: number
+        paid_revenue: number
+        pending_revenue: number
+      }
+      return {
+        expectedRevenue: result.expected_revenue || 0,
+        paidRevenue: result.paid_revenue || 0,
+        pendingRevenue: result.pending_revenue || 0,
+      }
     }
   })
 
