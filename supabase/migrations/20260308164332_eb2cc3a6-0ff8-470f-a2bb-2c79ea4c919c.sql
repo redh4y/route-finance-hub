@@ -1,0 +1,1 @@
+CREATE POLICY "ceps_update_auth" ON public.ceps FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
