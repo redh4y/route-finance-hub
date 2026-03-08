@@ -812,13 +812,13 @@ export default function AddressMatch() {
               )}
               {response && (
                 <Button
-                  onClick={updatePayersInDb}
-                  disabled={isUpdatingPayers}
+                  onClick={previewPayerChanges}
+                  disabled={isUpdatingPayers || isLoadingPreview}
                   variant="default"
                   className="gap-2 bg-emerald-600 hover:bg-emerald-700"
                 >
                   <Save className="h-4 w-4" />
-                  {isUpdatingPayers ? "Atualizando..." : "Atualizar Pagadores no Banco"}
+                  {isLoadingPreview ? "Verificando..." : isUpdatingPayers ? "Atualizando..." : "Atualizar Pagadores no Banco"}
                 </Button>
               )}
             </div>
