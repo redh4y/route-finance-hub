@@ -510,136 +510,226 @@ export default function AddressMatch() {
     }
   };
 
-  // ── Update payers in DB ──
-  const updatePayersInDb = async () => {
+  // ── Preview payer changes (compare with DB) ──
+  const previewPayerChanges = async () => {
     const enriched = getEnrichedResults();
     if (!enriched.length) {
       toast.error("Execute o match primeiro");
       return;
     }
 
-    setIsUpdatingPayers(true);
-    setUpdatePayersResult(null);
-    let updated = 0;
-    let created = 0;
-    let errors = 0;
-    const BATCH = 50;
+    setIsLoadingPreview(true);
+    setPayerChangesPreview([]);
 
     try {
-      // Build phone map from phoneResults
       const phoneMap = new Map<string, PhoneMatchResult>();
       for (const pr of phoneResults) {
         if (pr.payer_phone_digits) phoneMap.set(pr.payer_phone_digits, pr);
       }
 
-      for (let i = 0; i < enriched.length; i += BATCH) {
-        const batch = enriched.slice(i, i + BATCH);
-        const pct = Math.round(((i + batch.length) / enriched.length) * 100);
-        toast.loading(`Atualizando pagadores ${i + 1}-${i + batch.length} de ${enriched.length} (${pct}%)...`, { id: "update-payers" });
+      const fieldLabels: Record<string, string> = {
+        street: "Rua", number: "Número", neighborhood: "Bairro",
+        cep: "CEP", city: "Cidade", state: "UF", phone: "Telefone",
+      };
 
-        for (const row of batch) {
-          try {
-            const rawDoc = String(row[docCol] || "").replace(/\D/g, "").padStart(11, "0");
-            if (!rawDoc || rawDoc === "00000000000") continue;
+      const changes: PayerChangePreview[] = [];
 
-            const payerName = String(row[nameCol] || "");
-            const matchOk = row.match_ok === true;
+      // Collect all doc_digits
+      const docMap = new Map<string, Record<string, unknown>[]>();
+      for (const row of enriched) {
+        const rawDoc = String(row[docCol] || "").replace(/\D/g, "").padStart(11, "0");
+        if (!rawDoc || rawDoc === "00000000000") continue;
+        if (!docMap.has(rawDoc)) docMap.set(rawDoc, []);
+        docMap.get(rawDoc)!.push(row);
+      }
 
-            // Build update payload
-            const updateData: Record<string, unknown> = {};
+      const allDocs = Array.from(docMap.keys());
 
-            // Address fields (only if match was successful)
-            if (matchOk) {
-              const street = String(row.matched_logradouro || "");
-              const number = String(row.matched_numero || "");
-              const neighborhood = String(row.bairro_candidato || "");
-              const cep = String(row.matched_cep || "");
-              const city = String(row.matched_cidade || "");
-              const state = String(row.matched_uf || "");
+      // Fetch existing payers in batches
+      const existingMap = new Map<string, Record<string, unknown>>();
+      const PAGE = 200;
+      for (let i = 0; i < allDocs.length; i += PAGE) {
+        const batch = allDocs.slice(i, i + PAGE);
+        const pct = Math.round(((i + batch.length) / allDocs.length) * 100);
+        toast.loading(`Verificando pagadores ${i + 1}-${i + batch.length} (${pct}%)...`, { id: "preview-payers" });
 
-              if (street) updateData.street = street;
-              if (number) updateData.number = number;
-              if (neighborhood) updateData.neighborhood = neighborhood;
-              if (cep) updateData.cep = cep.replace(/\D/g, "");
-              if (city) updateData.city = city;
-              if (state) updateData.state = state;
-              updateData.match_ok = true;
-              updateData.address_base = String(row[enderecoCol] || "");
-              updateData.address_original = String(row[enderecoCol] || "");
-            }
+        const { data } = await supabase
+          .from("payers")
+          .select("id, document_digits, street, number, neighborhood, cep, city, state, phone, name")
+          .in("document_digits", batch);
 
-            // Phone from WhatsApp match
-            const rawPhone = String(row[phoneCol] || "");
-            const normPhone = normalizePhone(rawPhone);
-            const pm = normPhone.length >= 8 ? (phoneMap.get(normPhone) || phoneMap.get(normPhone.slice(-8))) : undefined;
-            if (pm?.wa_found && pm.wa_phone) {
-              updateData.phone = pm.wa_phone;
-            } else if (rawPhone && rawPhone !== "undefined") {
-              updateData.phone = rawPhone;
-            }
-
-            if (Object.keys(updateData).length === 0) continue;
-
-            // Try to find existing payer by document_digits
-            const { data: existing } = await supabase
-              .from("payers")
-              .select("id")
-              .eq("document_digits", rawDoc)
-              .limit(1);
-
-            if (existing && existing.length > 0) {
-              // Update
-              updateData.updated_at = new Date().toISOString();
-              const { error } = await supabase
-                .from("payers")
-                .update(updateData)
-                .eq("id", existing[0].id);
-              if (error) {
-                console.error("Update error:", error, rawDoc);
-                errors++;
-              } else {
-                updated++;
-              }
-            } else {
-              // Create new payer
-              const newPayer: Record<string, unknown> = {
-                legacy_id: crypto.randomUUID(),
-                name: payerName,
-                name_lower: payerName.toLowerCase(),
-                document: rawDoc.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
-                document_digits: rawDoc,
-                document_valid: rawDoc.length === 11,
-                ...updateData,
-              };
-              const { error } = await supabase.from("payers").insert(newPayer as any);
-              if (error) {
-                console.error("Insert error:", error, rawDoc);
-                errors++;
-              } else {
-                created++;
-              }
-            }
-          } catch (err) {
-            console.error("Row error:", err);
-            errors++;
+        if (data) {
+          for (const p of data) {
+            existingMap.set(p.document_digits!, p as Record<string, unknown>);
           }
+        }
+      }
+      toast.dismiss("preview-payers");
+
+      // Compare each row
+      for (const [doc, rows] of docMap) {
+        const row = rows[0]; // take first row for each doc
+        const payerName = String(row[nameCol] || "");
+        const matchOk = row.match_ok === true;
+
+        const updateData: Record<string, unknown> = {};
+        if (matchOk) {
+          const street = String(row.matched_logradouro || "");
+          const number = String(row.matched_numero || "");
+          const neighborhood = String(row.bairro_candidato || "");
+          const cep = String(row.matched_cep || "").replace(/\D/g, "");
+          const city = String(row.matched_cidade || "");
+          const state = String(row.matched_uf || "");
+          if (street) updateData.street = street;
+          if (number) updateData.number = number;
+          if (neighborhood) updateData.neighborhood = neighborhood;
+          if (cep) updateData.cep = cep;
+          if (city) updateData.city = city;
+          if (state) updateData.state = state;
+          updateData.match_ok = true;
+          updateData.address_base = String(row[enderecoCol] || "");
+          updateData.address_original = String(row[enderecoCol] || "");
+        }
+
+        const rawPhone = String(row[phoneCol] || "");
+        const normPhone = normalizePhone(rawPhone);
+        const pm = normPhone.length >= 8 ? (phoneMap.get(normPhone) || phoneMap.get(normPhone.slice(-8))) : undefined;
+        if (pm?.wa_found && pm.wa_phone) {
+          updateData.phone = pm.wa_phone;
+        } else if (rawPhone && rawPhone !== "undefined") {
+          updateData.phone = rawPhone;
+        }
+
+        const existing = existingMap.get(doc);
+
+        if (existing) {
+          // Compare fields - only include if something actually changed
+          const fieldChanges: { field: string; old_value: string; new_value: string }[] = [];
+          const compareFields = ["street", "number", "neighborhood", "cep", "city", "state", "phone"];
+          for (const f of compareFields) {
+            if (updateData[f] === undefined) continue;
+            const oldVal = String(existing[f] || "").trim();
+            const newVal = String(updateData[f] || "").trim();
+            if (oldVal.toLowerCase() !== newVal.toLowerCase() && newVal) {
+              fieldChanges.push({
+                field: fieldLabels[f] || f,
+                old_value: oldVal || "—",
+                new_value: newVal,
+              });
+            }
+          }
+          if (fieldChanges.length > 0) {
+            changes.push({
+              doc_digits: doc,
+              payer_name: String(existing.name || payerName),
+              is_new: false,
+              existing_id: existing.id as string,
+              changes: fieldChanges,
+              update_data: updateData,
+            });
+          }
+        } else {
+          // New payer
+          if (Object.keys(updateData).length > 0 || payerName) {
+            const fieldChanges: { field: string; old_value: string; new_value: string }[] = [];
+            const compareFields = ["street", "number", "neighborhood", "cep", "city", "state", "phone"];
+            for (const f of compareFields) {
+              if (updateData[f]) {
+                fieldChanges.push({
+                  field: fieldLabels[f] || f,
+                  old_value: "—",
+                  new_value: String(updateData[f]),
+                });
+              }
+            }
+            changes.push({
+              doc_digits: doc,
+              payer_name: payerName,
+              is_new: true,
+              changes: fieldChanges,
+              update_data: updateData,
+            });
+          }
+        }
+      }
+
+      setPayerChangesPreview(changes);
+      setShowPayerPreviewModal(true);
+
+      if (changes.length === 0) {
+        toast.info("Nenhuma alteração necessária — todos os dados já estão atualizados");
+      }
+    } catch (err) {
+      console.error("previewPayerChanges error:", err);
+      toast.error("Erro ao verificar pagadores");
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  // ── Confirm and execute update ──
+  const confirmUpdatePayers = async () => {
+    if (payerChangesPreview.length === 0) return;
+
+    setIsUpdatingPayers(true);
+    setUpdatePayersResult(null);
+    let updated = 0;
+    let created = 0;
+    let errors = 0;
+
+    try {
+      for (let i = 0; i < payerChangesPreview.length; i++) {
+        const change = payerChangesPreview[i];
+        if (i % 20 === 0) {
+          const pct = Math.round(((i + 1) / payerChangesPreview.length) * 100);
+          toast.loading(`Atualizando ${i + 1}/${payerChangesPreview.length} (${pct}%)...`, { id: "update-payers" });
+        }
+
+        try {
+          if (!change.is_new && change.existing_id) {
+            const data = { ...change.update_data, updated_at: new Date().toISOString() };
+            const { error } = await supabase
+              .from("payers")
+              .update(data)
+              .eq("id", change.existing_id);
+            if (error) { errors++; console.error("Update error:", error); }
+            else updated++;
+          } else {
+            const newPayer: Record<string, unknown> = {
+              legacy_id: crypto.randomUUID(),
+              name: change.payer_name,
+              name_lower: change.payer_name.toLowerCase(),
+              document: change.doc_digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
+              document_digits: change.doc_digits,
+              document_valid: change.doc_digits.length === 11,
+              ...change.update_data,
+            };
+            const { error } = await supabase.from("payers").insert(newPayer as any);
+            if (error) { errors++; console.error("Insert error:", error); }
+            else created++;
+          }
+        } catch (err) {
+          errors++;
+          console.error("Row error:", err);
         }
       }
 
       setUpdatePayersResult({ updated, created, errors });
       toast.dismiss("update-payers");
+      setShowPayerPreviewModal(false);
       if (errors > 0) {
         toast.warning(`Pagadores: ${updated} atualizados, ${created} criados, ${errors} erros`);
       } else {
         toast.success(`Pagadores: ${updated} atualizados, ${created} criados`);
       }
     } catch (err) {
-      console.error("updatePayersInDb error:", err);
+      console.error("confirmUpdatePayers error:", err);
       toast.error("Erro ao atualizar pagadores");
     } finally {
       setIsUpdatingPayers(false);
     }
   };
+
 
 
   const getEnrichedResults = () => {
