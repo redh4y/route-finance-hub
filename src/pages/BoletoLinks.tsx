@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle, FileText, Users, Search, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
