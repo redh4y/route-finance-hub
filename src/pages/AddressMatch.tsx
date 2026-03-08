@@ -551,10 +551,11 @@ export default function AddressMatch() {
         }
 
         const rawPhone = String(row[phoneCol] || "");
-        const normPhone = normalizePhone(rawPhone);
-        const pm = normPhone.length >= 8 ? (phoneMap.get(normPhone) || phoneMap.get(normPhone.slice(-8))) : undefined;
-        if (pm?.wa_found && pm.wa_phone) {
-          updateData.phone = pm.wa_phone;
+        // Find the phone match row for this enriched row by index
+        const rowIdx = enriched.indexOf(row);
+        const pm = rowIdx >= 0 && rowIdx < phoneMatchRows.length ? phoneMatchRows[rowIdx] : undefined;
+        if (pm && pm.phone_final) {
+          updateData.phone = pm.phone_final;
         } else if (rawPhone && rawPhone !== "undefined") {
           updateData.phone = rawPhone;
         }
