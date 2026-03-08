@@ -200,7 +200,7 @@ export default function Payers() {
   const totalCount = payersResult?.count || 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const { data: stats = { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 } } = usePayersStats();
+  const { data: stats = { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0, invalidCpf: 0 } } = usePayersStats();
 
   const clearSearch = () => setSearchTerm("");
 
