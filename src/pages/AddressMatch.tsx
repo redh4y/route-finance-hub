@@ -11,8 +11,6 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import Papa from "papaparse";
@@ -29,6 +27,8 @@ import {
   Database,
   FileText,
   Info,
+  Phone,
+  Save,
 } from "lucide-react";
 
 // ── Types ──
@@ -72,6 +72,29 @@ interface MatchResponse {
   bairro_index_size: number;
 }
 
+interface WhatsAppContact {
+  phone_number: string;
+  formatted_phone?: string;
+  saved_name?: string;
+  public_name?: string;
+  is_my_contact?: boolean;
+  is_business?: boolean;
+  labels?: string[];
+  country_code?: string;
+}
+
+interface PhoneMatchResult {
+  payer_name: string;
+  payer_phone: string;
+  payer_phone_digits: string;
+  wa_found: boolean;
+  wa_saved_name: string;
+  wa_public_name: string;
+  wa_phone: string;
+  wa_labels: string;
+  wa_is_business: boolean;
+}
+
 const DEFAULT_CONFIG: MatchConfig = {
   bairro_fuzzy_threshold: 0.405,
   min_score_logradouro: 0.50,
@@ -82,6 +105,31 @@ const DEFAULT_CONFIG: MatchConfig = {
   fallback_global: false,
 };
 
+// Normalize phone: keep only digits, take last 11 or 10
+function normalizePhone(raw: string): string {
+  const digits = (raw || "").replace(/\D/g, "");
+  // Brazilian: 55 + DDD(2) + number(8-9) = 12-13 digits
+  // Remove country code if present
+  if (digits.length >= 12 && digits.startsWith("55")) {
+    return digits.slice(2); // DDD + number
+  }
+  return digits;
+}
+
+// Match phones by last 8 digits (handles DDD variations)
+function phonesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const na = normalizePhone(a);
+  const nb = normalizePhone(b);
+  if (na.length < 8 || nb.length < 8) return false;
+  // Exact match on normalized
+  if (na === nb) return true;
+  // Last 8-9 digits match (handles 9th digit addition)
+  const lastA = na.slice(-8);
+  const lastB = nb.slice(-8);
+  return lastA === lastB;
+}
+
 export default function AddressMatch() {
   // Files
   const [payersFile, setPayersFile] = useState<File | null>(null);
@@ -89,7 +137,13 @@ export default function AddressMatch() {
   const [payersData, setPayersData] = useState<Record<string, unknown>[]>([]);
   const [cepsData, setCepsData] = useState<Record<string, unknown>[]>([]);
   const [enderecoCol, setEnderecoCol] = useState("Endereco");
+  const [phoneCol, setPhoneCol] = useState("Telefone");
+  const [nameCol, setNameCol] = useState("Nome");
   const [useDbCeps, setUseDbCeps] = useState(true);
+
+  // WhatsApp contacts
+  const [waContacts, setWaContacts] = useState<WhatsAppContact[]>([]);
+  const [waFileName, setWaFileName] = useState("");
 
   // Config
   const [config, setConfig] = useState<MatchConfig>({ ...DEFAULT_CONFIG });
@@ -97,11 +151,20 @@ export default function AddressMatch() {
   // State
   const [isProcessing, setIsProcessing] = useState(false);
   const [response, setResponse] = useState<MatchResponse | null>(null);
+  const [phoneResults, setPhoneResults] = useState<PhoneMatchResult[]>([]);
+  const [isSavingContacts, setIsSavingContacts] = useState(false);
 
   const payersCols = useMemo(() => {
     if (payersData.length === 0) return [];
     return Object.keys(payersData[0]);
   }, [payersData]);
+
+  // Phone match summary
+  const phoneSummary = useMemo(() => {
+    const total = phoneResults.length;
+    const found = phoneResults.filter((r) => r.wa_found).length;
+    return { total, found, notFound: total - found };
+  }, [phoneResults]);
 
   // ── CSV parsing ──
   const handleFile = useCallback(
@@ -121,6 +184,78 @@ export default function AddressMatch() {
     []
   );
 
+  // ── WhatsApp JSON upload ──
+  const handleWaJson = useCallback((file: File) => {
+    setWaFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        const contacts = Array.isArray(data) ? data : [];
+        setWaContacts(contacts as WhatsAppContact[]);
+        toast.success(`${file.name}: ${contacts.length} contatos carregados`);
+      } catch {
+        toast.error("Erro ao ler JSON de contatos");
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+  }, []);
+
+  // ── Phone matching (client-side) ──
+  const runPhoneMatch = useCallback(() => {
+    if (payersData.length === 0 || waContacts.length === 0) return [];
+
+    // Build index: last 8 digits → contact
+    const waIndex = new Map<string, WhatsAppContact>();
+    for (const c of waContacts) {
+      const norm = normalizePhone(c.phone_number);
+      if (norm.length >= 8) {
+        waIndex.set(norm.slice(-8), c);
+        // Also index full normalized
+        waIndex.set(norm, c);
+      }
+    }
+
+    const results: PhoneMatchResult[] = [];
+    for (const payer of payersData) {
+      const rawPhone = String(payer[phoneCol] || "");
+      const payerName = String(payer[nameCol] || "");
+      if (!rawPhone || rawPhone === "undefined") continue;
+
+      const norm = normalizePhone(rawPhone);
+      if (norm.length < 8) {
+        results.push({
+          payer_name: payerName,
+          payer_phone: rawPhone,
+          payer_phone_digits: norm,
+          wa_found: false,
+          wa_saved_name: "",
+          wa_public_name: "",
+          wa_phone: "",
+          wa_labels: "",
+          wa_is_business: false,
+        });
+        continue;
+      }
+
+      // Try full match first, then last 8
+      const match = waIndex.get(norm) || waIndex.get(norm.slice(-8));
+      results.push({
+        payer_name: payerName,
+        payer_phone: rawPhone,
+        payer_phone_digits: norm,
+        wa_found: !!match,
+        wa_saved_name: match?.saved_name || "",
+        wa_public_name: match?.public_name || "",
+        wa_phone: match?.phone_number || "",
+        wa_labels: (match?.labels || []).join(", "),
+        wa_is_business: match?.is_business || false,
+      });
+    }
+
+    return results;
+  }, [payersData, waContacts, phoneCol, nameCol]);
+
   // ── Run match ──
   const runMatch = async () => {
     if (payersData.length === 0) {
@@ -134,6 +269,7 @@ export default function AddressMatch() {
 
     setIsProcessing(true);
     setResponse(null);
+    setPhoneResults([]);
 
     try {
       const { data, error } = await supabase.functions.invoke("address-match", {
@@ -150,9 +286,20 @@ export default function AddressMatch() {
       if (data?.error) throw new Error(data.error);
 
       setResponse(data as MatchResponse);
-      toast.success(
-        `Processamento concluído: ${data.summary.matched} matches de ${data.summary.total}`
-      );
+
+      // Phone match
+      if (waContacts.length > 0) {
+        const pr = runPhoneMatch();
+        setPhoneResults(pr);
+        const found = pr.filter((r) => r.wa_found).length;
+        toast.success(
+          `Processamento concluído: ${data.summary.matched} endereços + ${found}/${pr.length} telefones`
+        );
+      } else {
+        toast.success(
+          `Processamento concluído: ${data.summary.matched} matches de ${data.summary.total}`
+        );
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       toast.error(`Falha: ${msg}`);
@@ -161,10 +308,91 @@ export default function AddressMatch() {
     }
   };
 
+  // Run only phone match (without address)
+  const runPhoneOnly = () => {
+    if (payersData.length === 0 || waContacts.length === 0) {
+      toast.error("Carregue o CSV de pagadores e o JSON de contatos");
+      return;
+    }
+    const pr = runPhoneMatch();
+    setPhoneResults(pr);
+    const found = pr.filter((r) => r.wa_found).length;
+    toast.success(`Match de telefones: ${found}/${pr.length} encontrados`);
+  };
+
+  // ── Import contacts to DB ──
+  const importContactsToDb = async () => {
+    if (waContacts.length === 0) return;
+    setIsSavingContacts(true);
+    try {
+      const PROVIDER_ID = "e5fcf8c4-999c-489f-aff1-cdbad051186a";
+      const INSTANCE = "lf-local-202603050919";
+      const BATCH_SIZE = 200;
+      let saved = 0;
+      let errors = 0;
+
+      for (let i = 0; i < waContacts.length; i += BATCH_SIZE) {
+        const batch = waContacts.slice(i, i + BATCH_SIZE).map((c) => ({
+          provider_id: PROVIDER_ID,
+          instance_name: INSTANCE,
+          wa_number: normalizePhone(c.phone_number),
+          wa_jid: normalizePhone(c.phone_number) + "@s.whatsapp.net",
+          display_name: c.saved_name || c.public_name || "",
+          raw: JSON.parse(JSON.stringify(c)),
+        }));
+
+        const { error } = await supabase
+          .from("whatsapp_contacts")
+          .upsert(batch, { onConflict: "provider_id,wa_number", ignoreDuplicates: false });
+
+        if (error) {
+          console.error("Batch error:", error);
+          errors += batch.length;
+        } else {
+          saved += batch.length;
+        }
+      }
+
+      if (errors > 0) {
+        toast.warning(`Importados ${saved} contatos, ${errors} erros`);
+      } else {
+        toast.success(`${saved} contatos importados no banco`);
+      }
+    } catch (err: unknown) {
+      toast.error("Erro ao importar contatos");
+    } finally {
+      setIsSavingContacts(false);
+    }
+  };
+
   // ── CSV download ──
   const downloadCsv = () => {
     if (!response?.results) return;
-    const csv = Papa.unparse(response.results);
+
+    // Enrich results with phone data if available
+    let enriched = response.results;
+    if (phoneResults.length > 0) {
+      const phoneMap = new Map<string, PhoneMatchResult>();
+      for (const pr of phoneResults) {
+        if (pr.payer_phone_digits) phoneMap.set(pr.payer_phone_digits, pr);
+      }
+      enriched = response.results.map((r) => {
+        const rawPhone = String(r[phoneCol] || "");
+        const norm = normalizePhone(rawPhone);
+        const pm = norm.length >= 8 ? (phoneMap.get(norm) || phoneMap.get(norm.slice(-8))) : undefined;
+        return {
+          ...r,
+          wa_encontrado: pm?.wa_found ? "SIM" : "NÃO",
+          wa_nome_salvo: pm?.wa_saved_name || "",
+          wa_nome_publico: pm?.wa_public_name || "",
+          wa_telefone: pm?.wa_phone || "",
+          wa_labels: pm?.wa_labels || "",
+          wa_empresarial: pm?.wa_is_business ? "SIM" : "NÃO",
+        };
+      });
+    }
+
+    const csv = Papa.unparse(enriched);
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -186,18 +414,20 @@ export default function AddressMatch() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
                 <MapPin className="h-6 w-6 text-primary" />
-                Match de Endereços
+                Match de Endereços & Telefones
               </h1>
               <p className="text-muted-foreground text-sm">
-                Normalização e ancoragem de bairro + logradouro com auditoria completa
+                Normalização de endereço + validação de telefone via contatos WhatsApp
               </p>
             </div>
-            {response && (
-              <Button onClick={downloadCsv} className="gap-2 self-start">
-                <Download className="h-4 w-4" />
-                Exportar CSV
-              </Button>
-            )}
+            <div className="flex gap-2 self-start">
+              {response && (
+                <Button onClick={downloadCsv} className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Exportar CSV
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Upload + Config */}
@@ -249,6 +479,39 @@ export default function AddressMatch() {
                   </div>
                 </div>
 
+                {/* WhatsApp JSON */}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                    JSON de Contatos WhatsApp (opcional)
+                  </Label>
+                  <Input
+                    type="file"
+                    accept=".json"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleWaJson(f);
+                    }}
+                  />
+                  {waFileName && (
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {waFileName} — {waContacts.length} contatos
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs gap-1"
+                        onClick={importContactsToDb}
+                        disabled={isSavingContacts || waContacts.length === 0}
+                      >
+                        <Save className="h-3 w-3" />
+                        {isSavingContacts ? "Salvando..." : "Salvar no banco"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                   <div className="space-y-2 flex-1">
                     <Label>Coluna de endereço</Label>
@@ -273,6 +536,52 @@ export default function AddressMatch() {
                     )}
                   </div>
 
+                  <div className="space-y-2 flex-1">
+                    <Label>Coluna de telefone</Label>
+                    {payersCols.length > 0 ? (
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        value={phoneCol}
+                        onChange={(e) => setPhoneCol(e.target.value)}
+                      >
+                        {payersCols.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        value={phoneCol}
+                        onChange={(e) => setPhoneCol(e.target.value)}
+                        placeholder="Nome da coluna"
+                      />
+                    )}
+                  </div>
+
+                  <div className="space-y-2 flex-1">
+                    <Label>Coluna de nome</Label>
+                    {payersCols.length > 0 ? (
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        value={nameCol}
+                        onChange={(e) => setNameCol(e.target.value)}
+                      >
+                        {payersCols.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        value={nameCol}
+                        onChange={(e) => setNameCol(e.target.value)}
+                        placeholder="Nome da coluna"
+                      />
+                    )}
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <Switch checked={useDbCeps} onCheckedChange={setUseDbCeps} id="use-db" />
                     <Label htmlFor="use-db" className="flex items-center gap-1 text-sm cursor-pointer">
@@ -282,21 +591,34 @@ export default function AddressMatch() {
                   </div>
                 </div>
 
-                <Button
-                  onClick={runMatch}
-                  disabled={isProcessing || payersData.length === 0}
-                  className="w-full sm:w-auto gap-2"
-                  size="lg"
-                >
-                  {isProcessing ? (
-                    <>Processando...</>
-                  ) : (
-                    <>
-                      <Play className="h-4 w-4" />
-                      Executar Match ({payersData.length} linhas)
-                    </>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    onClick={runMatch}
+                    disabled={isProcessing || payersData.length === 0}
+                    className="gap-2"
+                    size="lg"
+                  >
+                    {isProcessing ? (
+                      <>Processando...</>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4" />
+                        Executar Match Completo ({payersData.length} linhas)
+                      </>
+                    )}
+                  </Button>
+                  {waContacts.length > 0 && payersData.length > 0 && (
+                    <Button
+                      onClick={runPhoneOnly}
+                      variant="outline"
+                      className="gap-2"
+                      size="lg"
+                    >
+                      <Phone className="h-4 w-4" />
+                      Só Telefones
+                    </Button>
                   )}
-                </Button>
+                </div>
               </CardContent>
             </Card>
 
@@ -363,16 +685,28 @@ export default function AddressMatch() {
             <Card>
               <CardContent className="py-8 flex flex-col items-center gap-3">
                 <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
-                <p className="text-sm text-muted-foreground">Processando {payersData.length} endereços...</p>
+                <p className="text-sm text-muted-foreground">Processando {payersData.length} registros...</p>
               </CardContent>
             </Card>
+          )}
+
+          {/* Phone-only results (when no address match) */}
+          {phoneResults.length > 0 && !response && (
+            <>
+              <div className="grid gap-3 grid-cols-3">
+                <SummaryCard label="Telefones" value={phoneSummary.total} icon={Phone} color="text-foreground" />
+                <SummaryCard label="Encontrados" value={phoneSummary.found} icon={CheckCircle2} color="text-emerald-600" pct={Math.round((phoneSummary.found / Math.max(phoneSummary.total, 1)) * 100)} />
+                <SummaryCard label="Não encontrados" value={phoneSummary.notFound} icon={XCircle} color="text-red-600" />
+              </div>
+              <PhoneResultsTable results={phoneResults} />
+            </>
           )}
 
           {/* Results */}
           {response && (
             <>
               {/* Summary cards */}
-              <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
                 <SummaryCard
                   label="Total"
                   value={summary!.total}
@@ -398,6 +732,15 @@ export default function AddressMatch() {
                   icon={XCircle}
                   color="text-red-600"
                 />
+                {phoneResults.length > 0 && (
+                  <SummaryCard
+                    label="Tel. encontrados"
+                    value={phoneSummary.found}
+                    icon={Phone}
+                    color="text-emerald-600"
+                    pct={Math.round((phoneSummary.found / Math.max(phoneSummary.total, 1)) * 100)}
+                  />
+                )}
               </div>
 
               <div className="text-xs text-muted-foreground flex items-center gap-4 flex-wrap">
@@ -409,15 +752,27 @@ export default function AddressMatch() {
                 <span>
                   Pesos: token={response.config.token_weight} / seq={response.config.seq_weight}
                 </span>
+                {phoneResults.length > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Phone className="h-3 w-3" />
+                    Contatos WA: {waContacts.length}
+                  </span>
+                )}
               </div>
 
-              {/* Tabs: Results, Bairros, Failures */}
+              {/* Tabs */}
               <Tabs defaultValue="results">
                 <TabsList>
                   <TabsTrigger value="results" className="gap-1">
                     <BarChart3 className="h-3.5 w-3.5" />
                     Resultados
                   </TabsTrigger>
+                  {phoneResults.length > 0 && (
+                    <TabsTrigger value="phones" className="gap-1">
+                      <Phone className="h-3.5 w-3.5" />
+                      Telefones ({phoneSummary.found}/{phoneSummary.total})
+                    </TabsTrigger>
+                  )}
                   <TabsTrigger value="bairros" className="gap-1">
                     <MapPin className="h-3.5 w-3.5" />
                     Bairros
@@ -491,6 +846,12 @@ export default function AddressMatch() {
                     )}
                   </Card>
                 </TabsContent>
+
+                {phoneResults.length > 0 && (
+                  <TabsContent value="phones">
+                    <PhoneResultsTable results={phoneResults} />
+                  </TabsContent>
+                )}
 
                 <TabsContent value="bairros">
                   <Card>
@@ -574,6 +935,64 @@ export default function AddressMatch() {
 }
 
 // ── Sub-components ──
+
+function PhoneResultsTable({ results }: { results: PhoneMatchResult[] }) {
+  return (
+    <Card>
+      <ScrollArea className="h-[500px]">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nome Pagador</TableHead>
+              <TableHead>Telefone</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Nome WA</TableHead>
+              <TableHead>Nome Público</TableHead>
+              <TableHead>Labels</TableHead>
+              <TableHead>Empresa</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {results.slice(0, 300).map((r, i) => (
+              <TableRow key={i}>
+                <TableCell className="text-xs">{r.payer_name}</TableCell>
+                <TableCell className="text-xs font-mono">{r.payer_phone}</TableCell>
+                <TableCell>
+                  {r.wa_found ? (
+                    <Badge className="text-[10px] px-1.5 py-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/40" variant="outline">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Encontrado
+                    </Badge>
+                  ) : (
+                    <Badge className="text-[10px] px-1.5 py-0 bg-red-500/10 text-red-600 border-red-500/40" variant="outline">
+                      <XCircle className="h-3 w-3 mr-1" />
+                      Não encontrado
+                    </Badge>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs">{r.wa_saved_name || "—"}</TableCell>
+                <TableCell className="text-xs">{r.wa_public_name || "—"}</TableCell>
+                <TableCell className="text-xs max-w-[150px] truncate">{r.wa_labels || "—"}</TableCell>
+                <TableCell>
+                  {r.wa_is_business && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                      Empresa
+                    </Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </ScrollArea>
+      {results.length > 300 && (
+        <p className="text-xs text-muted-foreground p-3 border-t">
+          Mostrando 300 de {results.length}. Exporte o CSV para ver todos.
+        </p>
+      )}
+    </Card>
+  );
+}
 
 function SliderField({
   label,
