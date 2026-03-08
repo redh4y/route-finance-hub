@@ -134,6 +134,15 @@ serve(async (req) => {
     }
 
     if (!payer) {
+      await writeAccessLog(sb, {
+        action: "SEARCH",
+        cpf_digits: cpf,
+        reference_month: referenceMonth || null,
+        student_name: null,
+        found_count: 0,
+        user_agent: userAgent || null,
+        request_id: requestId,
+      });
       return json(404, { ok: false, error: "CPF nao encontrado no cadastro", requestId });
     }
 
