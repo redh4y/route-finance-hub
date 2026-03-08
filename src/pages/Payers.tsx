@@ -391,25 +391,74 @@ export default function Payers() {
                     <span className="text-sm text-muted-foreground">
                       {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} de {totalCount}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1}
+                        onClick={() => setPage(1)}
+                      >
+                        «
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
                         disabled={page <= 1}
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
                       >
-                        Anterior
+                        ‹
                       </Button>
-                      <span className="text-sm text-muted-foreground">
-                        {page} / {totalPages}
-                      </span>
+                      {(() => {
+                        const pages: (number | string)[] = [];
+                        const maxVisible = 5;
+                        let start = Math.max(1, page - Math.floor(maxVisible / 2));
+                        let end = Math.min(totalPages, start + maxVisible - 1);
+                        if (end - start + 1 < maxVisible) {
+                          start = Math.max(1, end - maxVisible + 1);
+                        }
+                        if (start > 1) {
+                          pages.push(1);
+                          if (start > 2) pages.push("...");
+                        }
+                        for (let i = start; i <= end; i++) {
+                          if (i !== 1 && i !== totalPages) pages.push(i);
+                          else if (!pages.includes(i)) pages.push(i);
+                        }
+                        if (end < totalPages) {
+                          if (end < totalPages - 1) pages.push("...");
+                          if (!pages.includes(totalPages)) pages.push(totalPages);
+                        }
+                        return pages.map((p, idx) =>
+                          typeof p === "string" ? (
+                            <span key={`ellipsis-${idx}`} className="px-1 text-sm text-muted-foreground">…</span>
+                          ) : (
+                            <Button
+                              key={p}
+                              variant={p === page ? "default" : "outline"}
+                              size="sm"
+                              className="min-w-[2rem]"
+                              onClick={() => setPage(p)}
+                            >
+                              {p}
+                            </Button>
+                          )
+                        );
+                      })()}
                       <Button
                         variant="outline"
                         size="sm"
                         disabled={page >= totalPages}
                         onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                       >
-                        Próxima
+                        ›
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage(totalPages)}
+                      >
+                        »
                       </Button>
                     </div>
                   </div>
