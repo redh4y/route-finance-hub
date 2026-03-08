@@ -195,9 +195,15 @@ export function getBillingReferenceMonth(
   return `${year}-${String(month).padStart(2, "0")}`;
 }
 
-// Parse CSV file
+// Detect if a string has garbled UTF-8 (replacement chars or typical Latin-1→UTF-8 artifacts)
+function hasGarbledEncoding(text: string): boolean {
+  return /\uFFFD/.test(text) || /Ã[£¡â©ª§]/i.test(text);
+}
+
+// Parse CSV file with encoding auto-detection (tries UTF-8 first, falls back to Latin-1)
 export function parseCSV<T>(file: File): Promise<T[]> {
   return new Promise((resolve, reject) => {
+    // First try UTF-8
     Papa.parse<T>(file, {
       header: true,
       skipEmptyLines: true,
@@ -206,7 +212,23 @@ export function parseCSV<T>(file: File): Promise<T[]> {
         if (results.errors.length > 0) {
           console.warn("CSV parse warnings:", results.errors);
         }
-        resolve(results.data);
+        // Check if encoding looks garbled
+        const sample = JSON.stringify(results.data.slice(0, 5));
+        if (hasGarbledEncoding(sample)) {
+          console.log("Detected garbled UTF-8, retrying with Latin-1...");
+          // Re-parse with Latin-1
+          Papa.parse<T>(file, {
+            header: true,
+            skipEmptyLines: true,
+            encoding: "ISO-8859-1",
+            complete: (latin1Results) => {
+              resolve(latin1Results.data);
+            },
+            error: (err) => reject(err),
+          });
+        } else {
+          resolve(results.data);
+        }
       },
       error: (error) => {
         reject(error);
