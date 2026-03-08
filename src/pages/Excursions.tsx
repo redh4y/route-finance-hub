@@ -338,6 +338,21 @@ export default function Excursions() {
                               <TooltipContent>Ver detalhes</TooltipContent>
                             </Tooltip>
 
+                            {/* Delete */}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  onClick={() => setDeleteTarget({ id: exc.id, name: exc.name })}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Excluir</TooltipContent>
+                            </Tooltip>
+
                             {/* More actions dropdown */}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -391,14 +406,6 @@ export default function Excursions() {
                                     </DropdownMenuItem>
                                   </>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => setDeleteTarget({ id: exc.id, name: exc.name })}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                  Excluir Excursão
-                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
