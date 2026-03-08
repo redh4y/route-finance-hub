@@ -836,6 +836,7 @@ export function useOptimizedImportCEPs() {
   const mutation = useMutation({
     mutationFn: async (file: File): Promise<ImportResult> => {
       const rows = await parseCSV<CEPCSVRow>(file);
+      const runId = crypto.randomUUID();
       const result: ImportResult = {
         total: rows.length,
         success: 0,
@@ -850,6 +851,7 @@ export function useOptimizedImportCEPs() {
           type: "CEPS",
           total_rows: rows.length,
           status: "PROCESSING",
+          run_id: runId,
         })
         .select("id")
         .single();
