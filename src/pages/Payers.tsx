@@ -80,6 +80,8 @@ export default function Payers() {
   const [selectedPayerId, setSelectedPayerId] = useState<string | null>(null);
   const [editPayerId, setEditPayerId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newPayer, setNewPayer] = useState({
