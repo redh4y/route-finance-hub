@@ -116,6 +116,7 @@ export function usePayersStats() {
         { count: inactive },
         { count: review },
         { count: uncatalogued },
+        { count: invalidCpf },
       ] = await Promise.all([
         supabase.from("payers").select("id", { count: "exact", head: true }),
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("status", "ATIVO"),
