@@ -1411,6 +1411,57 @@ function ImportCEPsCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const { importCEPs, isImporting, progress, reset } = useOptimizedImportCEPs();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [bairroFilter, setBairroFilter] = useState("");
+
+  const { data: cepsCount } = useQuery({
+    queryKey: ["ceps-count"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("ceps")
+        .select("*", { count: "exact", head: true });
+      if (error) throw error;
+      return count || 0;
+    },
+  });
+
+  const { data: bairros } = useQuery({
+    queryKey: ["ceps-bairros"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ceps")
+        .select("bairro")
+        .not("bairro", "is", null)
+        .order("bairro");
+      if (error) throw error;
+      const unique = [...new Set((data || []).map((r) => r.bairro).filter(Boolean))];
+      return unique as string[];
+    },
+  });
+
+  const { data: cepsList, isLoading: isLoadingCeps } = useQuery({
+    queryKey: ["ceps-list", searchTerm, bairroFilter],
+    queryFn: async () => {
+      let q = supabase
+        .from("ceps")
+        .select("*")
+        .order("bairro", { ascending: true })
+        .order("logradouro", { ascending: true })
+        .limit(200);
+
+      if (searchTerm.trim()) {
+        const term = `%${searchTerm.trim()}%`;
+        q = q.or(`logradouro.ilike.${term},cep.ilike.${term}`);
+      }
+      if (bairroFilter) {
+        q = q.eq("bairro", bairroFilter);
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -1443,60 +1494,145 @@ function ImportCEPsCard() {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Importar CEPs
+            </CardTitle>
+            <CardDescription>
+              Importe base de CEPs para lookup de endereços
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <DropZone
+              file={file}
+              isDragging={isDragging}
+              isImporting={isImporting}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              onFileChange={handleFileChange}
+            />
+
+            {isImporting && <ProgressBar progress={progress} />}
+
+            <div className="flex gap-2">
+              {file && (
+                <Button variant="ghost" onClick={handleClear} disabled={isImporting}>
+                  <X className="h-4 w-4 mr-2" />
+                  Limpar
+                </Button>
+              )}
+              <Button onClick={handleImport} disabled={!file || isImporting} className="ml-auto">
+                {isImporting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Importando...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Importar
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <FieldsCard
+          title="Campos Esperados"
+          description="O arquivo CSV deve conter os seguintes campos"
+          fields={["CEP", "Logradouro", "Bairro", "Cidade + UF (ou Localidade ex: Guaíra / SP)"]}
+          note="CEPs duplicados serão atualizados com os novos dados. O campo Localidade será separado automaticamente em Cidade e UF."
+        />
+      </div>
+
+      {/* CEPs listing */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MapPin className="h-5 w-5" />
-            Importar CEPs
-          </CardTitle>
-          <CardDescription>
-            Importe base de CEPs para lookup de endereos
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <DropZone
-            file={file}
-            isDragging={isDragging}
-            isImporting={isImporting}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            onFileChange={handleFileChange}
-          />
-
-          {isImporting && <ProgressBar progress={progress} />}
-
-          <div className="flex gap-2">
-            {file && (
-              <Button variant="ghost" onClick={handleClear} disabled={isImporting}>
-                <X className="h-4 w-4 mr-2" />
-                Limpar
-              </Button>
-            )}
-            <Button onClick={handleImport} disabled={!file || isImporting} className="ml-auto">
-              {isImporting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Importando...
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Importar
-                </>
-              )}
-            </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Database className="h-4 w-4" />
+                CEPs Cadastrados
+              </CardTitle>
+              <CardDescription>
+                {cepsCount !== undefined ? `${cepsCount.toLocaleString("pt-BR")} registros no banco` : "Carregando..."}
+              </CardDescription>
+            </div>
           </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por logradouro ou CEP..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm min-w-[180px]"
+              value={bairroFilter}
+              onChange={(e) => setBairroFilter(e.target.value)}
+            >
+              <option value="">Todos os bairros</option>
+              {(bairros || []).map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+
+          {isLoadingCeps ? (
+            <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Carregando...
+            </div>
+          ) : (cepsList || []).length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">
+              Nenhum CEP cadastrado. Importe um arquivo CSV acima.
+            </div>
+          ) : (
+            <>
+              <ScrollArea className="h-[400px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[110px]">CEP</TableHead>
+                      <TableHead>Logradouro</TableHead>
+                      <TableHead>Bairro</TableHead>
+                      <TableHead>Cidade</TableHead>
+                      <TableHead className="w-[50px]">UF</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(cepsList || []).map((c) => (
+                      <TableRow key={c.cep}>
+                        <TableCell className="font-mono text-xs">{c.cep}</TableCell>
+                        <TableCell className="text-xs">{c.logradouro || "—"}</TableCell>
+                        <TableCell className="text-xs">{c.bairro || "—"}</TableCell>
+                        <TableCell className="text-xs">{c.cidade || "—"}</TableCell>
+                        <TableCell className="text-xs">{c.uf || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+              {(cepsList || []).length >= 200 && (
+                <p className="text-xs text-muted-foreground text-center pt-1">
+                  Mostrando 200 registros. Use os filtros para refinar.
+                </p>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
-
-      <FieldsCard
-        title="Campos Esperados"
-        description="O arquivo CSV deve conter os seguintes campos"
-        fields={["CEP", "Logradouro", "Bairro", "Cidade + UF (ou Localidade ex: Guaíra / SP)"]}
-        note="CEPs duplicados serão atualizados com os novos dados. O campo Localidade será separado automaticamente em Cidade e UF."
-      />
     </div>
   );
 }
