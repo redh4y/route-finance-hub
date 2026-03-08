@@ -79,7 +79,34 @@ export default function BoletoAccessLogsPage() {
 
       const { data, error, count } = await query.range(from, to);
       if (error) throw error;
-      return { rows: (data || []) as AccessLog[], count: count || 0 };
+
+      const logs = (data || []) as AccessLog[];
+
+      // Enrich: cross-reference CPFs without student_name against payers table
+      const cpfsWithoutName = Array.from(
+        new Set(logs.filter((r) => !r.student_name).map((r) => r.cpf_digits)),
+      );
+
+      const payerMap = new Map<string, string>();
+
+      if (cpfsWithoutName.length > 0) {
+        const { data: payers } = await supabase
+          .from("payers")
+          .select("document_digits, name")
+          .in("document_digits", cpfsWithoutName);
+
+        for (const p of payers || []) {
+          if (p.document_digits) payerMap.set(p.document_digits, p.name);
+        }
+      }
+
+      const enriched = logs.map((row) => ({
+        ...row,
+        student_name: row.student_name || payerMap.get(row.cpf_digits) || null,
+        _from_payers: !row.student_name && payerMap.has(row.cpf_digits),
+      }));
+
+      return { rows: enriched, count: count || 0 };
     },
   });
 
