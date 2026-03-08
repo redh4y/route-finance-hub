@@ -1526,26 +1526,26 @@ function ImportHistoryCard() {
       let deletedCount = 0;
 
       if (type === "PAYERS") {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase
           .from("payers")
-          .delete()
+          .delete() as any)
           .eq("run_id", runId)
           .select("id");
         if (error) throw error;
         deletedCount = data?.length || 0;
       } else if (type === "BILLINGS") {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase
           .from("billings")
-          .delete()
+          .delete() as any)
           .eq("run_id", runId)
           .select("id");
         if (error) throw error;
         deletedCount = data?.length || 0;
       } else if (type === "INVOICE") {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase
           .from("financial_entries")
-          .delete()
-          .eq("run_id" as any, runId)
+          .delete() as any)
+          .eq("run_id", runId)
           .select("id");
         if (error) throw error;
         deletedCount = data?.length || 0;
