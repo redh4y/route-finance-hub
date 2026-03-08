@@ -288,9 +288,9 @@ export default function Cards() {
                               <span>Final {card.card_last4}</span>
                             </>
                           )}
-                          <span>?</span>
+                          <span>·</span>
                           <span>Fech: {card.closing_day ?? "-"}</span>
-                          <span>?</span>
+                          <span>·</span>
                           <span>Venc: {card.due_day ?? "-"}</span>
                         </div>
                       </div>
