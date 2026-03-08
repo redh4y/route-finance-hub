@@ -258,7 +258,7 @@ export default function AddressMatch() {
   }, [payersData, waContacts, phoneCol, nameCol]);
 
   // ── Run match (chunked) ──
-  const BATCH_SIZE = 15;
+  const BATCH_SIZE = 5;
 
   const runMatch = async () => {
     if (payersData.length === 0) {
