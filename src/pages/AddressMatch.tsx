@@ -425,7 +425,7 @@ export default function AddressMatch() {
 
   // ── Import contacts to DB ──
   const importContactsToDb = async () => {
-    if (waContacts.length === 0) return;
+    if (waRawContacts.length === 0) return;
     setIsSavingContacts(true);
     try {
       const PROVIDER_ID = "e5fcf8c4-999c-489f-aff1-cdbad051186a";
