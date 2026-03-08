@@ -317,31 +317,11 @@ export default function FinancialRevenue() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
 
-  const filteredBillings = useMemo(() => {
-    if (!billings) return []
-    if (!statusFilter) return billings
-    return billings.filter(b => b.status === statusFilter)
-  }, [billings, statusFilter])
-
-  // Calculate totals
-  const expectedRevenue =
-    billings
-      ?.filter(b => b.status !== 'CANCELADO')
-      .reduce((sum, b) => sum + b.amount_expected_cents, 0) || 0
-  const paidBillings =
-    billings
-      ?.filter(b => b.status === 'PAID')
-      .reduce(
-        (sum, b) => sum + (b.amount_paid_cents || b.amount_expected_cents),
-        0
-      ) || 0
-  const manualRevenue =
-    entries?.reduce((sum, e) => sum + e.amount_cents, 0) || 0
-  const actualRevenue = paidBillings + manualRevenue
-  const pendingRevenue =
-    billings
-      ?.filter(b => b.status === 'OPEN')
-      .reduce((sum, b) => sum + b.amount_expected_cents, 0) || 0
+  // Totals from server-side summary (handles >1000 rows)
+  const expectedRevenue = billingSummary?.expectedRevenue || 0
+  const manualRevenue = entries.reduce((sum, e) => sum + e.amount_cents, 0)
+  const actualRevenue = (billingSummary?.paidRevenue || 0) + manualRevenue
+  const pendingRevenue = billingSummary?.pendingRevenue || 0
 
   return (
     <MainLayout>
