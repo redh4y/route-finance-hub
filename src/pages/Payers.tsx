@@ -180,7 +180,7 @@ export default function Payers() {
   return (
     <MainLayout>
       <PageTransition>
-        <div className="space-y-4 sm:space-y-6">
+        <div className="space-y-4 sm:space-y-6 overflow-hidden">
           {/* ── Header ── */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -196,7 +196,7 @@ export default function Payers() {
           </div>
 
           {/* ── Stats row (scrollable on mobile) ── */}
-          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
             {QUICK_FILTERS.map((filter) => {
               const isSelected = quickFilter === filter.key;
               const count = filterCount(filter.key);
