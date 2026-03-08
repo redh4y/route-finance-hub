@@ -776,11 +776,11 @@ export default function FinancialExpenses() {
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>
-                        Limpar todos os dados de sa?das?
+                        Limpar todos os dados de saídas?
                       </DialogTitle>
                       <DialogDescription>
-                        Esta a??o remove todos os lan?amentos de custos e
-                        despesas. N?o pode ser desfeita.
+                        Esta ação remove todos os lançamentos de custos e
+                        despesas. Não pode ser desfeita.
                       </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>

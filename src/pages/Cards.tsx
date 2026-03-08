@@ -188,8 +188,8 @@ export default function Cards() {
     <MainLayout>
       <PageTransition>
       <div className="page-header">
-        <h1 className="page-title">Cart?es</h1>
-        <p className="page-subtitle">Cadastre os cart?es para importa??o de faturas</p>
+        <h1 className="page-title">Cartões</h1>
+        <p className="page-subtitle">Cadastre os cartões para importação de faturas</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -248,7 +248,7 @@ export default function Cards() {
               <div>
                 <p className="text-sm font-medium">Ativo</p>
                 <p className="text-xs text-muted-foreground">
-                  Dispon?vel para importa??o
+                  Disponível para importação
                 </p>
               </div>
               <Switch checked={active} onCheckedChange={setActive} />
@@ -288,9 +288,9 @@ export default function Cards() {
                               <span>Final {card.card_last4}</span>
                             </>
                           )}
-                          <span>?</span>
+                          <span>·</span>
                           <span>Fech: {card.closing_day ?? "-"}</span>
-                          <span>?</span>
+                          <span>·</span>
                           <span>Venc: {card.due_day ?? "-"}</span>
                         </div>
                       </div>
@@ -353,7 +353,7 @@ export default function Cards() {
                         <TableHead>Fechamento</TableHead>
                         <TableHead>Vencimento</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="w-[70px]">A??es</TableHead>
+                        <TableHead className="w-[70px]">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

@@ -1020,9 +1020,9 @@ function ImportBillingsCard() {
           <CardHeader>
             <div className="flex flex-wrap items-center gap-2 justify-between">
               <div>
-                <CardTitle className="text-lg">Preview comparativo (sem grava??o)</CardTitle>
+                <CardTitle className="text-lg">Preview comparativo (sem gravação)</CardTitle>
                 <CardDescription>
-                  Compare com a base atual antes de confirmar a importa??o.
+                  Compare com a base atual antes de confirmar a importação.
                 </CardDescription>
               </div>
               <Select value={previewFilter} onValueChange={(v) => setPreviewFilter(v as "ALL" | BillingPreviewType)}>
@@ -1060,7 +1060,7 @@ function ImportBillingsCard() {
                     <th className="text-left p-2">Venc.</th>
                     <th className="text-left p-2">Nosso numero</th>
                     <th className="text-left p-2">Valor</th>
-                    <th className="text-left p-2">Observa??o</th>
+                    <th className="text-left p-2">Observação</th>
                   </tr>
                 </thead>
                 <tbody>

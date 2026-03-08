@@ -306,7 +306,7 @@ export default function FinancialRevenue() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="page-title">Entradas</h1>
-              <p className="page-subtitle">Receitas e cobran??as</p>
+              <p className="page-subtitle">Receitas e cobranças</p>
             </div>
             <div className="flex items-center gap-3">
               {statusFilter && (
@@ -491,7 +491,7 @@ export default function FinancialRevenue() {
               <div className="space-y-2">
                 <Label>Descrição</Label>
                 <Textarea
-                  placeholder="Descri??o da receita..."
+                  placeholder="Descrição da receita..."
                   value={description}
                   onChange={e => setDescription(e.target.value)}
                 />
