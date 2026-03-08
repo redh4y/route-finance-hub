@@ -510,6 +510,7 @@ export default function AddressMatch() {
         return {
           ...r,
           wa_encontrado: pm?.wa_found ? "SIM" : "NÃO",
+          wa_match_via: pm?.match_type || "",
           wa_nome_salvo: pm?.wa_saved_name || "",
           wa_nome_publico: pm?.wa_public_name || "",
           wa_telefone: pm?.wa_phone || "",
