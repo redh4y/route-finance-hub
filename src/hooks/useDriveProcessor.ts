@@ -60,7 +60,7 @@ function parseCredentialsJson(raw: string): GoogleCredentials {
 }
 
 function getRedirectUri() {
-  return window.location.origin + "/boletos-links";
+  return window.location.origin + "/oauth/callback";
 }
 
 async function exchangeCodeForTokens(
@@ -194,43 +194,47 @@ export function useDriveProcessor() {
     }
   }, [credentials]);
 
-  // Handle OAuth callback code from URL
+  // Handle OAuth code received from popup via postMessage
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
-    if (!code || !credentials) return;
+    const handler = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (!credentials) return;
 
-    // Clean URL
-    url.searchParams.delete("code");
-    url.searchParams.delete("scope");
-    window.history.replaceState({}, "", url.pathname + url.search);
+      if (event.data?.type === "google-oauth-code") {
+        const code = event.data.code as string;
+        setOauthStatus("connecting");
+        try {
+          const tokens = await exchangeCodeForTokens(credentials, code);
+          setAccessToken(tokens.access_token);
+          setRefreshToken(tokens.refresh_token || "");
+          const expiresAt = Date.now() + tokens.expires_in * 1000;
+          setTokenExpiresAt(expiresAt);
+          localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token || "",
+            expires_at: expiresAt,
+          }));
 
-    setOauthStatus("connecting");
-    exchangeCodeForTokens(credentials, code)
-      .then(async (tokens) => {
-        setAccessToken(tokens.access_token);
-        setRefreshToken(tokens.refresh_token || "");
-        const expiresAt = Date.now() + tokens.expires_in * 1000;
-        setTokenExpiresAt(expiresAt);
-        localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || "",
-          expires_at: expiresAt,
-        }));
-
-        // Fetch user info
-        const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-          headers: { Authorization: `Bearer ${tokens.access_token}` },
-        });
-        if (res.ok) {
-          const info = await res.json();
-          setConnectedEmail(info.email || null);
+          const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${tokens.access_token}` },
+          });
+          if (res.ok) {
+            const info = await res.json();
+            setConnectedEmail(info.email || null);
+          }
+          setOauthStatus("connected");
+        } catch {
+          setOauthStatus("error");
         }
-        setOauthStatus("connected");
-      })
-      .catch(() => {
+      }
+
+      if (event.data?.type === "google-oauth-error") {
         setOauthStatus("error");
-      });
+      }
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
   }, [credentials]);
 
   const updateCredentialsJson = useCallback((raw: string) => {
@@ -246,6 +250,7 @@ export function useDriveProcessor() {
 
   const startOAuth = useCallback(() => {
     if (!credentials) return;
+    setOauthStatus("connecting");
     const params = new URLSearchParams({
       client_id: credentials.client_id,
       redirect_uri: getRedirectUri(),
@@ -254,7 +259,16 @@ export function useDriveProcessor() {
       access_type: "offline",
       prompt: "consent",
     });
-    window.location.href = `${credentials.auth_uri}?${params.toString()}`;
+    const url = `${credentials.auth_uri}?${params.toString()}`;
+    const w = 500;
+    const h = 600;
+    const left = window.screenX + (window.outerWidth - w) / 2;
+    const top = window.screenY + (window.outerHeight - h) / 2;
+    const popup = window.open(url, "google-oauth", `width=${w},height=${h},left=${left},top=${top}`);
+    if (!popup) {
+      // Fallback: redirect se popup bloqueado
+      window.location.href = url;
+    }
   }, [credentials]);
 
   const disconnect = useCallback(() => {
