@@ -251,7 +251,7 @@ export default function Audit() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const tableOptions = useMemo(() => {
-    return AUDITABLE_TABLES.sort();
+    return [...AUDITABLE_TABLES].sort();
   }, []);
 
   // Reset page when filters change
@@ -267,8 +267,6 @@ export default function Audit() {
     setSearch(v);
     setPage(1);
   };
-
-  return (
     <MainLayout>
       <PageTransition>
         <div className="page-header">
