@@ -49,6 +49,7 @@ export interface PayersFilters {
   route?: string;
   needsReview?: boolean;
   reviewReason?: string;
+  documentValid?: boolean;
   search?: string;
   page?: number;
   pageSize?: number;
