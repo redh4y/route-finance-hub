@@ -170,6 +170,9 @@ export default function AddressMatch() {
   const [isSavingContacts, setIsSavingContacts] = useState(false);
   const [isUpdatingPayers, setIsUpdatingPayers] = useState(false);
   const [updatePayersResult, setUpdatePayersResult] = useState<{ updated: number; created: number; errors: number } | null>(null);
+  const [payerChangesPreview, setPayerChangesPreview] = useState<PayerChangePreview[]>([]);
+  const [showPayerPreviewModal, setShowPayerPreviewModal] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const payersCols = useMemo(() => {
     if (payersData.length === 0) return [];
