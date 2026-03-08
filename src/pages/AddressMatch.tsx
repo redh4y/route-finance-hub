@@ -1222,7 +1222,10 @@ export default function AddressMatch() {
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead>Nome</TableHead>
+                            <TableHead>CPF</TableHead>
                             <TableHead className="min-w-[200px]">Endereço</TableHead>
+                            <TableHead>Telefone</TableHead>
                             <TableHead>Bairro Gate</TableHead>
                             <TableHead>Bairro Score</TableHead>
                             <TableHead>Log. Score</TableHead>
@@ -1235,8 +1238,17 @@ export default function AddressMatch() {
                         <TableBody>
                           {response.results.slice(0, 200).map((r, i) => (
                             <TableRow key={i}>
+                              <TableCell className="text-xs max-w-[150px] truncate">
+                                {String(r[nameCol] || "")}
+                              </TableCell>
+                              <TableCell className="text-xs font-mono">
+                                {String(r[docCol] || "")}
+                              </TableCell>
                               <TableCell className="text-xs max-w-[250px] truncate">
                                 {String(r.endereco_usado || "")}
+                              </TableCell>
+                              <TableCell className="text-xs font-mono">
+                                {String(r[phoneCol] || "")}
                               </TableCell>
                               <TableCell>
                                 <GateBadge gate={String(r.bairro_gate || "")} />
