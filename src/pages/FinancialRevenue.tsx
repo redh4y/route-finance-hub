@@ -300,6 +300,7 @@ export default function FinancialRevenue() {
   const manualRevenue = entries.reduce((sum, e) => sum + e.amount_cents, 0)
   const actualRevenue = (billingSummary?.paidRevenue || 0) + manualRevenue
   const pendingRevenue = billingSummary?.pendingRevenue || 0
+  const collectionRate = expectedRevenue > 0 ? Math.round((actualRevenue / expectedRevenue) * 100) : 0
 
   return (
     <MainLayout>
