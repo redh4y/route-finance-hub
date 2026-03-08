@@ -5,13 +5,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useExcursions, useUpdateExcursion } from "@/hooks/useExcursions";
+import { useExcursions, useUpdateExcursion, useDeleteExcursion } from "@/hooks/useExcursions";
 import { formatCurrency } from "@/lib/formatters";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Plus, Bus, MapPin, Calendar, Users, Search, Ticket, TrendingUp,
   ShoppingBag, Eye, Play, Pause, Copy, ExternalLink, MoreHorizontal,
-  Edit, XCircle, CheckCircle2, Link2
+  Edit, XCircle, CheckCircle2, Link2, Trash2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -20,6 +20,10 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; bg: string }> = {
@@ -43,10 +47,12 @@ const filterTabs: { value: StatusFilter; label: string }[] = [
 
 export default function Excursions() {
   const { data: excursions, isLoading } = useExcursions();
+  const deleteExcursion = useDeleteExcursion();
   const updateExcursion = useUpdateExcursion();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const isMobile = useIsMobile();
 
   const all = excursions || [];
@@ -385,6 +391,14 @@ export default function Excursions() {
                                     </DropdownMenuItem>
                                   </>
                                 )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => setDeleteTarget({ id: exc.id, name: exc.name })}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                  Excluir Excursão
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
@@ -400,6 +414,31 @@ export default function Excursions() {
             </p>
           </>
         )}
+
+        <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir excursão?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir <strong>{deleteTarget?.name}</strong>? Esta ação não pode ser desfeita e todos os assentos vinculados serão removidos.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (deleteTarget) {
+                    deleteExcursion.mutate(deleteTarget.id);
+                    setDeleteTarget(null);
+                  }
+                }}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </PageTransition>
     </MainLayout>
   );

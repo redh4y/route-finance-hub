@@ -193,6 +193,23 @@ export function useUpdateExcursion() {
   });
 }
 
+export function useDeleteExcursion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // Delete related seats first
+      await supabase.from("excursion_seats").delete().eq("excursion_id", id);
+      const { error } = await supabase.from("excursions").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["excursions"] });
+      toast.success("Excursão excluída");
+    },
+    onError: (e) => toast.error(`Erro ao excluir: ${e.message}`),
+  });
+}
+
 export function useSellTicket() {
   const queryClient = useQueryClient();
   return useMutation({
