@@ -15,8 +15,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { PageTransition } from "@/components/ui/page-transition";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs } from "@/hooks/useOptimizedImport";
 import { useInvoiceImport } from "@/hooks/useInvoiceImport";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,10 +44,13 @@ import {
   Loader2,
   X,
   FileWarning,
+  History,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
 import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow } from "@/lib/csv-import";
+import { format } from "date-fns";
 
 
 
@@ -379,6 +393,10 @@ export default function Import() {
               <MapPin className="h-4 w-4" />
               CEPs
             </TabsTrigger>
+            <TabsTrigger value="historico" className="gap-2">
+              <History className="h-4 w-4" />
+              Histórico
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pagadores">
@@ -395,6 +413,10 @@ export default function Import() {
 
           <TabsContent value="ceps">
             <ImportCEPsCard />
+          </TabsContent>
+
+          <TabsContent value="historico">
+            <ImportHistoryCard />
           </TabsContent>
         </Tabs>
       </PageTransition>
@@ -1476,6 +1498,212 @@ function ImportCEPsCard() {
         note="CEPs duplicados sero atualizados com os novos dados."
       />
     </div>
+  );
+}
+
+function ImportHistoryCard() {
+  const queryClient = useQueryClient();
+
+  const { data: logs, isLoading } = useQuery({
+    queryKey: ["import-logs"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("import_logs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const rollbackMutation = useMutation({
+    mutationFn: async (log: any) => {
+      const runId = log.run_id;
+      if (!runId) throw new Error("Importação sem run_id — não é possível reverter.");
+
+      const type = log.type as string;
+      let deletedCount = 0;
+
+      if (type === "PAYERS") {
+        const { data, error } = await (supabase
+          .from("payers")
+          .delete() as any)
+          .eq("run_id", runId)
+          .select("id");
+        if (error) throw error;
+        deletedCount = data?.length || 0;
+      } else if (type === "BILLINGS") {
+        const { data, error } = await (supabase
+          .from("billings")
+          .delete() as any)
+          .eq("run_id", runId)
+          .select("id");
+        if (error) throw error;
+        deletedCount = data?.length || 0;
+      } else if (type === "INVOICE") {
+        const { data, error } = await (supabase
+          .from("financial_entries")
+          .delete() as any)
+          .eq("run_id", runId)
+          .select("id");
+        if (error) throw error;
+        deletedCount = data?.length || 0;
+      } else {
+        throw new Error(`Rollback não suportado para tipo: ${type}`);
+      }
+
+      // Mark import log as rolled back
+      await supabase
+        .from("import_logs")
+        .update({ status: "ROLLED_BACK" } as any)
+        .eq("id", log.id);
+
+      return { deletedCount, type };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["billings"] });
+      queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
+      toast.success(`Rollback concluído: ${result.deletedCount} registros removidos.`);
+    },
+    onError: (error) => {
+      toast.error(`Erro no rollback: ${error.message}`);
+    },
+  });
+
+  const typeLabels: Record<string, string> = {
+    PAYERS: "Pagadores",
+    BILLINGS: "Boletos",
+    INVOICE: "Faturas",
+    CEPS: "CEPs",
+  };
+
+  const statusColors: Record<string, string> = {
+    COMPLETED: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
+    FAILED: "bg-destructive/10 text-destructive border-destructive/20",
+    PROCESSING: "bg-amber-500/10 text-amber-700 border-amber-500/20",
+    ROLLED_BACK: "bg-muted text-muted-foreground border-border",
+    PENDING: "bg-muted text-muted-foreground border-border",
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-5 w-5" />
+          Histórico de Importações
+        </CardTitle>
+        <CardDescription>
+          Visualize importações anteriores e reverta lotes com problemas
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : !logs?.length ? (
+          <div className="text-center py-12 text-muted-foreground">
+            Nenhuma importação registrada.
+          </div>
+        ) : (
+          <div className="rounded border overflow-auto max-h-[600px]">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Arquivo</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">OK</TableHead>
+                  <TableHead className="text-right">Erros</TableHead>
+                  <TableHead>Diff</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {logs.map((log: any) => {
+                  const diff = log.diff_summary as Record<string, number> | null;
+                  const canRollback = log.run_id && log.status === "COMPLETED" && log.type !== "CEPS";
+
+                  return (
+                    <TableRow key={log.id}>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {format(new Date(log.created_at), "dd/MM/yy HH:mm")}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{typeLabels[log.type] || log.type}</Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate text-xs" title={log.file_name}>
+                        {log.file_name}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={statusColors[log.status] || ""}>
+                          {log.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">{log.total_rows}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{log.success_rows}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{log.error_rows}</TableCell>
+                      <TableCell className="text-xs">
+                        {diff ? (
+                          <span className="text-muted-foreground">
+                            {Object.entries(diff).map(([k, v]) => `${k}: ${v}`).join(", ")}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {canRollback ? (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                disabled={rollbackMutation.isPending}
+                              >
+                                <Undo2 className="h-4 w-4 mr-1" />
+                                Reverter
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Reverter importação?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Todos os registros criados neste lote ({log.success_rows} registros de {typeLabels[log.type] || log.type}) serão removidos permanentemente. Esta ação não pode ser desfeita.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => rollbackMutation.mutate(log)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Confirmar Rollback
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        ) : log.status === "ROLLED_BACK" ? (
+                          <span className="text-xs text-muted-foreground">Revertido</span>
+                        ) : !log.run_id ? (
+                          <span className="text-xs text-muted-foreground" title="Sem run_id">—</span>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

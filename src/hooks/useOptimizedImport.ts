@@ -140,6 +140,7 @@ export function useOptimizedImportPayers() {
   const mutation = useMutation({
     mutationFn: async (file: File): Promise<ImportResult> => {
       const rows = await parseCSV<PayerCSVRow>(file);
+      const runId = crypto.randomUUID();
       const result: ImportResult = {
         total: rows.length,
         success: 0,
@@ -147,7 +148,7 @@ export function useOptimizedImportPayers() {
         errorDetails: [],
       };
 
-      // Create import log (fire and forget)
+      // Create import log with run_id
       const logPromise = supabase
         .from("import_logs")
         .insert({
@@ -155,6 +156,7 @@ export function useOptimizedImportPayers() {
           type: "PAYERS",
           total_rows: rows.length,
           status: "PROCESSING",
+          run_id: runId,
         })
         .select("id")
         .single();
@@ -232,7 +234,7 @@ export function useOptimizedImportPayers() {
           }
 
           const targetId = docId || codeId || item.payer.id;
-          return { ...item, payer: { ...item.payer, id: targetId } };
+          return { ...item, payer: { ...item.payer, id: targetId, run_id: runId } };
         })
         .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
 
@@ -294,6 +296,14 @@ export function useOptimizedImportPayers() {
         setProgress(Math.round(((batchIdx + 1) / totalBatches) * 100));
       }
 
+      // Build diff summary
+      const diffSummary = {
+        inserted: resolvedTransformed.filter((t) => !candidatePayers.some((p: any) => p.id === t.payer.id)).length,
+        updated: resolvedTransformed.filter((t) => candidatePayers.some((p: any) => p.id === t.payer.id)).length,
+        skipped: droppedDuplicates,
+        errors: result.errors,
+      };
+
       // Update import log
       const { data: importLog } = await logPromise;
       if (importLog?.id) {
@@ -304,8 +314,9 @@ export function useOptimizedImportPayers() {
             processed_rows: result.total,
             success_rows: result.success,
             error_rows: result.errors,
-            errors: result.errorDetails.slice(0, 100), // Limit error details
+            errors: result.errorDetails.slice(0, 100),
             completed_at: new Date().toISOString(),
+            diff_summary: diffSummary,
           })
           .eq("id", importLog.id);
       }
@@ -314,9 +325,10 @@ export function useOptimizedImportPayers() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
 
       if (result.errors > 0) {
-        toast.warning(`Importa??o: ${result.success} OK, ${result.errors} erros`);
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
       } else {
         toast.success(`${result.success} pagadores importados!`);
       }
@@ -342,6 +354,7 @@ export function useOptimizedImportBillings() {
   const mutation = useMutation({
     mutationFn: async (file: File): Promise<ImportResult & { referenceMonth: string | null }> => {
       const rows = await parseCSV<BillingCSVRow>(file);
+      const runId = crypto.randomUUID();
       const result: ImportResult & { referenceMonth: string | null } = {
         total: rows.length,
         success: 0,
@@ -350,7 +363,7 @@ export function useOptimizedImportBillings() {
         referenceMonth: null,
       };
 
-      // Create import log
+      // Create import log with run_id
       const logPromise = supabase
         .from("import_logs")
         .insert({
@@ -358,6 +371,7 @@ export function useOptimizedImportBillings() {
           type: "BILLINGS",
           total_rows: rows.length,
           status: "PROCESSING",
+          run_id: runId,
         })
         .select("id")
         .single();
@@ -592,6 +606,7 @@ export function useOptimizedImportBillings() {
           source: billing.source,
           route: billing.route,
           source_file_name: file.name,
+          run_id: runId,
         };
 
         const registerPlannedUpdate = (targetId: string, status: string) => {
@@ -754,6 +769,15 @@ export function useOptimizedImportBillings() {
         await deactivatePayersNotInImport(result.referenceMonth, payerIdsInImport);
       }
 
+      // Build diff summary
+      const diffSummary = {
+        new_billings: newBillings.length,
+        updated_billings: updateBillings.length,
+        new_payers: payersToCreate.length,
+        payer_updates: payerUpdates.size,
+        errors: result.errors,
+      };
+
       // Update import log
       const { data: importLog } = await logPromise;
       if (importLog?.id) {
@@ -766,6 +790,7 @@ export function useOptimizedImportBillings() {
             error_rows: result.errors,
             errors: result.errorDetails.slice(0, 100),
             completed_at: new Date().toISOString(),
+            diff_summary: diffSummary,
           })
           .eq("id", importLog.id);
       }
@@ -777,14 +802,15 @@ export function useOptimizedImportBillings() {
       queryClient.invalidateQueries({ queryKey: ["billings"] });
       queryClient.invalidateQueries({ queryKey: ["payers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
 
       const payerSummary =
         typeof result.payerUpdatesChanged === "number" && typeof result.payerUpdatesUnchanged === "number"
-          ? ` Pagadores alterados: ${result.payerUpdatesChanged}. Sem mudanca: ${result.payerUpdatesUnchanged}.`
+          ? ` Pagadores alterados: ${result.payerUpdatesChanged}. Sem mudança: ${result.payerUpdatesUnchanged}.`
           : "";
 
       if (result.errors > 0) {
-        toast.warning(`Importacao: ${result.success} OK, ${result.errors} erros.${payerSummary}`);
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros.${payerSummary}`);
       } else {
         toast.success(`${result.success} boletos importados!${payerSummary}`);
       }
@@ -810,6 +836,7 @@ export function useOptimizedImportCEPs() {
   const mutation = useMutation({
     mutationFn: async (file: File): Promise<ImportResult> => {
       const rows = await parseCSV<CEPCSVRow>(file);
+      const runId = crypto.randomUUID();
       const result: ImportResult = {
         total: rows.length,
         success: 0,
@@ -824,6 +851,7 @@ export function useOptimizedImportCEPs() {
           type: "CEPS",
           total_rows: rows.length,
           status: "PROCESSING",
+          run_id: runId,
         })
         .select("id")
         .single();
@@ -872,6 +900,7 @@ export function useOptimizedImportCEPs() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["ceps"] });
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
 
       if (result.errors > 0) {
         toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);

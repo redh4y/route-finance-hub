@@ -168,6 +168,28 @@ export function useInvoiceImport() {
         setProgress(80 + Math.floor((i / finalExpenses.length) * 20));
       }
 
+      // Create import log for this invoice run
+      const { data: importLog } = await supabase
+        .from("import_logs")
+        .insert({
+          file_name: `fatura-${input.cardName || input.cardId}-${input.invoiceMonthOverride}`,
+          type: "INVOICE",
+          total_rows: input.parsedLines.length,
+          status: "COMPLETED",
+          run_id: runId,
+          processed_rows: input.parsedLines.length,
+          success_rows: expenses.length,
+          error_rows: 0,
+          completed_at: new Date().toISOString(),
+          diff_summary: {
+            contracts: contracts.length,
+            expenses: expenses.length,
+            parsed: input.parsedLines.length,
+          },
+        })
+        .select("id")
+        .single();
+
       setProgress(100);
 
       return {
@@ -179,6 +201,7 @@ export function useInvoiceImport() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["financial-entries"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
       toast.success(`Importação OK: ${result.expenses} parcelas, ${result.contracts} contratos`);
       setProgress(0);
     },
