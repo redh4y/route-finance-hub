@@ -371,16 +371,40 @@ export default function ExcursionForm() {
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="boarding">Local de embarque</Label>
-                      <div className="relative">
-                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="boarding"
-                          value={boardingLocation}
-                          onChange={(e) => setBoardingLocation(e.target.value)}
-                          placeholder="Endereço ou ponto de referência"
-                          className="pl-9 h-11"
-                        />
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            id="boarding"
+                            value={boardingLocation}
+                            onChange={(e) => setBoardingLocation(e.target.value)}
+                            placeholder="Endereço ou ponto de referência"
+                            className="pl-9 h-11"
+                          />
+                        </div>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-11 w-11 shrink-0"
+                                onClick={() => {
+                                  const query = boardingLocation.trim() || "local de embarque";
+                                  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, "_blank");
+                                }}
+                              >
+                                <MapPin className="h-4 w-4 text-primary" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Buscar no Google Maps</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Digite o endereço e clique no ícone do mapa para confirmar a localização
+                      </p>
                     </div>
 
                     <Separator />
