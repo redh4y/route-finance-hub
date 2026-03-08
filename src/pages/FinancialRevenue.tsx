@@ -32,9 +32,10 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge, mapBillingStatus } from '@/components/ui/status-badge'
-import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { Progress } from '@/components/ui/progress'
 
 interface Billing {
   id: string
