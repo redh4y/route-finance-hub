@@ -354,6 +354,7 @@ export function useOptimizedImportBillings() {
   const mutation = useMutation({
     mutationFn: async (file: File): Promise<ImportResult & { referenceMonth: string | null }> => {
       const rows = await parseCSV<BillingCSVRow>(file);
+      const runId = crypto.randomUUID();
       const result: ImportResult & { referenceMonth: string | null } = {
         total: rows.length,
         success: 0,
@@ -362,7 +363,7 @@ export function useOptimizedImportBillings() {
         referenceMonth: null,
       };
 
-      // Create import log
+      // Create import log with run_id
       const logPromise = supabase
         .from("import_logs")
         .insert({
@@ -370,6 +371,7 @@ export function useOptimizedImportBillings() {
           type: "BILLINGS",
           total_rows: rows.length,
           status: "PROCESSING",
+          run_id: runId,
         })
         .select("id")
         .single();
