@@ -576,7 +576,7 @@ export default function AddressMatch() {
         if (matchOk) {
           const street = String(row.matched_logradouro || "");
           const number = String(row.matched_numero || "");
-          const neighborhood = String(row.bairro_candidato || "");
+          const neighborhood = String(row.matched_bairro || row.bairro_candidato || "");
           const cep = String(row.matched_cep || "").replace(/\D/g, "");
           const city = String(row.matched_cidade || "");
           const state = String(row.matched_uf || "");
