@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
@@ -11,9 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle, FileText, Users, Search, Eye } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle, FileText, Users, Search, Eye, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { DriveProcessorTab } from "@/components/boletos/DriveProcessorTab";
 
 type PayerLite = {
   id: string;
@@ -650,9 +652,27 @@ export default function BoletoLinksPage() {
           <div className="page-header">
             <h1 className="page-title">Portal de Boletos</h1>
             <p className="page-subtitle">
-              Importe links de boletos para disponibilizar 2ª via por WhatsApp + CPF.
+              Processe boletos do Drive ou importe links para disponibilizar 2ª via.
             </p>
           </div>
+
+          <Tabs defaultValue="import" className="w-full">
+            <TabsList>
+              <TabsTrigger value="import" className="gap-2">
+                <Upload className="h-4 w-4" />
+                Importar Links
+              </TabsTrigger>
+              <TabsTrigger value="drive" className="gap-2">
+                <HardDrive className="h-4 w-4" />
+                Processar Drive
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="drive" className="mt-4">
+              <DriveProcessorTab />
+            </TabsContent>
+
+            <TabsContent value="import" className="mt-4 space-y-6">
 
           {/* Stats Cards */}
           {lines.length > 0 && (
@@ -943,6 +963,8 @@ export default function BoletoLinksPage() {
               </ScrollArea>
             </CardContent>
           </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </PageTransition>
     </MainLayout>
