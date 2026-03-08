@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useExcursions, useUpdateExcursion } from "@/hooks/useExcursions";
+import { useExcursions, useUpdateExcursion, useDeleteExcursion } from "@/hooks/useExcursions";
 import { formatCurrency } from "@/lib/formatters";
 import { Link, useNavigate } from "react-router-dom";
 import {
