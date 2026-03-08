@@ -316,6 +316,8 @@ export function useDriveProcessor() {
     setResults([]);
     abortRef.current = false;
 
+    const BATCH_SIZE = 5;
+
     try {
       const files = await listFiles();
       setProgress({ current: 0, total: files.length });
@@ -323,45 +325,54 @@ export function useDriveProcessor() {
       const allResults: BoletoResult[] = [];
       const token = await getValidToken();
 
-      for (let i = 0; i < files.length; i++) {
+      // Process in batches of BATCH_SIZE using the process_batch action
+      for (let i = 0; i < files.length; i += BATCH_SIZE) {
         if (abortRef.current) break;
 
+        const batch = files.slice(i, i + BATCH_SIZE);
+
         try {
-          const result = await callEdgeFunction("process_file", {
+          const data = await callEdgeFunction("process_batch", {
             access_token: token,
             folder_id: folderId.trim(),
-            file: files[i],
+            files: batch,
             flags,
+            concurrency: BATCH_SIZE,
           });
 
-          const enriched: BoletoResult = {
-            ...result,
-            drive_folder_id: folderId.trim(),
-            drive_folder_name: folderName,
-          };
-          allResults.push(enriched);
+          const batchResults = (data.results || []) as BoletoResult[];
+          for (const r of batchResults) {
+            allResults.push({
+              ...r,
+              drive_folder_id: folderId.trim(),
+              drive_folder_name: folderName,
+            });
+          }
         } catch (err: any) {
-          allResults.push({
-            read_source: "error",
-            payer_name: "",
-            payer_cpf: "",
-            our_number: "",
-            digitable_line: "",
-            amount: "",
-            due_date: "",
-            original_file_name: files[i].name,
-            final_file_name: files[i].name,
-            file_id: files[i].id,
-            download_link: "",
-            view_link: "",
-            success: false,
-            error: err.message || "Erro desconhecido",
-            drive_folder_id: folderId.trim(),
-            drive_folder_name: folderName,
-          });
+          // Fallback: mark all files in batch as failed
+          for (const file of batch) {
+            allResults.push({
+              read_source: "error",
+              payer_name: "",
+              payer_cpf: "",
+              our_number: "",
+              digitable_line: "",
+              amount: "",
+              due_date: "",
+              original_file_name: file.name,
+              final_file_name: file.name,
+              file_id: file.id,
+              download_link: "",
+              view_link: "",
+              success: false,
+              error: err.message || "Erro desconhecido",
+              drive_folder_id: folderId.trim(),
+              drive_folder_name: folderName,
+            });
+          }
         }
 
-        setProgress({ current: i + 1, total: files.length });
+        setProgress({ current: Math.min(i + BATCH_SIZE, files.length), total: files.length });
         setResults([...allResults]);
       }
 
