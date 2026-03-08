@@ -222,6 +222,7 @@ export type Database = {
           payment_method: string | null
           reference_month: string
           route: string | null
+          run_id: string | null
           settlement_at: string | null
           seu_numero: string | null
           source: string | null
@@ -242,6 +243,7 @@ export type Database = {
           payment_method?: string | null
           reference_month: string
           route?: string | null
+          run_id?: string | null
           settlement_at?: string | null
           seu_numero?: string | null
           source?: string | null
@@ -262,6 +264,7 @@ export type Database = {
           payment_method?: string | null
           reference_month?: string
           route?: string | null
+          run_id?: string | null
           settlement_at?: string | null
           seu_numero?: string | null
           source?: string | null
@@ -642,6 +645,7 @@ export type Database = {
           payer_id: string | null
           payment_method: string | null
           review_reasons: string[]
+          run_id: string | null
           source: string
           status: string | null
           subcategory: string | null
@@ -678,6 +682,7 @@ export type Database = {
           payer_id?: string | null
           payment_method?: string | null
           review_reasons?: string[]
+          run_id?: string | null
           source?: string
           status?: string | null
           subcategory?: string | null
@@ -714,6 +719,7 @@ export type Database = {
           payer_id?: string | null
           payment_method?: string | null
           review_reasons?: string[]
+          run_id?: string | null
           source?: string
           status?: string | null
           subcategory?: string | null
@@ -823,11 +829,13 @@ export type Database = {
         Row: {
           completed_at: string | null
           created_at: string
+          diff_summary: Json | null
           error_rows: number
           errors: Json | null
           file_name: string
           id: string
           processed_rows: number
+          run_id: string | null
           status: string
           success_rows: number
           total_rows: number
@@ -836,11 +844,13 @@ export type Database = {
         Insert: {
           completed_at?: string | null
           created_at?: string
+          diff_summary?: Json | null
           error_rows?: number
           errors?: Json | null
           file_name: string
           id?: string
           processed_rows?: number
+          run_id?: string | null
           status?: string
           success_rows?: number
           total_rows: number
@@ -849,11 +859,13 @@ export type Database = {
         Update: {
           completed_at?: string | null
           created_at?: string
+          diff_summary?: Json | null
           error_rows?: number
           errors?: Json | null
           file_name?: string
           id?: string
           processed_rows?: number
+          run_id?: string | null
           status?: string
           success_rows?: number
           total_rows?: number
@@ -1237,6 +1249,7 @@ export type Database = {
           review_reason: string | null
           review_status: string | null
           route: string | null
+          run_id: string | null
           state: string | null
           status: string
           street: string | null
@@ -1279,6 +1292,7 @@ export type Database = {
           review_reason?: string | null
           review_status?: string | null
           route?: string | null
+          run_id?: string | null
           state?: string | null
           status?: string
           street?: string | null
@@ -1321,6 +1335,7 @@ export type Database = {
           review_reason?: string | null
           review_status?: string | null
           route?: string | null
+          run_id?: string | null
           state?: string | null
           status?: string
           street?: string | null
