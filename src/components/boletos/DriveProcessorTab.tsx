@@ -230,7 +230,7 @@ export function DriveProcessorTab() {
                     size="icon"
                     className="h-5 w-5"
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/boletos-links`);
+                      navigator.clipboard.writeText(`${window.location.origin}/oauth/callback`);
                       toast.success("URI copiada!");
                     }}
                   >
