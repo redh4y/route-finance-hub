@@ -1122,13 +1122,13 @@ export default function AddressMatch() {
                   icon={XCircle}
                   color="text-red-600"
                 />
-                {phoneResults.length > 0 && (
+                {phoneMatchRows.length > 0 && (
                   <SummaryCard
-                    label="Tel. encontrados"
-                    value={phoneSummary.found}
+                    label="Tel. atualizados"
+                    value={phoneSummary.updated}
                     icon={Phone}
                     color="text-emerald-600"
-                    pct={Math.round((phoneSummary.found / Math.max(phoneSummary.total, 1)) * 100)}
+                    pct={Math.round((phoneSummary.updated / Math.max(phoneSummary.total, 1)) * 100)}
                   />
                 )}
               </div>
@@ -1142,10 +1142,10 @@ export default function AddressMatch() {
                 <span>
                   Pesos: token={response.config.token_weight} / seq={response.config.seq_weight}
                 </span>
-                {phoneResults.length > 0 && (
+                {phoneMatchRows.length > 0 && (
                   <span className="flex items-center gap-1">
                     <Phone className="h-3 w-3" />
-                    Contatos WA: {waContacts.length}
+                    Contatos: {waGrouped.length} | Threshold: {phoneThreshold}
                   </span>
                 )}
               </div>
