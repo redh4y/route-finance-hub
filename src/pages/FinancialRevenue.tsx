@@ -35,7 +35,6 @@ import { StatusBadge, mapBillingStatus } from '@/components/ui/status-badge'
 import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useSearchParams } from 'react-router-dom'
-import { useSearchParams } from 'react-router-dom'
 
 interface Billing {
   id: string
