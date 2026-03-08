@@ -753,9 +753,14 @@ export default function FinancialExpenses() {
         <TooltipProvider>
           <div className="page-header">
             <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h1 className="page-title">Saídas</h1>
-                <p className="page-subtitle">Custos e despesas operacionais</p>
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/financeiro')}>
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div>
+                  <h1 className="page-title">Saídas</h1>
+                  <p className="page-subtitle">Custos e despesas operacionais</p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 {reviewCount > 0 && (
