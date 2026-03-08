@@ -204,24 +204,28 @@ serve(async (req) => {
       }
     }
 
-    const items = (links || []).map((row: any) => ({
-      reference_month: row.reference_month,
-      student_name: row.student_name,
-      drive_url: row.drive_url,
-      due_date: row.due_date,
-      amount_cents: row.amount_cents,
-      our_number: row.our_number,
-      digitable_line: row.digitable_line,
-      billing_status: row.our_number
-        ? billingsByOurNumber.get(String(row.our_number).trim())?.status || null
-        : null,
-      public_status: row.our_number
-        ? toPublicBillingStatus(
-            billingsByOurNumber.get(String(row.our_number).trim())?.status || null,
-            row.due_date || null,
-          )
-        : null,
-    }));
+    const items = (links || [])
+      .map((row: any) => {
+        const billingStatus = row.our_number
+          ? billingsByOurNumber.get(String(row.our_number).trim())?.status || null
+          : null;
+        const publicStatus = row.our_number
+          ? toPublicBillingStatus(billingStatus, row.due_date || null)
+          : null;
+
+        return {
+          reference_month: row.reference_month,
+          student_name: row.student_name,
+          drive_url: row.drive_url,
+          due_date: row.due_date,
+          amount_cents: row.amount_cents,
+          our_number: row.our_number,
+          digitable_line: row.digitable_line,
+          billing_status: billingStatus,
+          public_status: publicStatus,
+        };
+      })
+      .filter((row: any) => row.public_status !== "CANCELADO");
 
     await writeAccessLog(sb, {
       action: "SEARCH",
