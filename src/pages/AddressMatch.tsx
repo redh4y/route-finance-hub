@@ -1362,6 +1362,79 @@ export default function AddressMatch() {
             </>
           )}
         </div>
+
+        {/* Modal de preview de alterações */}
+        <Dialog open={showPayerPreviewModal} onOpenChange={setShowPayerPreviewModal}>
+          <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Alterações nos Pagadores</DialogTitle>
+              <DialogDescription>
+                {payerChangesPreview.length === 0
+                  ? "Nenhuma alteração necessária — todos os dados já estão atualizados."
+                  : `${payerChangesPreview.filter(c => !c.is_new).length} atualizações + ${payerChangesPreview.filter(c => c.is_new).length} novos pagadores`}
+              </DialogDescription>
+            </DialogHeader>
+
+            {payerChangesPreview.length > 0 && (
+              <ScrollArea className="flex-1 min-h-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[80px]">Tipo</TableHead>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>CPF</TableHead>
+                      <TableHead>Campo</TableHead>
+                      <TableHead>Valor Atual</TableHead>
+                      <TableHead>Novo Valor</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {payerChangesPreview.map((p, pi) =>
+                      p.changes.map((c, ci) => (
+                        <TableRow key={`${pi}-${ci}`}>
+                          {ci === 0 && (
+                            <>
+                              <TableCell rowSpan={p.changes.length}>
+                                <Badge variant={p.is_new ? "default" : "outline"} className="text-[10px] px-1.5 py-0">
+                                  {p.is_new ? "NOVO" : "ATUALIZAR"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell rowSpan={p.changes.length} className="text-xs font-medium">
+                                {p.payer_name}
+                              </TableCell>
+                              <TableCell rowSpan={p.changes.length} className="text-xs font-mono">
+                                {p.doc_digits}
+                              </TableCell>
+                            </>
+                          )}
+                          <TableCell className="text-xs font-medium">{c.field}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{c.old_value}</TableCell>
+                          <TableCell className="text-xs font-medium text-emerald-600">{c.new_value}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            )}
+
+            <DialogFooter className="gap-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setShowPayerPreviewModal(false)}>
+                Cancelar
+              </Button>
+              {payerChangesPreview.length > 0 && (
+                <Button
+                  onClick={confirmUpdatePayers}
+                  disabled={isUpdatingPayers}
+                  className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                >
+                  <Save className="h-4 w-4" />
+                  {isUpdatingPayers ? "Atualizando..." : `Confirmar ${payerChangesPreview.length} alterações`}
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </PageTransition>
     </MainLayout>
   );
