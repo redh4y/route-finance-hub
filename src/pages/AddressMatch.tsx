@@ -396,10 +396,14 @@ export default function AddressMatch() {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
       // 3. Phone match (client-side)
+      let phoneMatchCount = 0;
+      let phoneMatchTotal = 0;
       if (waContacts.length > 0) {
         toast.loading("Aplicando match de telefones...", { id: "match-progress" });
         const pr = runPhoneMatch();
         setPhoneResults(pr);
+        phoneMatchTotal = pr.length;
+        phoneMatchCount = pr.filter((r) => r.wa_found).length;
       }
 
       // 4. Build summary & diagnostics
