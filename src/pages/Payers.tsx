@@ -83,6 +83,7 @@ export default function Payers() {
   const PAGE_SIZE = 50;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isValidatingCpfs, setIsValidatingCpfs] = useState(false);
   const [newPayer, setNewPayer] = useState({
     name: "",
     document: "",
@@ -91,6 +92,75 @@ export default function Payers() {
     billingMode: "BOLETO",
     status: "ATIVO",
   });
+
+  // ── Bulk CPF validation ──
+  const bulkValidateCpfs = useCallback(async () => {
+    setIsValidatingCpfs(true);
+    try {
+      // Fetch all payers with document_digits in batches
+      const PAGE = 1000;
+      let allPayers: { id: string; document_digits: string | null; document_valid: boolean | null }[] = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("payers")
+          .select("id, document_digits, document_valid")
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (data) allPayers = allPayers.concat(data);
+        hasMore = data?.length === PAGE;
+        from += PAGE;
+      }
+
+      toast.loading(`Validando ${allPayers.length} CPFs...`, { id: "cpf-validate" });
+
+      // Calculate new validity for each
+      let corrected = 0;
+      const BATCH = 50;
+      const toUpdate: { id: string; valid: boolean }[] = [];
+
+      for (const p of allPayers) {
+        const newValid = validateCPF(p.document_digits);
+        if (p.document_valid !== newValid) {
+          toUpdate.push({ id: p.id, valid: newValid });
+        }
+      }
+
+      if (toUpdate.length === 0) {
+        toast.dismiss("cpf-validate");
+        toast.success(`Todos os ${allPayers.length} CPFs já estavam validados corretamente`);
+        setIsValidatingCpfs(false);
+        return;
+      }
+
+      // Update in parallel batches
+      for (let i = 0; i < toUpdate.length; i += BATCH) {
+        const batch = toUpdate.slice(i, i + BATCH);
+        const pct = Math.round(((i + batch.length) / toUpdate.length) * 100);
+        toast.loading(`Atualizando ${i + batch.length}/${toUpdate.length} (${pct}%)...`, { id: "cpf-validate" });
+
+        await Promise.all(
+          batch.map(({ id, valid }) =>
+            supabase.from("payers").update({ document_valid: valid }).eq("id", id)
+          )
+        );
+        corrected += batch.length;
+      }
+
+      toast.dismiss("cpf-validate");
+      toast.success(`Validação concluída: ${corrected} CPFs corrigidos de ${allPayers.length} total`);
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
+    } catch (err: any) {
+      toast.dismiss("cpf-validate");
+      toast.error("Erro ao validar CPFs: " + (err?.message || "falha"));
+      console.error("bulkValidateCpfs error:", err);
+    } finally {
+      setIsValidatingCpfs(false);
+    }
+  }, [queryClient]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
