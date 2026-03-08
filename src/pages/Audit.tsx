@@ -297,7 +297,7 @@ export default function Audit() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={operationFilter} onValueChange={setOperationFilter}>
+              <Select value={operationFilter} onValueChange={handleOperationFilterChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Operação" />
                 </SelectTrigger>
