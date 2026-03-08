@@ -48,8 +48,8 @@ export default function ExcursionForm() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const createExcursion = useCreateExcursion();
-  const { driversQuery } = useDrivers();
-  const drivers = driversQuery?.data?.filter(d => d.status === "ATIVO") || [];
+  const { drivers: allDrivers, isLoading: driversLoading } = useDrivers();
+  const drivers = (allDrivers || []).filter(d => d.status === "ATIVO");
 
   const [activeStep, setActiveStep] = useState<StepKey>("info");
 
