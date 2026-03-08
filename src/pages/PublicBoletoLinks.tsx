@@ -177,18 +177,8 @@ export default function PublicBoletoLinksPage() {
     if (e.key === "Enter" && canSearch && !isLoading) handleSearchBills();
   };
 
-  // Stats
-  const statusCounts = useMemo(() => {
-    const counts = { open: 0, paid: 0, overdue: 0, other: 0 };
-    for (const item of items) {
-      const s = String(item.public_status || "").toUpperCase();
-      if (s === "PAGO") counts.paid++;
-      else if (s === "EM_ABERTO") counts.open++;
-      else if (s === "VENCIDO") counts.overdue++;
-      else counts.other++;
-    }
-    return counts;
-  }, [items]);
+
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -208,18 +198,24 @@ export default function PublicBoletoLinksPage() {
       </div>
 
       <div className="mx-auto max-w-3xl px-4 -mt-6 pb-12 space-y-5">
+        {/* Welcome banner */}
+        {welcomeName && (
+          <div className="flex items-center gap-3 rounded-2xl bg-card shadow-lg border-0 px-5 py-4">
+            <div className="flex items-center justify-center rounded-full bg-emerald-500/15 h-10 w-10 shrink-0">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-base font-semibold">Olá, {welcomeName}!</p>
+              <p className="text-xs text-muted-foreground">
+                {items.length} boleto{items.length !== 1 ? "s" : ""} encontrado{items.length !== 1 ? "s" : ""} para o seu CPF.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Search Card */}
         <Card className="shadow-lg border-0">
-          <CardContent className="pt-6 pb-5 space-y-4">
-            {welcomeName && (
-              <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-4 py-2.5">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                <p className="text-sm font-medium text-emerald-700">
-                  Olá, {welcomeName}!
-                </p>
-              </div>
-            )}
-
+          <CardContent className="pt-6 pb-5">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -255,27 +251,6 @@ export default function PublicBoletoLinksPage() {
           </p>
         </div>
 
-        {/* Stats */}
-        {items.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-xl border bg-card px-4 py-3 text-center">
-              <p className="text-2xl font-bold">{items.length}</p>
-              <p className="text-xs text-muted-foreground">Total</p>
-            </div>
-            <div className="rounded-xl border bg-card px-4 py-3 text-center">
-              <p className="text-2xl font-bold text-amber-600">{statusCounts.open}</p>
-              <p className="text-xs text-muted-foreground">Em aberto</p>
-            </div>
-            <div className="rounded-xl border bg-card px-4 py-3 text-center">
-              <p className="text-2xl font-bold text-destructive">{statusCounts.overdue}</p>
-              <p className="text-xs text-muted-foreground">Vencidos</p>
-            </div>
-            <div className="rounded-xl border bg-card px-4 py-3 text-center">
-              <p className="text-2xl font-bold text-emerald-600">{statusCounts.paid}</p>
-              <p className="text-xs text-muted-foreground">Pagos</p>
-            </div>
-          </div>
-        )}
 
         {/* Results */}
         <Card className="shadow-sm">
