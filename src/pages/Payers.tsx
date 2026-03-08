@@ -474,11 +474,11 @@ function PayerCardMobile({
     <div
       onClick={onClick}
       className={cn(
-        "px-3 py-3 active:bg-muted/60 transition-colors cursor-pointer",
+        "px-3 pr-4 py-3 active:bg-muted/60 transition-colors cursor-pointer",
         isSelected && "bg-primary/5"
       )}
     >
-      {/* Row 1: Avatar + Name + Action button */}
+      {/* Row 1: Avatar + Name + Edit button */}
       <div className="flex items-center gap-2.5">
         <div
           className={cn(
@@ -491,7 +491,9 @@ function PayerCardMobile({
           {payer.name.charAt(0).toUpperCase()}
         </div>
 
-        <span className="font-medium text-sm truncate flex-1 min-w-0">{payer.name}</span>
+        <div className="flex-1 min-w-0">
+          <span className="font-medium text-sm truncate block">{payer.name}</span>
+        </div>
 
         {payer.needs_review && (
           <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -500,18 +502,19 @@ function PayerCardMobile({
           <AlertCircle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
         )}
 
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          className="flex items-center gap-1 pl-2 pr-1 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
           aria-label="Editar"
         >
-          <Edit className="h-3.5 w-3.5" />
-          <ChevronRight className="h-3.5 w-3.5 opacity-40" />
-        </button>
+          <Edit className="h-4 w-4" />
+        </Button>
       </div>
 
       {/* Row 2: CPF + Phone + Badges */}
-      <div className="flex items-center gap-1.5 mt-1 ml-[46px] text-xs text-muted-foreground flex-wrap">
+      <div className="flex items-center gap-1.5 mt-1 ml-[46px] text-xs text-muted-foreground">
         <span className="font-mono">
           {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
         </span>
@@ -525,7 +528,7 @@ function PayerCardMobile({
         <Badge
           variant="outline"
           className={cn(
-            "text-[10px] px-1.5 py-0",
+            "text-[10px] px-1.5 py-0 shrink-0",
             isActive
               ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
               : "text-muted-foreground"
@@ -533,7 +536,7 @@ function PayerCardMobile({
         >
           {isActive ? "Ativo" : "Inativo"}
         </Badge>
-        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
           {payer.billing_mode}
         </Badge>
       </div>
