@@ -434,8 +434,8 @@ export default function AddressMatch() {
       let saved = 0;
       let errors = 0;
 
-      for (let i = 0; i < waContacts.length; i += BATCH_SIZE) {
-        const batch = waContacts.slice(i, i + BATCH_SIZE).map((c) => ({
+      for (let i = 0; i < waRawContacts.length; i += BATCH_SIZE) {
+        const batch = waRawContacts.slice(i, i + BATCH_SIZE).map((c) => ({
           provider_id: PROVIDER_ID,
           instance_name: INSTANCE,
           wa_number: normalizePhone(c.phone_number),
