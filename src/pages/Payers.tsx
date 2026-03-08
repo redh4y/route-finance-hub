@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { usePayers } from "@/hooks/usePayers";
+import { usePayers, usePayersStats, Payer } from "@/hooks/usePayers";
 import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
 import { PageTransition } from "@/components/ui/page-transition";
