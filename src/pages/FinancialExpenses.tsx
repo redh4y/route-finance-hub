@@ -42,9 +42,11 @@ import {
   CheckCircle2,
   Paperclip,
   ExternalLink,
+  ArrowLeft,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
