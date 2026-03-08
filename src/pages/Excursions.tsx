@@ -52,6 +52,7 @@ export default function Excursions() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const isMobile = useIsMobile();
 
   const all = excursions || [];
