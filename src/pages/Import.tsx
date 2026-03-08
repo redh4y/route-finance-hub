@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
