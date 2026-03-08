@@ -227,10 +227,15 @@ serve(async (req) => {
       })
       .filter((row: any) => row.public_status !== "CANCELADO");
 
+    const studentNames = Array.from(
+      new Set(items.map((r: any) => r.student_name).filter(Boolean)),
+    );
+
     await writeAccessLog(sb, {
       action: "SEARCH",
       cpf_digits: cpf,
       reference_month: referenceMonth || null,
+      student_name: studentNames.join(", ") || null,
       found_count: items.length,
       user_agent: userAgent || null,
       request_id: requestId,
