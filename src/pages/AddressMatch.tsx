@@ -862,7 +862,29 @@ export default function AddressMatch() {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="space-y-2 flex-1">
+                    <Label>Coluna CPF/Identif</Label>
+                    {payersCols.length > 0 ? (
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        value={docCol}
+                        onChange={(e) => setDocCol(e.target.value)}
+                      >
+                        {payersCols.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        value={docCol}
+                        onChange={(e) => setDocCol(e.target.value)}
+                        placeholder="Nome da coluna"
+                      />
+                    )}
+                  </div>
+
                     <Switch checked={useDbCeps} onCheckedChange={setUseDbCeps} id="use-db" />
                     <Label htmlFor="use-db" className="flex items-center gap-1 text-sm cursor-pointer">
                       <Database className="h-3.5 w-3.5" />
