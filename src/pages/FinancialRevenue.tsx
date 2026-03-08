@@ -32,9 +32,10 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge, mapBillingStatus } from '@/components/ui/status-badge'
-import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { Progress } from '@/components/ui/progress'
 
 interface Billing {
   id: string
@@ -75,6 +76,7 @@ export default function FinancialRevenue() {
   const statusFilter = searchParams.get('status')
   const [billingsPage, setBillingsPage] = useState(1)
   const [entriesPage, setEntriesPage] = useState(1)
+  const navigate = useNavigate()
 
   const queryClient = useQueryClient()
 
@@ -298,15 +300,21 @@ export default function FinancialRevenue() {
   const manualRevenue = entries.reduce((sum, e) => sum + e.amount_cents, 0)
   const actualRevenue = (billingSummary?.paidRevenue || 0) + manualRevenue
   const pendingRevenue = billingSummary?.pendingRevenue || 0
+  const collectionRate = expectedRevenue > 0 ? Math.round((actualRevenue / expectedRevenue) * 100) : 0
 
   return (
     <MainLayout>
       <PageTransition>
         <div className="page-header">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="page-title">Entradas</h1>
-              <p className="page-subtitle">Receitas e cobranças</p>
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/financeiro')}>
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div>
+                <h1 className="page-title">Entradas</h1>
+                <p className="page-subtitle">Receitas e cobranças</p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               {statusFilter && (
@@ -394,6 +402,21 @@ export default function FinancialRevenue() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Collection rate */}
+        <Card className="mb-6">
+          <CardContent className="pt-6 pb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-muted-foreground">
+                Taxa de Arrecadação
+              </span>
+              <span className={`text-sm font-bold ${collectionRate >= 80 ? 'text-success' : collectionRate >= 50 ? 'text-warning' : 'text-destructive'}`}>
+                {collectionRate}%
+              </span>
+            </div>
+            <Progress value={Math.min(collectionRate, 100)} className="h-2" />
+          </CardContent>
+        </Card>
 
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Form */}
@@ -520,7 +543,7 @@ export default function FinancialRevenue() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Receipt className="h-5 w-5" />
-                  Boletos do M?s - {formatMonthRef(selectedMonth)}
+                  Boletos do Mês - {formatMonthRef(selectedMonth)}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -613,7 +636,7 @@ export default function FinancialRevenue() {
                   </div>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
-                    Nenhum boleto neste m?s
+                    Nenhum boleto neste mês
                   </div>
                 )}
               </CardContent>
