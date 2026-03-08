@@ -161,11 +161,23 @@ export default function PublicBoletoLinksPage() {
       const { data, error } = await supabase.functions.invoke("public-boleto-links", {
         body: { action: "list_bills", cpf: cpfDigits },
       });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || "Falha na consulta");
-      const foundItems = sortBills((data.items || []) as PublicBoletoItem[]);
-      setItems(foundItems);
-      if (foundItems.length === 0) toast.warning("Nenhum boleto encontrado para o CPF informado.");
+      // The SDK may place non-2xx JSON in error; extract the body from either
+      const payload = data ?? (error && typeof error === "object" && "error" in error ? error : null);
+      if (payload && !payload.ok) {
+        const msg = payload.error || "Falha na consulta";
+        if (msg.includes("nao encontrado")) {
+          toast.warning("CPF não encontrado no cadastro. Verifique o número informado.");
+        } else {
+          throw new Error(msg);
+        }
+        setItems([]);
+      } else if (error && !payload) {
+        throw error;
+      } else {
+        const foundItems = sortBills((payload?.items || []) as PublicBoletoItem[]);
+        setItems(foundItems);
+        if (foundItems.length === 0) toast.warning("Nenhum boleto encontrado para o CPF informado.");
+      }
     } catch (error: any) {
       toast.error(error?.message || "Erro ao buscar boletos");
     } finally {
