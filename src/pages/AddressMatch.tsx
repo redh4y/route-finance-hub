@@ -96,6 +96,7 @@ interface PhoneMatchResult {
   wa_phone: string;
   wa_labels: string;
   wa_is_business: boolean;
+  match_type: "nome" | "telefone" | "";
 }
 
 const DEFAULT_CONFIG: MatchConfig = {
