@@ -16,6 +16,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { processAllRows, type CepRecord, type MatchConfig as EngineMatchConfig } from "@/lib/address-match-engine";
+import {
+  type GroupedContact,
+  type PhoneMatchRow,
+  type PhoneMatchConfig,
+  readJsonContacts,
+  applyPhoneMatch,
+  normPhoneDigits,
+  formatPhoneE164,
+} from "@/lib/phone-match-engine";
 import Papa from "papaparse";
 import {
   MapPin,
@@ -73,10 +82,9 @@ interface MatchResponse {
   config: MatchConfig;
   cep_base_size: number;
   bairro_index_size: number;
-  phone_summary?: { total: number; updated: number; secondary: number; below: number };
 }
 
-interface WhatsAppContact {
+interface RawWaContact {
   phone_number: string;
   formatted_phone?: string;
   saved_name?: string;
@@ -87,17 +95,11 @@ interface WhatsAppContact {
   country_code?: string;
 }
 
-interface PhoneMatchResult {
+/** Row-level phone match result for display */
+interface PhoneDisplayRow {
   payer_name: string;
   payer_phone: string;
-  payer_phone_digits: string;
-  wa_found: boolean;
-  wa_saved_name: string;
-  wa_public_name: string;
-  wa_phone: string;
-  wa_labels: string;
-  wa_is_business: boolean;
-  match_type: "nome" | "telefone" | "";
+  match: PhoneMatchRow;
 }
 
 interface PayerChangePreview {
@@ -119,29 +121,9 @@ const DEFAULT_CONFIG: MatchConfig = {
   fallback_global: false,
 };
 
-// Normalize phone: keep only digits, take last 11 or 10
+// Normalize phone: keep only digits, remove +55
 function normalizePhone(raw: string): string {
-  const digits = (raw || "").replace(/\D/g, "");
-  // Brazilian: 55 + DDD(2) + number(8-9) = 12-13 digits
-  // Remove country code if present
-  if (digits.length >= 12 && digits.startsWith("55")) {
-    return digits.slice(2); // DDD + number
-  }
-  return digits;
-}
-
-// Match phones by last 8 digits (handles DDD variations)
-function phonesMatch(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  const na = normalizePhone(a);
-  const nb = normalizePhone(b);
-  if (na.length < 8 || nb.length < 8) return false;
-  // Exact match on normalized
-  if (na === nb) return true;
-  // Last 8-9 digits match (handles 9th digit addition)
-  const lastA = na.slice(-8);
-  const lastB = nb.slice(-8);
-  return lastA === lastB;
+  return normPhoneDigits(raw);
 }
 
 export default function AddressMatch() {
@@ -156,9 +138,14 @@ export default function AddressMatch() {
   const [docCol, setDocCol] = useState("Identif");
   const [useDbCeps, setUseDbCeps] = useState(true);
 
-  // WhatsApp contacts
-  const [waContacts, setWaContacts] = useState<WhatsAppContact[]>([]);
+  // WhatsApp contacts (raw + grouped)
+  const [waRawContacts, setWaRawContacts] = useState<RawWaContact[]>([]);
+  const [waGrouped, setWaGrouped] = useState<GroupedContact[]>([]);
   const [waFileName, setWaFileName] = useState("");
+
+  // Phone match config
+  const [phoneThreshold, setPhoneThreshold] = useState(0.55);
+  const [phoneOverwrite, setPhoneOverwrite] = useState(false);
 
   // Config
   const [config, setConfig] = useState<MatchConfig>({ ...DEFAULT_CONFIG });
@@ -166,7 +153,8 @@ export default function AddressMatch() {
   // State
   const [isProcessing, setIsProcessing] = useState(false);
   const [response, setResponse] = useState<MatchResponse | null>(null);
-  const [phoneResults, setPhoneResults] = useState<PhoneMatchResult[]>([]);
+  const [phoneMatchRows, setPhoneMatchRows] = useState<PhoneMatchRow[]>([]);
+  const [phoneDisplayRows, setPhoneDisplayRows] = useState<PhoneDisplayRow[]>([]);
   const [isSavingContacts, setIsSavingContacts] = useState(false);
   const [isUpdatingPayers, setIsUpdatingPayers] = useState(false);
   const [updatePayersResult, setUpdatePayersResult] = useState<{ updated: number; created: number; errors: number } | null>(null);
@@ -181,22 +169,24 @@ export default function AddressMatch() {
 
   // Phone match summary
   const phoneSummary = useMemo(() => {
-    const total = phoneResults.length;
-    const found = phoneResults.filter((r) => r.wa_found).length;
-    return { total, found, notFound: total - found };
-  }, [phoneResults]);
+    const total = phoneMatchRows.length;
+    const updated = phoneMatchRows.filter((r) => r.phone_match_status === "ATUALIZADO" || r.phone_match_status === "ATUALIZADO_DUPLICADO").length;
+    const secondary = phoneMatchRows.filter((r) => r.phone_match_status === "TELEFONE_SECUNDARIO").length;
+    const below = phoneMatchRows.filter((r) => r.phone_match_status === "ABAIXO_THRESHOLD").length;
+    const alreadyHad = phoneMatchRows.filter((r) => r.phone_match_status === "JA_TINHA_TELEFONE").length;
+    const found = updated + secondary + alreadyHad;
+    return { total, found, updated, secondary, below, alreadyHad, notFound: total - found };
+  }, [phoneMatchRows]);
 
-  // Phone results indexed by payer name for quick lookup in results table
-  const phoneResultsMap = useMemo(() => {
-    const map = new Map<string, PhoneMatchResult>();
-    for (const pr of phoneResults) {
-      // Index by normalized phone digits and by payer name
-      if (pr.payer_phone_digits) map.set(pr.payer_phone_digits, pr);
-      if (pr.payer_name) map.set(pr.payer_name.toLowerCase(), pr);
+  // Phone results indexed by row index for quick lookup in results table
+  const phoneResultsByName = useMemo(() => {
+    const map = new Map<string, PhoneMatchRow>();
+    for (let i = 0; i < payersData.length && i < phoneMatchRows.length; i++) {
+      const name = String(payersData[i][nameCol] || "").toLowerCase();
+      if (name) map.set(name, phoneMatchRows[i]);
     }
     return map;
-  }, [phoneResults]);
-
+  }, [phoneMatchRows, payersData, nameCol]);
 
   const handleFile = useCallback(
     (file: File, setter: (d: Record<string, unknown>[]) => void, fileSetter: (f: File) => void) => {
@@ -222,9 +212,11 @@ export default function AddressMatch() {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        const contacts = Array.isArray(data) ? data : [];
-        setWaContacts(contacts as WhatsAppContact[]);
-        toast.success(`${file.name}: ${contacts.length} contatos carregados`);
+        const raw = Array.isArray(data) ? data : (data?.contacts || [data]);
+        setWaRawContacts(raw as RawWaContact[]);
+        const grouped = readJsonContacts(raw);
+        setWaGrouped(grouped);
+        toast.success(`${file.name}: ${raw.length} contatos → ${grouped.length} agrupados`);
       } catch {
         toast.error("Erro ao ler JSON de contatos");
       }
@@ -232,110 +224,49 @@ export default function AddressMatch() {
     reader.readAsText(file, "UTF-8");
   }, []);
 
-  // ── Phone matching (client-side) — primary: nome, fallback: telefone ──
-  const runPhoneMatch = useCallback(() => {
-    if (payersData.length === 0 || waContacts.length === 0) return [];
+  // ── Run phone match using scored engine ──
+  const runPhoneMatchEngine = useCallback(() => {
+    if (payersData.length === 0 || waGrouped.length === 0) return;
 
-    // Normalize helper for name comparison
-    const normName = (s: string) =>
-      s
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9 ]/g, "")
-        .toLowerCase()
-        .trim();
+    toast.loading("Aplicando match de telefones (scored)...", { id: "phone-match" });
 
-    // Build phone index: last 8 digits → contact
-    const waPhoneIndex = new Map<string, WhatsAppContact>();
-    for (const c of waContacts) {
-      const norm = normalizePhone(c.phone_number);
-      if (norm.length >= 8) {
-        waPhoneIndex.set(norm.slice(-8), c);
-        waPhoneIndex.set(norm, c);
-      }
-    }
+    const pmConfig: PhoneMatchConfig = {
+      threshold: phoneThreshold,
+      overwrite: phoneOverwrite,
+    };
 
-    // Build name index: normalized saved_name → contact[]
-    const waNameIndex = new Map<string, WhatsAppContact[]>();
-    for (const c of waContacts) {
-      const name = normName(c.saved_name || "");
-      if (name.length < 3) continue;
-      const existing = waNameIndex.get(name) || [];
-      existing.push(c);
-      waNameIndex.set(name, existing);
-    }
-
-    const buildResult = (
-      payer: Record<string, unknown>,
-      payerNameRaw: string,
-      rawPhone: string,
-      norm: string,
-      match: WhatsAppContact | undefined,
-      matchType: "nome" | "telefone" | ""
-    ): PhoneMatchResult => ({
-      payer_name: payerNameRaw,
-      payer_phone: rawPhone,
-      payer_phone_digits: norm,
-      wa_found: !!match,
-      wa_saved_name: match?.saved_name || "",
-      wa_public_name: match?.public_name || "",
-      wa_phone: match?.phone_number || "",
-      wa_labels: (match?.labels || []).join(", "),
-      wa_is_business: match?.is_business || false,
-      match_type: matchType,
-    });
-
-    const results: PhoneMatchResult[] = [];
-    for (const payer of payersData) {
-      const rawPhone = String(payer[phoneCol] || "");
-      const payerNameRaw = String(payer[nameCol] || "");
-      if (!rawPhone || rawPhone === "undefined") continue;
-
-      const norm = normalizePhone(rawPhone);
-      const payerNorm = normName(payerNameRaw);
-
-      // 1) Primary: match by name
-      // Try exact normalized name match, also try removing trailing numbers (e.g. "Wagner Goncalves Ribeiro 26")
-      let nameMatch: WhatsAppContact | undefined;
-      if (payerNorm.length >= 3) {
-        // Check each wa contact name: does the payer name appear as a substring or vice versa?
-        const exactList = waNameIndex.get(payerNorm);
-        if (exactList && exactList.length === 1) {
-          nameMatch = exactList[0];
-        } else if (!exactList) {
-          // Try partial: payer name contained in saved_name or vice versa
-          for (const [wName, contacts] of waNameIndex) {
-            if (contacts.length !== 1) continue;
-            if (
-              (payerNorm.length >= 5 && wName.includes(payerNorm)) ||
-              (wName.length >= 5 && payerNorm.includes(wName))
-            ) {
-              nameMatch = contacts[0];
-              break;
-            }
-          }
+    const results = applyPhoneMatch(
+      payersData,
+      waGrouped,
+      nameCol,
+      phoneCol,
+      pmConfig,
+      (processed, total) => {
+        if (processed % 200 === 0) {
+          const pct = Math.round((processed / total) * 100);
+          toast.loading(`Match telefones: ${processed}/${total} (${pct}%)...`, { id: "phone-match" });
         }
-      }
+      },
+    );
 
-      if (nameMatch) {
-        results.push(buildResult(payer, payerNameRaw, rawPhone, norm, nameMatch, "nome"));
-        continue;
-      }
+    setPhoneMatchRows(results);
 
-      // 2) Fallback: match by phone
-      if (norm.length < 8) {
-        results.push(buildResult(payer, payerNameRaw, rawPhone, norm, undefined, ""));
-        continue;
-      }
-
-      const phoneMatch = waPhoneIndex.get(norm) || waPhoneIndex.get(norm.slice(-8));
-      results.push(
-        buildResult(payer, payerNameRaw, rawPhone, norm, phoneMatch, phoneMatch ? "telefone" : "")
-      );
+    // Build display rows
+    const display: PhoneDisplayRow[] = [];
+    for (let i = 0; i < payersData.length && i < results.length; i++) {
+      display.push({
+        payer_name: String(payersData[i][nameCol] || ""),
+        payer_phone: String(payersData[i][phoneCol] || ""),
+        match: results[i],
+      });
     }
+    setPhoneDisplayRows(display);
 
-    return results;
-  }, [payersData, waContacts, phoneCol, nameCol]);
+    toast.dismiss("phone-match");
+    const updated = results.filter((r) => r.phone_match_status === "ATUALIZADO" || r.phone_match_status === "ATUALIZADO_DUPLICADO").length;
+    const secondary = results.filter((r) => r.phone_match_status === "TELEFONE_SECUNDARIO").length;
+    toast.success(`Match telefones: ${updated} atualizados, ${secondary} secundários de ${results.length}`);
+  }, [payersData, waGrouped, nameCol, phoneCol, phoneThreshold, phoneOverwrite]);
 
   // ── Run match (chunked) ──
   const runMatch = async () => {
@@ -346,7 +277,8 @@ export default function AddressMatch() {
 
     setIsProcessing(true);
     setResponse(null);
-    setPhoneResults([]);
+    setPhoneMatchRows([]);
+    setPhoneDisplayRows([]);
 
     try {
       // 1. Fetch CEP base (once)
@@ -392,7 +324,7 @@ export default function AddressMatch() {
         return;
       }
 
-      // 2. Run matching client-side (no edge function needed!)
+      // 2. Run matching client-side
       const startTime = Date.now();
       const allResults = await processAllRows(
         payersData,
@@ -406,15 +338,29 @@ export default function AddressMatch() {
       );
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-      // 3. Phone match (client-side)
-      let phoneMatchCount = 0;
-      let phoneMatchTotal = 0;
-      if (waContacts.length > 0) {
+      // 3. Phone match (scored engine)
+      let phoneInfo = "";
+      if (waGrouped.length > 0) {
         toast.loading("Aplicando match de telefones...", { id: "match-progress" });
-        const pr = runPhoneMatch();
-        setPhoneResults(pr);
-        phoneMatchTotal = pr.length;
-        phoneMatchCount = pr.filter((r) => r.wa_found).length;
+        const pmConfig: PhoneMatchConfig = { threshold: phoneThreshold, overwrite: phoneOverwrite };
+        const pmResults = applyPhoneMatch(payersData, waGrouped, nameCol, phoneCol, pmConfig);
+        setPhoneMatchRows(pmResults);
+
+        const display: PhoneDisplayRow[] = [];
+        for (let i = 0; i < payersData.length && i < pmResults.length; i++) {
+          display.push({
+            payer_name: String(payersData[i][nameCol] || ""),
+            payer_phone: String(payersData[i][phoneCol] || ""),
+            match: pmResults[i],
+          });
+        }
+        setPhoneDisplayRows(display);
+
+        const updated = pmResults.filter((r) => r.phone_match_status === "ATUALIZADO" || r.phone_match_status === "ATUALIZADO_DUPLICADO").length;
+        const secondary = pmResults.filter((r) => r.phone_match_status === "TELEFONE_SECUNDARIO").length;
+        phoneInfo = ` | Tel: ${updated} atualizados, ${secondary} secundários`;
+      } else {
+        phoneInfo = " | ⚠️ JSON de contatos não carregado";
       }
 
       // 4. Build summary & diagnostics
@@ -453,13 +399,11 @@ export default function AddressMatch() {
         config,
         cep_base_size: cepBase.length,
         bairro_index_size: 0,
-        phone_summary: undefined,
       };
 
       setResponse(matchResponse);
       toast.dismiss("match-progress");
-      const phonePart = phoneMatchTotal > 0 ? ` | Telefones: ${phoneMatchCount}/${phoneMatchTotal}` : waContacts.length === 0 ? " | ⚠️ JSON de contatos não carregado" : "";
-      toast.success(`Processamento concluído em ${elapsed}s: ${matched} matches de ${total}${phonePart}`);
+      toast.success(`Processamento concluído em ${elapsed}s: ${matched} matches de ${total}${phoneInfo}`);
     } catch (err: unknown) {
       toast.dismiss("match-progress");
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
@@ -471,19 +415,16 @@ export default function AddressMatch() {
 
   // Run only phone match (without address)
   const runPhoneOnly = () => {
-    if (payersData.length === 0 || waContacts.length === 0) {
+    if (payersData.length === 0 || waGrouped.length === 0) {
       toast.error("Carregue o CSV de pagadores e o JSON de contatos");
       return;
     }
-    const pr = runPhoneMatch();
-    setPhoneResults(pr);
-    const found = pr.filter((r) => r.wa_found).length;
-    toast.success(`Match de telefones: ${found}/${pr.length} encontrados`);
+    runPhoneMatchEngine();
   };
 
   // ── Import contacts to DB ──
   const importContactsToDb = async () => {
-    if (waContacts.length === 0) return;
+    if (waRawContacts.length === 0) return;
     setIsSavingContacts(true);
     try {
       const PROVIDER_ID = "e5fcf8c4-999c-489f-aff1-cdbad051186a";
@@ -492,8 +433,8 @@ export default function AddressMatch() {
       let saved = 0;
       let errors = 0;
 
-      for (let i = 0; i < waContacts.length; i += BATCH_SIZE) {
-        const batch = waContacts.slice(i, i + BATCH_SIZE).map((c) => ({
+      for (let i = 0; i < waRawContacts.length; i += BATCH_SIZE) {
+        const batch = waRawContacts.slice(i, i + BATCH_SIZE).map((c) => ({
           provider_id: PROVIDER_ID,
           instance_name: INSTANCE,
           wa_number: normalizePhone(c.phone_number),
@@ -538,9 +479,10 @@ export default function AddressMatch() {
     setPayerChangesPreview([]);
 
     try {
-      const phoneMap = new Map<string, PhoneMatchResult>();
-      for (const pr of phoneResults) {
-        if (pr.payer_phone_digits) phoneMap.set(pr.payer_phone_digits, pr);
+      // Build phone map from phoneMatchRows (index by row position)
+      const phoneByIdx = new Map<number, PhoneMatchRow>();
+      for (let i = 0; i < phoneMatchRows.length; i++) {
+        phoneByIdx.set(i, phoneMatchRows[i]);
       }
 
       const fieldLabels: Record<string, string> = {
@@ -608,10 +550,11 @@ export default function AddressMatch() {
         }
 
         const rawPhone = String(row[phoneCol] || "");
-        const normPhone = normalizePhone(rawPhone);
-        const pm = normPhone.length >= 8 ? (phoneMap.get(normPhone) || phoneMap.get(normPhone.slice(-8))) : undefined;
-        if (pm?.wa_found && pm.wa_phone) {
-          updateData.phone = pm.wa_phone;
+        // Find the phone match row for this enriched row by index
+        const rowIdx = enriched.indexOf(row);
+        const pm = rowIdx >= 0 && rowIdx < phoneMatchRows.length ? phoneMatchRows[rowIdx] : undefined;
+        if (pm && pm.phone_final) {
+          updateData.phone = pm.phone_final;
         } else if (rawPhone && rawPhone !== "undefined") {
           updateData.phone = rawPhone;
         }
@@ -751,24 +694,21 @@ export default function AddressMatch() {
   const getEnrichedResults = () => {
     if (!response?.results) return [];
     let enriched = response.results;
-    if (phoneResults.length > 0) {
-      const phoneMap = new Map<string, PhoneMatchResult>();
-      for (const pr of phoneResults) {
-        if (pr.payer_phone_digits) phoneMap.set(pr.payer_phone_digits, pr);
-      }
-      enriched = response.results.map((r) => {
-        const rawPhone = String(r[phoneCol] || "");
-        const norm = normalizePhone(rawPhone);
-        const pm = norm.length >= 8 ? (phoneMap.get(norm) || phoneMap.get(norm.slice(-8))) : undefined;
+    if (phoneMatchRows.length > 0) {
+      enriched = response.results.map((r, idx) => {
+        const pm = idx < phoneMatchRows.length ? phoneMatchRows[idx] : undefined;
+        const isMatched = pm && pm.phone_match_status !== "SEM_NOME" && pm.phone_match_status !== "SEM_MATCH" && pm.phone_match_status !== "ABAIXO_THRESHOLD";
         return {
           ...r,
-          wa_encontrado: pm?.wa_found ? "SIM" : "NÃO",
-          wa_match_via: pm?.match_type || "",
-          wa_nome_salvo: pm?.wa_saved_name || "",
-          wa_nome_publico: pm?.wa_public_name || "",
-          wa_telefone: pm?.wa_phone || "",
-          wa_labels: pm?.wa_labels || "",
-          wa_empresarial: pm?.wa_is_business ? "SIM" : "NÃO",
+          phone_match_score: pm?.phone_match_score || "",
+          phone_match_name: pm?.phone_match_name || "",
+          phone_match_phone: pm?.phone_match_phone || "",
+          phone_match_status: pm?.phone_match_status || "",
+          phone_match_dup_count: pm?.phone_match_dup_count || "",
+          phone_match_dup_phones: pm?.phone_match_dup_phones || "",
+          telefone_secundario: pm?.telefone_secundario || "",
+          wa_telefone: pm?.phone_final || "",
+          wa_encontrado: isMatched ? "SIM" : "NÃO",
         };
       });
     }
@@ -906,14 +846,14 @@ export default function AddressMatch() {
                   {waFileName && (
                     <div className="flex items-center gap-2">
                       <p className="text-xs text-muted-foreground">
-                        {waFileName} — {waContacts.length} contatos
+                        {waFileName} — {waRawContacts.length} contatos → {waGrouped.length} agrupados
                       </p>
                       <Button
                         variant="outline"
                         size="sm"
                         className="h-6 text-xs gap-1"
                         onClick={importContactsToDb}
-                        disabled={isSavingContacts || waContacts.length === 0}
+                        disabled={isSavingContacts || waRawContacts.length === 0}
                       >
                         <Save className="h-3 w-3" />
                         {isSavingContacts ? "Salvando..." : "Salvar no banco"}
@@ -1040,7 +980,7 @@ export default function AddressMatch() {
                       </>
                     )}
                   </Button>
-                  {waContacts.length > 0 && payersData.length > 0 && (
+                  {waGrouped.length > 0 && payersData.length > 0 && (
                     <Button
                       onClick={runPhoneOnly}
                       variant="outline"
@@ -1109,6 +1049,32 @@ export default function AddressMatch() {
                     Fallback global
                   </Label>
                 </div>
+
+                {/* Phone match config */}
+                <div className="border-t pt-4 mt-3 space-y-4">
+                  <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5" />
+                    Match de Telefones
+                  </p>
+                  <SliderField
+                    label="Phone threshold"
+                    value={phoneThreshold}
+                    min={0.2}
+                    max={0.9}
+                    step={0.01}
+                    onChange={setPhoneThreshold}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={phoneOverwrite}
+                      onCheckedChange={setPhoneOverwrite}
+                      id="phone-overwrite"
+                    />
+                    <Label htmlFor="phone-overwrite" className="text-sm cursor-pointer">
+                      Sobrescrever telefone existente
+                    </Label>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -1140,14 +1106,14 @@ export default function AddressMatch() {
           )}
 
           {/* Phone-only results (when no address match) */}
-          {phoneResults.length > 0 && !response && (
+          {phoneDisplayRows.length > 0 && !response && (
             <>
               <div className="grid gap-3 grid-cols-3">
                 <SummaryCard label="Telefones" value={phoneSummary.total} icon={Phone} color="text-foreground" />
-                <SummaryCard label="Encontrados" value={phoneSummary.found} icon={CheckCircle2} color="text-emerald-600" pct={Math.round((phoneSummary.found / Math.max(phoneSummary.total, 1)) * 100)} />
-                <SummaryCard label="Não encontrados" value={phoneSummary.notFound} icon={XCircle} color="text-red-600" />
+                <SummaryCard label="Atualizados" value={phoneSummary.updated} icon={CheckCircle2} color="text-emerald-600" pct={Math.round((phoneSummary.updated / Math.max(phoneSummary.total, 1)) * 100)} />
+                <SummaryCard label="Abaixo threshold" value={phoneSummary.below} icon={XCircle} color="text-red-600" />
               </div>
-              <PhoneResultsTable results={phoneResults} />
+              <PhoneResultsTable results={phoneDisplayRows} />
             </>
           )}
 
@@ -1181,13 +1147,13 @@ export default function AddressMatch() {
                   icon={XCircle}
                   color="text-red-600"
                 />
-                {phoneResults.length > 0 && (
+                {phoneMatchRows.length > 0 && (
                   <SummaryCard
-                    label="Tel. encontrados"
-                    value={phoneSummary.found}
+                    label="Tel. atualizados"
+                    value={phoneSummary.updated}
                     icon={Phone}
                     color="text-emerald-600"
-                    pct={Math.round((phoneSummary.found / Math.max(phoneSummary.total, 1)) * 100)}
+                    pct={Math.round((phoneSummary.updated / Math.max(phoneSummary.total, 1)) * 100)}
                   />
                 )}
               </div>
@@ -1201,10 +1167,10 @@ export default function AddressMatch() {
                 <span>
                   Pesos: token={response.config.token_weight} / seq={response.config.seq_weight}
                 </span>
-                {phoneResults.length > 0 && (
+                {phoneMatchRows.length > 0 && (
                   <span className="flex items-center gap-1">
                     <Phone className="h-3 w-3" />
-                    Contatos WA: {waContacts.length}
+                    Contatos: {waGrouped.length} | Threshold: {phoneThreshold}
                   </span>
                 )}
               </div>
@@ -1218,7 +1184,7 @@ export default function AddressMatch() {
                   </TabsTrigger>
                   <TabsTrigger value="phones" className="gap-1">
                     <Phone className="h-3.5 w-3.5" />
-                    Telefones {phoneResults.length > 0 ? `(${phoneSummary.found}/${phoneSummary.total})` : ""}
+                    Telefones {phoneMatchRows.length > 0 ? `(${phoneSummary.updated}/${phoneSummary.total})` : ""}
                   </TabsTrigger>
                   <TabsTrigger value="bairros" className="gap-1">
                     <MapPin className="h-3.5 w-3.5" />
@@ -1263,15 +1229,12 @@ export default function AddressMatch() {
                               </TableCell>
                               <TableCell className="text-xs font-mono">
                                 {(() => {
-                                  const rawPhone = String(r[phoneCol] || "");
-                                  const norm = normalizePhone(rawPhone);
-                                  const pm = norm.length >= 8
-                                    ? (phoneResultsMap.get(norm) || phoneResultsMap.get(norm.slice(-8)))
-                                    : phoneResultsMap.get(String(r[nameCol] || "").toLowerCase());
-                                  if (pm?.wa_found && pm.wa_phone) {
-                                    return <span className="text-emerald-600">{pm.wa_phone}</span>;
+                                  const pm = phoneResultsByName.get(String(r[nameCol] || "").toLowerCase());
+                                  if (pm && pm.phone_final) {
+                                    const isUpdated = pm.phone_match_status === "ATUALIZADO" || pm.phone_match_status === "ATUALIZADO_DUPLICADO";
+                                    return <span className={isUpdated ? "text-emerald-600" : ""}>{pm.phone_final}</span>;
                                   }
-                                  return rawPhone || "—";
+                                  return String(r[phoneCol] || "") || "—";
                                 })()}
                               </TableCell>
                               <TableCell>
@@ -1317,8 +1280,8 @@ export default function AddressMatch() {
                 </TabsContent>
 
                 <TabsContent value="phones">
-                  {phoneResults.length > 0 ? (
-                    <PhoneResultsTable results={phoneResults} />
+                  {phoneDisplayRows.length > 0 ? (
+                    <PhoneResultsTable results={phoneDisplayRows} />
                   ) : (
                     <Card>
                       <CardContent className="py-8 text-center text-muted-foreground">
@@ -1486,7 +1449,17 @@ export default function AddressMatch() {
 
 // ── Sub-components ──
 
-function PhoneResultsTable({ results }: { results: PhoneMatchResult[] }) {
+function PhoneResultsTable({ results }: { results: PhoneDisplayRow[] }) {
+  const statusColors: Record<string, string> = {
+    ATUALIZADO: "bg-emerald-500/10 text-emerald-600 border-emerald-500/40",
+    ATUALIZADO_DUPLICADO: "bg-amber-500/10 text-amber-600 border-amber-500/40",
+    JA_TINHA_TELEFONE: "bg-blue-500/10 text-blue-600 border-blue-500/40",
+    TELEFONE_SECUNDARIO: "bg-violet-500/10 text-violet-600 border-violet-500/40",
+    ABAIXO_THRESHOLD: "bg-red-500/10 text-red-600 border-red-500/40",
+    SEM_NOME: "bg-muted text-muted-foreground",
+    SEM_MATCH: "bg-muted text-muted-foreground",
+  };
+
   return (
     <Card>
       <ScrollArea className="h-[500px]">
@@ -1494,49 +1467,51 @@ function PhoneResultsTable({ results }: { results: PhoneMatchResult[] }) {
           <TableHeader>
             <TableRow>
               <TableHead>Nome Pagador</TableHead>
-              <TableHead>Telefone</TableHead>
+              <TableHead>Tel. Original</TableHead>
+              <TableHead>Score</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Match via</TableHead>
-              <TableHead>Nome WA</TableHead>
-              <TableHead>Nome Público</TableHead>
-              <TableHead>Labels</TableHead>
-              <TableHead>Empresa</TableHead>
+              <TableHead>Nome Match</TableHead>
+              <TableHead>Tel. Match</TableHead>
+              <TableHead>Tel. Final</TableHead>
+              <TableHead>Tel. Secundário</TableHead>
+              <TableHead>Dups</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {results.slice(0, 300).map((r, i) => (
               <TableRow key={i}>
                 <TableCell className="text-xs">{r.payer_name}</TableCell>
-                <TableCell className="text-xs font-mono">{r.payer_phone}</TableCell>
-                <TableCell>
-                  {r.wa_found ? (
-                    <Badge className="text-[10px] px-1.5 py-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/40" variant="outline">
-                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                      Encontrado
-                    </Badge>
-                  ) : (
-                    <Badge className="text-[10px] px-1.5 py-0 bg-red-500/10 text-red-600 border-red-500/40" variant="outline">
-                      <XCircle className="h-3 w-3 mr-1" />
-                      Não encontrado
-                    </Badge>
-                  )}
+                <TableCell className="text-xs font-mono">{r.payer_phone || "—"}</TableCell>
+                <TableCell className="text-xs font-mono tabular-nums">
+                  {r.match.phone_match_score || "—"}
                 </TableCell>
-                <TableCell className="text-xs">
-                  {r.match_type === "nome" ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/40">Nome</Badge>
-                  ) : r.match_type === "telefone" ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-500/10 text-amber-600 border-amber-500/40">Telefone</Badge>
+                <TableCell>
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-1.5 py-0 ${statusColors[r.match.phone_match_status] || ""}`}
+                  >
+                    {r.match.phone_match_status || "—"}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-xs">{r.match.phone_match_name || "—"}</TableCell>
+                <TableCell className="text-xs font-mono">{r.match.phone_match_phone || "—"}</TableCell>
+                <TableCell className="text-xs font-mono">
+                  {r.match.phone_final ? (
+                    <span className={
+                      r.match.phone_match_status === "ATUALIZADO" || r.match.phone_match_status === "ATUALIZADO_DUPLICADO"
+                        ? "text-emerald-600 font-medium" : ""
+                    }>
+                      {r.match.phone_final}
+                    </span>
                   ) : "—"}
                 </TableCell>
-                <TableCell className="text-xs">{r.wa_saved_name || "—"}</TableCell>
-                <TableCell className="text-xs">{r.wa_public_name || "—"}</TableCell>
-                <TableCell className="text-xs max-w-[150px] truncate">{r.wa_labels || "—"}</TableCell>
-                <TableCell>
-                  {r.wa_is_business && (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                      Empresa
-                    </Badge>
-                  )}
+                <TableCell className="text-xs font-mono text-violet-600">
+                  {r.match.telefone_secundario || "—"}
+                </TableCell>
+                <TableCell className="text-xs tabular-nums">
+                  {r.match.phone_match_dup_count && Number(r.match.phone_match_dup_count) > 1
+                    ? r.match.phone_match_dup_count
+                    : "—"}
                 </TableCell>
               </TableRow>
             ))}
