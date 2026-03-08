@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { usePayers, usePayersStats, usePayerById, Payer } from "@/hooks/usePayers";
@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
 import { PageTransition } from "@/components/ui/page-transition";
 import { formatCPF, formatPhone, formatCurrency } from "@/lib/formatters";
+import { validateCPF } from "@/lib/csv-import";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
