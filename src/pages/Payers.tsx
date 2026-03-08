@@ -455,7 +455,7 @@ export default function Payers() {
 /*  SUB-COMPONENTS                                 */
 /* ═══════════════════════════════════════════════ */
 
-// ── Mobile payer card (vertical list layout) ──
+// ── Mobile payer card ──
 function PayerCardMobile({
   payer,
   isSelected,
@@ -478,11 +478,11 @@ function PayerCardMobile({
         isSelected && "bg-primary/5"
       )}
     >
-      {/* Top row: avatar + name + edit */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-start gap-3">
+        {/* Avatar */}
         <div
           className={cn(
-            "flex items-center justify-center w-9 h-9 rounded-full shrink-0 text-xs font-bold",
+            "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-bold mt-0.5",
             isActive
               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
               : "bg-muted text-muted-foreground"
@@ -491,7 +491,9 @@ function PayerCardMobile({
           {payer.name.charAt(0).toUpperCase()}
         </div>
 
-        <div className="flex-1 min-w-0">
+        {/* Content */}
+        <div className="flex-1 min-w-0 space-y-1">
+          {/* Name row */}
           <div className="flex items-center gap-1.5">
             <span className="font-medium text-sm truncate">{payer.name}</span>
             {payer.needs_review && (
@@ -501,41 +503,50 @@ function PayerCardMobile({
               <AlertCircle className="h-3 w-3 text-orange-500 shrink-0" />
             )}
           </div>
+
+          {/* Info row */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="font-mono">
+              {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
+            </span>
+            {payer.phone && (
+              <>
+                <span className="text-muted-foreground/40">·</span>
+                <span>{formatPhone(payer.phone)}</span>
+              </>
+            )}
+          </div>
+
+          {/* Badges row */}
+          <div className="flex items-center gap-1.5">
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-[10px] px-1.5 py-0",
+                isActive
+                  ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
+                  : "text-muted-foreground"
+              )}
+            >
+              {isActive ? "Ativo" : "Inativo"}
+            </Badge>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+              {payer.billing_mode}
+            </Badge>
+          </div>
         </div>
 
-        <button
-          onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          className="p-2 -mr-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-        >
-          <Edit className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Bottom row: CPF, phone, badges */}
-      <div className="flex items-center gap-2 mt-1.5 ml-[46px] flex-wrap">
-        <span className="font-mono text-xs text-muted-foreground">
-          {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
-        </span>
-        {payer.phone && (
-          <>
-            <span className="text-muted-foreground/40 text-xs">·</span>
-            <span className="text-xs text-muted-foreground">{formatPhone(payer.phone)}</span>
-          </>
-        )}
-        <Badge
-          variant="outline"
-          className={cn(
-            "text-[10px] px-1.5 py-0 ml-auto",
-            isActive
-              ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
-              : "text-muted-foreground"
-          )}
-        >
-          {isActive ? "Ativo" : "Inativo"}
-        </Badge>
-        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-          {payer.billing_mode}
-        </Badge>
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label="Editar"
+          >
+            <Edit className="h-4 w-4" />
+          </button>
+          <ChevronRight className="h-4 w-4 text-muted-foreground/40" />
+        </div>
       </div>
     </div>
   );
