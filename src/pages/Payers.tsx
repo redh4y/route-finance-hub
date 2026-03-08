@@ -260,10 +260,22 @@ export default function Payers() {
                 Gerencie alunos, cobranças e cadastros
               </p>
             </div>
-            <Button size="sm" className="gap-1.5 self-start sm:self-auto" onClick={() => setIsCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              <span className="sm:inline">Novo pagador</span>
-            </Button>
+            <div className="flex gap-2 self-start sm:self-auto">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={bulkValidateCpfs}
+                disabled={isValidatingCpfs}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="hidden sm:inline">{isValidatingCpfs ? "Validando..." : "Validar CPFs"}</span>
+              </Button>
+              <Button size="sm" className="gap-1.5" onClick={() => setIsCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                <span className="sm:inline">Novo pagador</span>
+              </Button>
+            </div>
           </div>
 
           {/* ── Stats row (scrollable on mobile) ── */}
