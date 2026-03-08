@@ -250,6 +250,7 @@ export function useDriveProcessor() {
 
   const startOAuth = useCallback(() => {
     if (!credentials) return;
+    setOauthStatus("connecting");
     const params = new URLSearchParams({
       client_id: credentials.client_id,
       redirect_uri: getRedirectUri(),
@@ -258,7 +259,16 @@ export function useDriveProcessor() {
       access_type: "offline",
       prompt: "consent",
     });
-    window.location.href = `${credentials.auth_uri}?${params.toString()}`;
+    const url = `${credentials.auth_uri}?${params.toString()}`;
+    const w = 500;
+    const h = 600;
+    const left = window.screenX + (window.outerWidth - w) / 2;
+    const top = window.screenY + (window.outerHeight - h) / 2;
+    const popup = window.open(url, "google-oauth", `width=${w},height=${h},left=${left},top=${top}`);
+    if (!popup) {
+      // Fallback: redirect se popup bloqueado
+      window.location.href = url;
+    }
   }, [credentials]);
 
   const disconnect = useCallback(() => {
