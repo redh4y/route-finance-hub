@@ -303,10 +303,6 @@ export default function AddressMatch() {
         if (error) throw error;
         if (data?.error) throw new Error(data.error);
 
-        // Cache CEP base from first response
-        if (batch === 0 && data?.cep_base) {
-          cachedCepBase = data.cep_base;
-        }
 
         if (data?.results) {
           allResults.push(...data.results);
