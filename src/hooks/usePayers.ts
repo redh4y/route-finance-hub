@@ -88,6 +88,9 @@ export function usePayers(filters: PayersFilters = {}) {
       if (filters.reviewReason) {
         query = query.eq("review_reason", filters.reviewReason);
       }
+      if (filters.documentValid !== undefined) {
+        query = query.eq("document_valid", filters.documentValid);
+      }
       if (filters.search) {
         query = query.ilike("name_lower", `%${filters.search.toLowerCase()}%`);
       }
