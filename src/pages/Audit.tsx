@@ -251,19 +251,22 @@ export default function Audit() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const tableOptions = useMemo(() => {
-    const fromLogs = (data || []).map((r) => r.table_name);
-    return Array.from(new Set([...AUDITABLE_TABLES, ...fromLogs])).sort();
-  }, [data]);
+    return AUDITABLE_TABLES.sort();
+  }, []);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (data || []).filter((row) => {
-      const byTable = tableFilter === "all" || row.table_name === tableFilter;
-      const byOp = operationFilter === "all" || row.operation === operationFilter;
-      const haystack = getRowSearchText(row);
-      return byTable && byOp && (!q || haystack.includes(q));
-    });
-  }, [data, tableFilter, operationFilter, search]);
+  // Reset page when filters change
+  const handleTableFilterChange = (v: string) => {
+    setTableFilter(v);
+    setPage(1);
+  };
+  const handleOperationFilterChange = (v: string) => {
+    setOperationFilter(v);
+    setPage(1);
+  };
+  const handleSearchChange = (v: string) => {
+    setSearch(v);
+    setPage(1);
+  };
 
   return (
     <MainLayout>
