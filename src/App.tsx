@@ -42,6 +42,7 @@ import BoletoLinksPage from "./pages/BoletoLinks";
 import PublicBoletoLinksPage from "./pages/PublicBoletoLinks";
 import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
 import AddressMatch from "./pages/AddressMatch";
+import OAuthCallback from "./pages/OAuthCallback";
 
 const queryClient = new QueryClient();
 
