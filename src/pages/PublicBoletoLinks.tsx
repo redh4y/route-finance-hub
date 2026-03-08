@@ -177,18 +177,8 @@ export default function PublicBoletoLinksPage() {
     if (e.key === "Enter" && canSearch && !isLoading) handleSearchBills();
   };
 
-  // Stats
-  const statusCounts = useMemo(() => {
-    const counts = { open: 0, paid: 0, overdue: 0, other: 0 };
-    for (const item of items) {
-      const s = String(item.public_status || "").toUpperCase();
-      if (s === "PAGO") counts.paid++;
-      else if (s === "EM_ABERTO") counts.open++;
-      else if (s === "VENCIDO") counts.overdue++;
-      else counts.other++;
-    }
-    return counts;
-  }, [items]);
+
+
 
   return (
     <div className="min-h-screen bg-background">
