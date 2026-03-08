@@ -262,7 +262,7 @@ export default function Payers() {
           <div className="grid gap-4 lg:grid-cols-3">
             {/* Payers list */}
             <div className="lg:col-span-2">
-              <Card className="overflow-hidden">
+              <Card className="overflow-hidden [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
                 <ScrollArea className="h-[calc(100vh-360px)] sm:h-[calc(100vh-310px)]">
                   {isLoading ? (
                     <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
