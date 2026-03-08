@@ -1116,6 +1116,13 @@ function PhoneResultsTable({ results }: { results: PhoneMatchResult[] }) {
                     </Badge>
                   )}
                 </TableCell>
+                <TableCell className="text-xs">
+                  {r.match_type === "nome" ? (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/40">Nome</Badge>
+                  ) : r.match_type === "telefone" ? (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-500/10 text-amber-600 border-amber-500/40">Telefone</Badge>
+                  ) : "—"}
+                </TableCell>
                 <TableCell className="text-xs">{r.wa_saved_name || "—"}</TableCell>
                 <TableCell className="text-xs">{r.wa_public_name || "—"}</TableCell>
                 <TableCell className="text-xs max-w-[150px] truncate">{r.wa_labels || "—"}</TableCell>
