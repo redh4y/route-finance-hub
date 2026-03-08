@@ -1225,7 +1225,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    const body = await req.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      console.error("Failed to parse request body:", parseErr);
+      return new Response(JSON.stringify({ error: "Corpo da requisição inválido (JSON malformado)" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Body keys:", Object.keys(body), "payers_csv type:", typeof body.payers_csv, "isArray:", Array.isArray(body.payers_csv), "length:", Array.isArray(body.payers_csv) ? body.payers_csv.length : "N/A");
+
     const {
       payers_csv,
       ceps_csv,
@@ -1238,7 +1250,7 @@ Deno.serve(async (req) => {
     } = body;
 
     if (!payers_csv || !Array.isArray(payers_csv) || payers_csv.length === 0) {
-      return new Response(JSON.stringify({ error: "payers_csv é obrigatório" }), {
+      return new Response(JSON.stringify({ error: "payers_csv é obrigatório", received_keys: Object.keys(body), payers_csv_type: typeof payers_csv }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
