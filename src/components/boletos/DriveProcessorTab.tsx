@@ -43,6 +43,7 @@ import {
   Settings2,
   FileText,
   Copy,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
