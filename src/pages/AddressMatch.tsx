@@ -70,6 +70,7 @@ interface MatchResponse {
   config: MatchConfig;
   cep_base_size: number;
   bairro_index_size: number;
+  phone_summary?: { total: number; updated: number; secondary: number; below: number };
 }
 
 interface WhatsAppContact {
@@ -256,6 +257,36 @@ export default function AddressMatch() {
     return results;
   }, [payersData, waContacts, phoneCol, nameCol]);
 
+  // ── Poll for job completion ──
+  const pollJob = async (jobId: string): Promise<MatchResponse> => {
+    const maxAttempts = 120; // 4 min max
+    for (let i = 0; i < maxAttempts; i++) {
+      const { data, error } = await supabase
+        .from("processing_jobs")
+        .select("status, progress, result, error")
+        .eq("id", jobId)
+        .single();
+
+      if (error) throw new Error("Erro ao consultar status: " + error.message);
+      if (!data) throw new Error("Job não encontrado");
+
+      if (data.status === "completed" && data.result) {
+        return data.result as unknown as MatchResponse;
+      }
+      if (data.status === "failed") {
+        throw new Error(data.error || "Processamento falhou");
+      }
+
+      // Update progress toast
+      if (data.progress > 0) {
+        toast.loading(`Processando... ${data.progress}%`, { id: "match-progress" });
+      }
+
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    throw new Error("Timeout: processamento demorou demais");
+  };
+
   // ── Run match ──
   const runMatch = async () => {
     if (payersData.length === 0) {
@@ -280,7 +311,6 @@ export default function AddressMatch() {
         endereco_column: enderecoCol,
       };
 
-      // Include contacts for server-side phone match
       if (waContacts.length > 0) {
         requestBody.contacts_json = waContacts;
         requestBody.phone_match_config = {
@@ -291,6 +321,8 @@ export default function AddressMatch() {
         };
       }
 
+      toast.loading("Iniciando processamento...", { id: "match-progress" });
+
       const { data, error } = await supabase.functions.invoke("address-match", {
         body: requestBody,
       });
@@ -298,22 +330,35 @@ export default function AddressMatch() {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      setResponse(data as MatchResponse);
-
-      // Client-side phone match (for WA validation tab)
-      if (waContacts.length > 0) {
-        const pr = runPhoneMatch();
-        setPhoneResults(pr);
-        const ps = data.phone_summary;
-        toast.success(
-          `Concluído: ${data.summary.matched} endereços + ${ps?.updated || 0} telefones atualizados`
-        );
+      if (!data?.job_id) {
+        // Direct response (shouldn't happen, but handle gracefully)
+        setResponse(data as MatchResponse);
+        toast.dismiss("match-progress");
+        toast.success(`Processamento concluído: ${data.summary?.matched} matches`);
       } else {
-        toast.success(
-          `Processamento concluído: ${data.summary.matched} matches de ${data.summary.total}`
-        );
+        // Poll for results
+        toast.loading("Processando em background...", { id: "match-progress" });
+        const result = await pollJob(data.job_id);
+        setResponse(result);
+
+        toast.dismiss("match-progress");
+
+        // Client-side phone match (for WA validation tab)
+        if (waContacts.length > 0) {
+          const pr = runPhoneMatch();
+          setPhoneResults(pr);
+          const ps = result.phone_summary as { updated?: number } | undefined;
+          toast.success(
+            `Concluído: ${result.summary.matched} endereços + ${ps?.updated || 0} telefones atualizados`
+          );
+        } else {
+          toast.success(
+            `Processamento concluído: ${result.summary.matched} matches de ${result.summary.total}`
+          );
+        }
       }
     } catch (err: unknown) {
+      toast.dismiss("match-progress");
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       toast.error(`Falha: ${msg}`);
     } finally {
