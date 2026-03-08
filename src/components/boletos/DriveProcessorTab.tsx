@@ -222,7 +222,7 @@ export function DriveProcessorTab() {
                 . Adicione a URI abaixo como <strong>URI de redirecionamento autorizado</strong>:
                 <span className="flex items-center gap-1 mt-1">
                   <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded select-all">
-                    {window.location.origin}/boletos-links
+                    {window.location.origin}/oauth/callback
                   </code>
                   <Button
                     type="button"
