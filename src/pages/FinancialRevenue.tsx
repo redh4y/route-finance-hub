@@ -78,8 +78,6 @@ export default function FinancialRevenue() {
   const [entriesPage, setEntriesPage] = useState(1)
   const navigate = useNavigate()
 
-  const collectionRate = expectedRevenue > 0 ? Math.round((actualRevenue / expectedRevenue) * 100) : 0
-
   const queryClient = useQueryClient()
 
   const { data: dreGroups } = useQuery({
