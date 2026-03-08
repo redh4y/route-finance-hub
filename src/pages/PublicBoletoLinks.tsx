@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Copy, Download, Eye, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Download, Eye, Loader2, XCircle } from "lucide-react";
 
 type PublicBoletoItem = {
   reference_month: string;
@@ -75,23 +76,35 @@ function formatCurrency(cents: number | null | undefined) {
   }).format(cents / 100);
 }
 
-function statusBadgeClass(status: string | null | undefined) {
-  switch (status) {
-    case "PAGO":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "CANCELADO":
-      return "border-rose-200 bg-rose-50 text-rose-700";
-    case "VENCIDO":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    case "EM_ABERTO":
-      return "border-blue-200 bg-blue-50 text-blue-700";
-    case "REVISAO":
-      return "border-violet-200 bg-violet-50 text-violet-700";
-    case "SEM_STATUS":
-      return "border-slate-200 bg-slate-50 text-slate-600";
-    default:
-      return "border-slate-200 bg-slate-50 text-slate-600";
+function getPublicStatusBadge(status: string | null | undefined) {
+  const normalized = String(status || "SEM_STATUS").toUpperCase();
+
+  if (normalized === "PAGO") {
+    return { label: "Pago", className: "badge-paid", Icon: CheckCircle2 };
   }
+
+  if (normalized === "EM_ABERTO") {
+    return { label: "Em aberto", className: "badge-open", Icon: AlertTriangle };
+  }
+
+  if (normalized === "VENCIDO") {
+    return { label: "Vencido", className: "badge-open", Icon: AlertTriangle };
+  }
+
+  if (normalized === "CANCELADO") {
+    return { label: "Cancelado", className: "badge-cancelled", Icon: XCircle };
+  }
+
+  if (normalized === "REVISAO") {
+    return { label: "Revisao", className: "badge-review", Icon: AlertTriangle };
+  }
+
+  return { label: "Sem status", className: "badge-open", Icon: AlertTriangle };
+}
+
+function canShowDigitableLine(status: string | null | undefined) {
+  const normalized = String(status || "").toUpperCase();
+  return normalized !== "PAGO" && normalized !== "CANCELADO";
 }
 
 function sortBills(items: PublicBoletoItem[]) {
@@ -318,12 +331,21 @@ export default function PublicBoletoLinksPage() {
                       <p className="font-semibold text-base">
                         {formatMonth(item.reference_month)}
                       </p>
-                      <Badge
-                        variant="outline"
-                        className={statusBadgeClass(item.public_status || "SEM_STATUS")}
-                      >
-                        {(item.public_status || "SEM_STATUS").replace("_", " ")}
-                      </Badge>
+                      {(() => {
+                        const statusBadge = getPublicStatusBadge(item.public_status);
+                        const StatusIcon = statusBadge.Icon;
+                        return (
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium gap-1",
+                              statusBadge.className,
+                            )}
+                          >
+                            <StatusIcon className="h-3 w-3" />
+                            {statusBadge.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className="mt-1 space-y-1.5">
                       <div className="flex items-center gap-2 flex-wrap text-xs">
@@ -335,21 +357,29 @@ export default function PublicBoletoLinksPage() {
                         </span>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-mono rounded-md border bg-slate-50 px-2 py-1 text-slate-700 break-all">
-                          {item.digitable_line ||
-                            "Codigo de barras indisponivel"}
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1.5"
-                          onClick={() =>
-                            handleCopyDigitableLine(item.digitable_line)
-                          }
-                        >
-                          <Copy className="h-3.5 w-3.5" /> Copiar Código de
-                          Barras
-                        </Button>
+                        {canShowDigitableLine(item.public_status) ? (
+                          <>
+                            <span className="text-[11px] font-mono rounded-md border bg-slate-50 px-2 py-1 text-slate-700 break-all">
+                              {item.digitable_line ||
+                                "Codigo de barras indisponivel"}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5"
+                              onClick={() =>
+                                handleCopyDigitableLine(item.digitable_line)
+                              }
+                            >
+                              <Copy className="h-3.5 w-3.5" /> Copiar codigo de
+                              barras
+                            </Button>
+                          </>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Codigo de barras oculto para boleto pago/cancelado.
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
