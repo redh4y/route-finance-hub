@@ -491,7 +491,7 @@ export default function FinancialRevenue() {
               <div className="space-y-2">
                 <Label>Descrição</Label>
                 <Textarea
-                  placeholder="Descri??o da receita..."
+                  placeholder="Descrição da receita..."
                   value={description}
                   onChange={e => setDescription(e.target.value)}
                 />

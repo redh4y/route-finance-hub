@@ -1060,7 +1060,7 @@ function ImportBillingsCard() {
                     <th className="text-left p-2">Venc.</th>
                     <th className="text-left p-2">Nosso numero</th>
                     <th className="text-left p-2">Valor</th>
-                    <th className="text-left p-2">Observa??o</th>
+                    <th className="text-left p-2">Observação</th>
                   </tr>
                 </thead>
                 <tbody>

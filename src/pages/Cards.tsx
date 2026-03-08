@@ -353,7 +353,7 @@ export default function Cards() {
                         <TableHead>Fechamento</TableHead>
                         <TableHead>Vencimento</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="w-[70px]">A??es</TableHead>
+                        <TableHead className="w-[70px]">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
