@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle, FileText, Users, Search, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -646,131 +646,296 @@ export default function BoletoLinksPage() {
     <MainLayout>
       <PageTransition>
         <div className="space-y-6">
+          {/* Header */}
           <div className="page-header">
             <h1 className="page-title">Portal de Boletos</h1>
-            <p className="page-subtitle">Importe links de boletos para disponibilizar 2a via por WhatsApp + CPF.</p>
+            <p className="page-subtitle">
+              Importe links de boletos para disponibilizar 2ª via por WhatsApp + CPF.
+            </p>
           </div>
 
+          {/* Stats Cards */}
+          {lines.length > 0 && (
+            <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+              <Card>
+                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+                  <div className="rounded-lg bg-primary/10 p-2.5">
+                    <FileText className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total linhas</p>
+                    <p className="text-xl font-bold">{stats.total}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+                  <div className="rounded-lg bg-emerald-500/10 p-2.5">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Match</p>
+                    <p className="text-xl font-bold text-emerald-600">{stats.match}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+                  <div className="rounded-lg bg-destructive/10 p-2.5">
+                    <AlertTriangle className="h-5 w-5 text-destructive" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Sem match</p>
+                    <p className="text-xl font-bold text-destructive">{stats.noMatch}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+                  <div className="rounded-lg bg-amber-500/10 p-2.5">
+                    <Users className="h-5 w-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Múltiplos</p>
+                    <p className="text-xl font-bold">{stats.multiple}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+                  <div className="rounded-lg bg-muted p-2.5">
+                    <LinkIcon className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Sem link/CPF</p>
+                    <p className="text-xl font-bold">{stats.missingUrl + stats.missingData}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Import Card */}
           <Card>
-            <CardHeader>
-              <CardTitle>Importar links (JSON/XLSX/CSV)</CardTitle>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Upload className="h-4 w-4" />
+                Importar links (JSON / XLSX / CSV)
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Arquivo</Label>
-                <input
-                  id="boletos-links-file"
-                  type="file"
-                  accept=".json,.xlsx,.xls,.csv"
-                  className="hidden"
-                  ref={fileInputRef}
-                  onChange={(e) => void handleFile(e.target.files?.[0] || null)}
-                />
-                <div
-                  className={`cursor-pointer rounded-xl border-2 border-dashed p-5 text-center transition-colors ${
-                    isDragging ? "border-primary bg-primary/5" : "border-border bg-muted/20"
-                  }`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                >
+              {/* Drop zone */}
+              <input
+                id="boletos-links-file"
+                type="file"
+                accept=".json,.xlsx,.xls,.csv"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={(e) => void handleFile(e.target.files?.[0] || null)}
+              />
+              <div
+                className={`cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-all ${
+                  isDragging
+                    ? "border-primary bg-primary/5 scale-[1.01]"
+                    : "border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
+                }`}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {isParsing ? (
+                  <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                ) : (
                   <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
-                  <p className="mt-3 text-base font-medium">Arraste um arquivo aqui</p>
-                  <p className="text-sm text-muted-foreground">ou clique para selecionar</p>
-                  {file && (
-                    <p className="mt-3 text-xs text-muted-foreground">Selecionado: {file.name}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline">Total: {stats.total}</Badge>
-                <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30">Match: {stats.match}</Badge>
-                <Badge variant="outline" className="text-destructive border-destructive/50">Sem match: {stats.noMatch}</Badge>
-                <Badge variant="outline" className="text-warning border-warning/50">Multiplos: {stats.multiple}</Badge>
-                <Badge variant="outline">Sem link: {stats.missingUrl}</Badge>
-                <Badge variant="outline">Sem CPF: {stats.missingData}</Badge>
-              </div>
-
-              <div className="rounded-lg border p-3 space-y-2">
-                <p className="text-sm font-medium">Validacao de cobertura do mes {referenceMonth}</p>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline">Ativos no mes: {monthCoverage.expected}</Badge>
-                  <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30">Com link: {monthCoverage.linked}</Badge>
-                  <Badge variant="outline" className={monthCoverage.missing.length > 0 ? "text-destructive border-destructive/50" : ""}>
-                    Sem link: {monthCoverage.missing.length}
+                )}
+                <p className="mt-3 text-base font-medium">
+                  {isParsing ? "Processando arquivo..." : "Arraste um arquivo aqui"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {isParsing ? "Aguarde..." : "ou clique para selecionar · JSON, XLSX, CSV"}
+                </p>
+                {file && !isParsing && (
+                  <Badge variant="secondary" className="mt-3">
+                    <FileText className="h-3 w-3 mr-1" />
+                    {file.name}
                   </Badge>
-                </div>
-                {monthCoverage.missing.length > 0 && (
-                  <p className="text-xs text-destructive">
-                    Faltando link para: {monthCoverage.missing.slice(0, 8).map((p) => p.name).join(", ")}
-                    {monthCoverage.missing.length > 8 ? " ..." : ""}
-                  </p>
                 )}
               </div>
 
+              {/* Month coverage */}
+              <Card className="border-dashed">
+                <CardContent className="pt-4 pb-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">
+                      Cobertura do mês {referenceMonth}
+                    </p>
+                    {monthCoverage.expected > 0 && (
+                      <Badge
+                        variant={monthCoverage.missing.length === 0 ? "default" : "outline"}
+                        className={monthCoverage.missing.length === 0
+                          ? "bg-emerald-500/15 text-emerald-700 border-0"
+                          : "text-destructive border-destructive/50"
+                        }
+                      >
+                        {monthCoverage.linked}/{monthCoverage.expected}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {monthCoverage.expected > 0 && (
+                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(100, (monthCoverage.linked / monthCoverage.expected) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {monthCoverage.missing.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      <span className="text-destructive font-medium">Faltando:</span>{" "}
+                      {monthCoverage.missing.slice(0, 8).map((p) => p.name).join(", ")}
+                      {monthCoverage.missing.length > 8 && ` +${monthCoverage.missing.length - 8}`}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Actions */}
               <div className="flex gap-2">
-                <Button onClick={handleImport} disabled={isSaving || isParsing || stats.match === 0}>
-                  {isSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importando...</> : <><Upload className="h-4 w-4 mr-2" />Salvar links</>}
+                <Button
+                  onClick={handleImport}
+                  disabled={isSaving || isParsing || stats.match === 0}
+                  className="gap-2"
+                >
+                  {isSaving ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Importando...</>
+                  ) : (
+                    <><Upload className="h-4 w-4" />Salvar {stats.match} link{stats.match !== 1 ? "s" : ""}</>
+                  )}
                 </Button>
-                <Button variant="outline" onClick={() => { setFile(null); setLines([]); }} disabled={isParsing || isSaving}>Limpar</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => { setFile(null); setLines([]); }}
+                  disabled={isParsing || isSaving}
+                >
+                  Limpar
+                </Button>
               </div>
             </CardContent>
           </Card>
 
+          {/* Preview Table */}
           <Card>
-            <CardHeader>
-              <CardTitle>Previa</CardTitle>
+            <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="text-base">Prévia</CardTitle>
+              <Badge variant="secondary" className="font-mono text-xs">
+                {filteredLines.length}
+              </Badge>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid gap-2 md:max-w-sm">
-                <Label>Buscar na lista</Label>
-                <Input
-                  value={searchPreview}
-                  onChange={(e) => setSearchPreview(e.target.value)}
-                  placeholder="Nome, CPF, link ou status"
-                />
+            <CardContent className="space-y-3 px-0">
+              <div className="grid gap-2 md:max-w-sm px-6">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={searchPreview}
+                    onChange={(e) => setSearchPreview(e.target.value)}
+                    placeholder="Buscar nome, CPF, link ou status"
+                    className="pl-9"
+                  />
+                </div>
               </div>
               <ScrollArea className="h-[520px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Aluno</TableHead>
+                      <TableHead className="pl-6">Aluno</TableHead>
                       <TableHead>CPF</TableHead>
                       <TableHead>WhatsApp</TableHead>
+                      <TableHead>Competência</TableHead>
+                      <TableHead>Valor</TableHead>
                       <TableHead>Link</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="pr-6">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredLines.map((line) => (
-                      <TableRow key={line.id}>
-                        <TableCell>{line.student_name || "-"}</TableCell>
-                        <TableCell className="font-mono text-xs">{line.cpf_digits || "-"}</TableCell>
-                        <TableCell className="font-mono text-xs">{line.phone_digits || "-"}</TableCell>
-                        <TableCell>
-                          {line.drive_url ? (
-                            <a href={line.drive_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary text-xs underline">
-                              <LinkIcon className="h-3 w-3" /> abrir
-                            </a>
-                          ) : "-"}
+                      <TableRow key={line.id} className="group">
+                        <TableCell className="pl-6 text-sm max-w-[180px] truncate font-medium">
+                          {line.student_name || "–"}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs tracking-wide">
+                          {line.cpf_digits || "–"}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {line.phone_digits || "–"}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {line.reference_month || "–"}
+                        </TableCell>
+                        <TableCell className="text-sm tabular-nums">
+                          {line.amount_cents != null
+                            ? (line.amount_cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                            : "–"}
                         </TableCell>
                         <TableCell>
-                          {line.match_status === "MATCH" && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30"><CheckCircle2 className="h-3 w-3 mr-1" />Match</Badge>}
-                          {line.match_status === "NO_MATCH" && <Badge variant="outline" className="text-destructive border-destructive/50"><AlertTriangle className="h-3 w-3 mr-1" />Sem match</Badge>}
-                          {line.match_status === "MISSING_URL" && <Badge variant="outline">Sem link</Badge>}
-                          {line.match_status === "MISSING_DATA" && <Badge variant="outline">Sem CPF</Badge>}
-                          {line.match_status === "MULTIPLE" && <Badge variant="outline" className="text-warning border-warning/50">Multiplos</Badge>}
+                          {line.drive_url ? (
+                            <a
+                              href={line.drive_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-primary text-xs hover:underline"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              abrir
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">–</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="pr-6">
+                          {line.match_status === "MATCH" && (
+                            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-0 gap-1 text-[11px]">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Match
+                            </Badge>
+                          )}
+                          {line.match_status === "NO_MATCH" && (
+                            <Badge variant="outline" className="text-destructive border-destructive/50 gap-1 text-[11px]">
+                              <AlertTriangle className="h-3 w-3" />
+                              Sem match
+                            </Badge>
+                          )}
+                          {line.match_status === "MISSING_URL" && (
+                            <Badge variant="outline" className="gap-1 text-[11px]">
+                              <LinkIcon className="h-3 w-3" />
+                              Sem link
+                            </Badge>
+                          )}
+                          {line.match_status === "MISSING_DATA" && (
+                            <Badge variant="outline" className="gap-1 text-[11px]">
+                              Sem CPF
+                            </Badge>
+                          )}
+                          {line.match_status === "MULTIPLE" && (
+                            <Badge variant="outline" className="text-amber-600 border-amber-500/50 gap-1 text-[11px]">
+                              <Users className="h-3 w-3" />
+                              Múltiplos
+                            </Badge>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
                     {filteredLines.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-10">{lines.length === 0 ? "Selecione um arquivo para visualizar a previa." : "Nenhum resultado para a busca."}</TableCell>
+                        <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-10">
+                          {lines.length === 0
+                            ? "Selecione um arquivo para visualizar a prévia."
+                            : "Nenhum resultado para a busca."}
+                        </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
