@@ -900,6 +900,7 @@ export function useOptimizedImportCEPs() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["ceps"] });
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
 
       if (result.errors > 0) {
         toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
