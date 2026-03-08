@@ -248,7 +248,7 @@ export default function Cards() {
               <div>
                 <p className="text-sm font-medium">Ativo</p>
                 <p className="text-xs text-muted-foreground">
-                  Dispon?vel para importa??o
+                  Disponível para importação
                 </p>
               </div>
               <Switch checked={active} onCheckedChange={setActive} />
