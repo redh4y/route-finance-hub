@@ -479,7 +479,7 @@ function PayerCardMobile({
       )}
     >
       {/* Row 1: Avatar + Name + Badges + Edit */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 w-full overflow-hidden">
         <div
           className={cn(
             "flex items-center justify-center w-9 h-9 rounded-full shrink-0 text-xs font-bold",
