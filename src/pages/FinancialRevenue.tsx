@@ -76,6 +76,9 @@ export default function FinancialRevenue() {
   const statusFilter = searchParams.get('status')
   const [billingsPage, setBillingsPage] = useState(1)
   const [entriesPage, setEntriesPage] = useState(1)
+  const navigate = useNavigate()
+
+  const collectionRate = expectedRevenue > 0 ? Math.round((actualRevenue / expectedRevenue) * 100) : 0
 
   const queryClient = useQueryClient()
 
