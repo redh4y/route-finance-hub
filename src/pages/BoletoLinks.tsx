@@ -652,9 +652,27 @@ export default function BoletoLinksPage() {
           <div className="page-header">
             <h1 className="page-title">Portal de Boletos</h1>
             <p className="page-subtitle">
-              Importe links de boletos para disponibilizar 2ª via por WhatsApp + CPF.
+              Processe boletos do Drive ou importe links para disponibilizar 2ª via.
             </p>
           </div>
+
+          <Tabs defaultValue="import" className="w-full">
+            <TabsList>
+              <TabsTrigger value="import" className="gap-2">
+                <Upload className="h-4 w-4" />
+                Importar Links
+              </TabsTrigger>
+              <TabsTrigger value="drive" className="gap-2">
+                <HardDrive className="h-4 w-4" />
+                Processar Drive
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="drive" className="mt-4">
+              <DriveProcessorTab />
+            </TabsContent>
+
+            <TabsContent value="import" className="mt-4 space-y-6">
 
           {/* Stats Cards */}
           {lines.length > 0 && (
