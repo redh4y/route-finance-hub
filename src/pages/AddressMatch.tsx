@@ -1049,6 +1049,32 @@ export default function AddressMatch() {
                     Fallback global
                   </Label>
                 </div>
+
+                {/* Phone match config */}
+                <div className="border-t pt-4 mt-3 space-y-4">
+                  <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5" />
+                    Match de Telefones
+                  </p>
+                  <SliderField
+                    label="Phone threshold"
+                    value={phoneThreshold}
+                    min={0.2}
+                    max={0.9}
+                    step={0.01}
+                    onChange={setPhoneThreshold}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={phoneOverwrite}
+                      onCheckedChange={setPhoneOverwrite}
+                      id="phone-overwrite"
+                    />
+                    <Label htmlFor="phone-overwrite" className="text-sm cursor-pointer">
+                      Sobrescrever telefone existente
+                    </Label>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
