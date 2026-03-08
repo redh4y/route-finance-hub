@@ -50,15 +50,28 @@ export interface PayersFilters {
   needsReview?: boolean;
   reviewReason?: string;
   search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
+export interface PayersResult {
+  rows: Payer[];
+  count: number;
+}
+
+const DEFAULT_PAGE_SIZE = 50;
+
 export function usePayers(filters: PayersFilters = {}) {
+  const page = filters.page || 1;
+  const pageSize = filters.pageSize || DEFAULT_PAGE_SIZE;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
   return useQuery({
     queryKey: ["payers", filters],
-    queryFn: async () => {
-      let query = supabase.from("payers").select("*");
+    queryFn: async (): Promise<PayersResult> => {
+      let query = supabase.from("payers").select("*", { count: "exact" });
 
-      // Apply filters
       if (filters.status) {
         query = query.eq("status", filters.status);
       }
@@ -78,10 +91,42 @@ export function usePayers(filters: PayersFilters = {}) {
         query = query.ilike("name_lower", `%${filters.search.toLowerCase()}%`);
       }
 
-      const { data, error } = await query.order("name", { ascending: true });
+      const { data, error, count } = await query
+        .order("name", { ascending: true })
+        .range(from, to);
 
       if (error) throw error;
-      return data as Payer[];
+      return { rows: (data || []) as Payer[], count: count || 0 };
+    },
+  });
+}
+
+/** Separate lightweight query for stats counts */
+export function usePayersStats() {
+  return useQuery({
+    queryKey: ["payers-stats"],
+    queryFn: async () => {
+      const [
+        { count: total },
+        { count: active },
+        { count: inactive },
+        { count: review },
+        { count: uncatalogued },
+      ] = await Promise.all([
+        supabase.from("payers").select("id", { count: "exact", head: true }),
+        supabase.from("payers").select("id", { count: "exact", head: true }).eq("status", "ATIVO"),
+        supabase.from("payers").select("id", { count: "exact", head: true }).eq("status", "INATIVO"),
+        supabase.from("payers").select("id", { count: "exact", head: true }).eq("needs_review", true),
+        supabase.from("payers").select("id", { count: "exact", head: true }).eq("review_reason", "IMPORT_BILLING_SEM_CADASTRO"),
+      ]);
+
+      return {
+        total: total || 0,
+        active: active || 0,
+        inactive: inactive || 0,
+        review: review || 0,
+        uncatalogued: uncatalogued || 0,
+      };
     },
   });
 }
@@ -126,6 +171,7 @@ export function useUpdatePayer() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
       queryClient.invalidateQueries({ queryKey: ["payer", data.id] });
       toast.success("Pagador atualizado com sucesso");
     },
@@ -153,6 +199,7 @@ export function useTogglePayerStatus() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
       queryClient.invalidateQueries({ queryKey: ["payer", data.id] });
       toast.success(
         data.status === "ATIVO" ? "Pagador ativado" : "Pagador inativado"
