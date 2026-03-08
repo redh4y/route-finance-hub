@@ -885,6 +885,7 @@ export default function AddressMatch() {
                     )}
                   </div>
 
+                  <div className="flex items-center gap-2">
                     <Switch checked={useDbCeps} onCheckedChange={setUseDbCeps} id="use-db" />
                     <Label htmlFor="use-db" className="flex items-center gap-1 text-sm cursor-pointer">
                       <Database className="h-3.5 w-3.5" />
