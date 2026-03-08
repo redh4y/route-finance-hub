@@ -1,7 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -1196,129 +1194,7 @@ function applyPhoneMatch(
 }
 
 // ══════════════════════════════════════════════════
-//  BACKGROUND PROCESSING
-// ══════════════════════════════════════════════════
-
-async function runPipeline(
-  jobId: string,
-  serviceClient: ReturnType<typeof createClient>,
-  payers_csv: Record<string, unknown>[],
-  cepBase: CepRecord[],
-  config: MatchConfig,
-  endCol: string,
-  contacts_json: unknown,
-  phone_match_config: Record<string, unknown> | undefined,
-) {
-  try {
-    const bairroIndex = buildBairroIndex(cepBase);
-    const keyToLabel = buildKeyToLabel(cepBase);
-
-    // Process in chunks to avoid blocking
-    const CHUNK = 50;
-    let results: Record<string, unknown>[] = [];
-
-    for (let i = 0; i < payers_csv.length; i += CHUNK) {
-      const chunk = payers_csv.slice(i, i + CHUNK);
-      const chunkResults = chunk.map((row) => {
-        const endereco = String(row[endCol] || "");
-        const matchResult = processRow(endereco, cepBase, bairroIndex, keyToLabel, config);
-        return { ...row, ...matchResult };
-      });
-      results.push(...chunkResults);
-
-      // Update progress
-      const progress = Math.round((results.length / payers_csv.length) * 90);
-      await serviceClient
-        .from("processing_jobs")
-        .update({ progress, updated_at: new Date().toISOString() })
-        .eq("id", jobId);
-    }
-
-    // Phone match (optional)
-    let phoneSummary: { total: number; updated: number; secondary: number; below: number } | null = null;
-    if (contacts_json) {
-      const contacts = parseContacts(contacts_json);
-      const pmCfg: PhoneMatchConfig = {
-        name_column: (phone_match_config?.name_column as string) || "Nome",
-        phone_column: (phone_match_config?.phone_column as string) || "Telefone",
-        threshold: (phone_match_config?.threshold as number) ?? 0.86,
-        overwrite: (phone_match_config?.overwrite as boolean) ?? false,
-      };
-      results = applyPhoneMatch(results, contacts, pmCfg);
-
-      let updated = 0, secondary = 0, below = 0;
-      for (const r of results) {
-        const st = String(r.phone_match_status || "");
-        if (st === "ATUALIZADO" || st === "ATUALIZADO_DUPLICADO") updated++;
-        else if (st === "TELEFONE_SECUNDARIO") secondary++;
-        else if (st === "ABAIXO_THRESHOLD") below++;
-      }
-      phoneSummary = { total: contacts.length, updated, secondary, below };
-    }
-
-    // Summary stats
-    const total = results.length;
-    const matched = results.filter((r) => r.match_ok === true).length;
-    const review = results.filter((r) => r.review_status === "REVIEW").length;
-    const failed = results.filter((r) => r.match_ok !== true && r.review_status !== "REVIEW").length;
-
-    // Bairro diagnostics
-    const bairroStats = new Map<string, { count: number; gate: string }>();
-    for (const r of results) {
-      const key = String(r.bairro_candidato || "(vazio)");
-      if (!bairroStats.has(key)) bairroStats.set(key, { count: 0, gate: String(r.bairro_gate || "") });
-      bairroStats.get(key)!.count++;
-    }
-    const topBairros = Array.from(bairroStats.entries())
-      .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, 30)
-      .map(([bairro, { count, gate }]) => ({ bairro, count, gate }));
-
-    const failures = results
-      .filter((r) => r.match_ok !== true)
-      .slice(0, 50)
-      .map((r) => ({
-        endereco: String(r.endereco_usado || ""),
-        bairro_gate: String(r.bairro_gate || ""),
-        bairro_score: r.bairro_score,
-        logradouro_score: r.logradouro_score,
-        review_reason: String(r.review_reason || ""),
-      }));
-
-    const resultPayload = {
-      results,
-      summary: { total, matched, review, failed },
-      diagnostics: { topBairros, failures },
-      config,
-      cep_base_size: cepBase.length,
-      bairro_index_size: bairroIndex.size,
-      phone_summary: phoneSummary,
-    };
-
-    await serviceClient
-      .from("processing_jobs")
-      .update({
-        status: "completed",
-        progress: 100,
-        result: resultPayload,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", jobId);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await serviceClient
-      .from("processing_jobs")
-      .update({
-        status: "failed",
-        error: msg,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", jobId);
-  }
-}
-
-// ══════════════════════════════════════════════════
-//  EDGE FUNCTION HANDLER
+//  EDGE FUNCTION HANDLER — CHUNKED (sync per batch)
 // ══════════════════════════════════════════════════
 
 Deno.serve(async (req) => {
@@ -1358,6 +1234,7 @@ Deno.serve(async (req) => {
       endereco_column,
       contacts_json,
       phone_match_config,
+      is_phone_only,
     } = body;
 
     if (!payers_csv || !Array.isArray(payers_csv) || payers_csv.length === 0) {
@@ -1375,7 +1252,30 @@ Deno.serve(async (req) => {
       fallback_global: userConfig?.fallback_global ?? false,
     };
 
-    // Build CEP base (this part is fast, do it synchronously)
+    // Phone-only mode: just apply phone match and return
+    if (is_phone_only && contacts_json) {
+      const contacts = parseContacts(contacts_json);
+      const pmCfg: PhoneMatchConfig = {
+        name_column: (phone_match_config?.name_column as string) || "Nome",
+        phone_column: (phone_match_config?.phone_column as string) || "Telefone",
+        threshold: (phone_match_config?.threshold as number) ?? 0.86,
+        overwrite: (phone_match_config?.overwrite as boolean) ?? false,
+      };
+      const results = applyPhoneMatch(payers_csv, contacts, pmCfg);
+      let updated = 0, secondary = 0, below = 0;
+      for (const r of results) {
+        const st = String(r.phone_match_status || "");
+        if (st === "ATUALIZADO" || st === "ATUALIZADO_DUPLICADO") updated++;
+        else if (st === "TELEFONE_SECUNDARIO") secondary++;
+        else if (st === "ABAIXO_THRESHOLD") below++;
+      }
+      return new Response(
+        JSON.stringify({ results, phone_summary: { total: contacts.length, updated, secondary, below } }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Build CEP base
     let cepBase: CepRecord[] = [];
 
     if (ceps_csv && Array.isArray(ceps_csv) && ceps_csv.length > 0) {
@@ -1422,38 +1322,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Service client for background updates (bypasses RLS)
-    const serviceClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
-    // Create job record
-    const { data: job, error: jobErr } = await serviceClient
-      .from("processing_jobs")
-      .insert({
-        user_id: user.id,
-        type: "address_match",
-        status: "processing",
-        progress: 0,
-      })
-      .select("id")
-      .single();
-
-    if (jobErr || !job) {
-      throw new Error("Falha ao criar job: " + (jobErr?.message || ""));
-    }
-
+    const bairroIndex = buildBairroIndex(cepBase);
+    const keyToLabel = buildKeyToLabel(cepBase);
     const endCol = endereco_column || "Endereco";
 
-    // Start background processing
-    EdgeRuntime.waitUntil(
-      runPipeline(job.id, serviceClient, payers_csv, cepBase, config, endCol, contacts_json, phone_match_config)
-    );
+    // Process this batch of payers
+    const results = payers_csv.map((row: Record<string, unknown>) => {
+      const endereco = String(row[endCol] || "");
+      const matchResult = processRow(endereco, cepBase, bairroIndex, keyToLabel, config);
+      return { ...row, ...matchResult };
+    });
 
-    // Return immediately with job ID
     return new Response(
-      JSON.stringify({ job_id: job.id, status: "processing" }),
+      JSON.stringify({
+        results,
+        cep_base_size: cepBase.length,
+        bairro_index_size: bairroIndex.size,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
