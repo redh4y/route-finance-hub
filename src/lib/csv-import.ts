@@ -364,13 +364,15 @@ export interface BillingCSVRow {
   Nome?: string;
 }
 
-// CEP CSV row type
+// CEP CSV row type — supports both explicit Cidade/UF columns and combined Localidade column
 export interface CEPCSVRow {
   CEP?: string;
   Logradouro?: string;
   Bairro?: string;
   Cidade?: string;
   UF?: string;
+  Localidade?: string;
+  [key: string]: string | undefined;
 }
 
 // Transform payer CSV row to database format with complete business rules
