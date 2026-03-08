@@ -847,14 +847,14 @@ export default function AddressMatch() {
                   {waFileName && (
                     <div className="flex items-center gap-2">
                       <p className="text-xs text-muted-foreground">
-                        {waFileName} — {waContacts.length} contatos
+                        {waFileName} — {waRawContacts.length} contatos → {waGrouped.length} agrupados
                       </p>
                       <Button
                         variant="outline"
                         size="sm"
                         className="h-6 text-xs gap-1"
                         onClick={importContactsToDb}
-                        disabled={isSavingContacts || waContacts.length === 0}
+                        disabled={isSavingContacts || waRawContacts.length === 0}
                       >
                         <Save className="h-3 w-3" />
                         {isSavingContacts ? "Salvando..." : "Salvar no banco"}
