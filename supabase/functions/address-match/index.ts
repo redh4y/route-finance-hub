@@ -1278,45 +1278,40 @@ Deno.serve(async (req) => {
     // Build CEP base
     let cepBase: CepRecord[] = [];
 
-    if (cep_base_prefetched && Array.isArray(cep_base_prefetched) && cep_base_prefetched.length > 0) {
-      // Reuse prefetched base from previous call
-      cepBase = cep_base_prefetched as CepRecord[];
-    } else {
-      if (ceps_csv && Array.isArray(ceps_csv) && ceps_csv.length > 0) {
-        cepBase = ceps_csv.map((r: Record<string, string>) => ({
-          logradouro: r.logradouro || r.Logradouro || "",
-          bairro: r.bairro || r.Bairro || "",
-          cidade: r.cidade || r.Cidade || "",
-          uf: r.uf || r.UF || "",
-          cep: r.cep || r.CEP || r.Cep || "",
-        }));
-      }
+    if (ceps_csv && Array.isArray(ceps_csv) && ceps_csv.length > 0) {
+      cepBase = ceps_csv.map((r: Record<string, string>) => ({
+        logradouro: r.logradouro || r.Logradouro || "",
+        bairro: r.bairro || r.Bairro || "",
+        cidade: r.cidade || r.Cidade || "",
+        uf: r.uf || r.UF || "",
+        cep: r.cep || r.CEP || r.Cep || "",
+      }));
+    }
 
-      if (use_db_ceps !== false) {
-        let page = 0;
-        const pageSize = 1000;
-        let hasMore = true;
-        while (hasMore) {
-          const { data, error } = await supabase
-            .from("ceps")
-            .select("logradouro, bairro, cidade, uf, cep")
-            .range(page * pageSize, (page + 1) * pageSize - 1);
+    if (use_db_ceps !== false) {
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("ceps")
+          .select("logradouro, bairro, cidade, uf, cep")
+          .range(page * pageSize, (page + 1) * pageSize - 1);
 
-          if (error) throw error;
-          if (data && data.length > 0) {
-            cepBase.push(
-              ...data.map((r) => ({
-                logradouro: r.logradouro || "",
-                bairro: r.bairro || "",
-                cidade: r.cidade || "",
-                uf: r.uf || "",
-                cep: r.cep || "",
-              }))
-            );
-          }
-          hasMore = (data?.length || 0) === pageSize;
-          page++;
+        if (error) throw error;
+        if (data && data.length > 0) {
+          cepBase.push(
+            ...data.map((r) => ({
+              logradouro: r.logradouro || "",
+              bairro: r.bairro || "",
+              cidade: r.cidade || "",
+              uf: r.uf || "",
+              cep: r.cep || "",
+            }))
+          );
         }
+        hasMore = (data?.length || 0) === pageSize;
+        page++;
       }
     }
 
