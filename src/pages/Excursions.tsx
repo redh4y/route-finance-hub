@@ -391,6 +391,14 @@ export default function Excursions() {
                                     </DropdownMenuItem>
                                   </>
                                 )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => setDeleteTarget({ id: exc.id, name: exc.name })}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                  Excluir Excursão
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
@@ -406,6 +414,31 @@ export default function Excursions() {
             </p>
           </>
         )}
+
+        <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir excursão?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir <strong>{deleteTarget?.name}</strong>? Esta ação não pode ser desfeita e todos os assentos vinculados serão removidos.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (deleteTarget) {
+                    deleteExcursion.mutate(deleteTarget.id);
+                    setDeleteTarget(null);
+                  }
+                }}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </PageTransition>
     </MainLayout>
   );
