@@ -1338,8 +1338,6 @@ Deno.serve(async (req) => {
         results,
         cep_base_size: cepBase.length,
         bairro_index_size: bairroIndex.size,
-        // Return the cep_base so frontend can send it back for next batches
-        cep_base: cepBase,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
