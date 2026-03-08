@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { usePayers } from "@/hooks/usePayers";
+import { usePayers, usePayersStats, usePayerById, Payer } from "@/hooks/usePayers";
 import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
 import { PageTransition } from "@/components/ui/page-transition";
@@ -80,6 +80,8 @@ export default function Payers() {
   const [selectedPayerId, setSelectedPayerId] = useState<string | null>(null);
   const [editPayerId, setEditPayerId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newPayer, setNewPayer] = useState({
@@ -119,29 +121,27 @@ export default function Payers() {
     }
   }, [quickFilter]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [quickFilter, searchTerm]);
+
   const {
-    data: payers,
+    data: payersResult,
     isLoading,
     error,
   } = usePayers({
     ...filters,
     search: searchTerm || undefined,
+    page,
+    pageSize: PAGE_SIZE,
   });
 
-  // Stats
-  const stats = useMemo(() => {
-    if (!payers)
-      return { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 };
-    return {
-      total: payers.length,
-      active: payers.filter((p) => p.status === "ATIVO").length,
-      inactive: payers.filter((p) => p.status === "INATIVO").length,
-      review: payers.filter((p) => p.needs_review).length,
-      uncatalogued: payers.filter((p) =>
-        isImportedWithoutRegister(p.review_reason),
-      ).length,
-    };
-  }, [payers]);
+  const payers = payersResult?.rows || [];
+  const totalCount = payersResult?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  // Stats from separate lightweight query
+  const { data: stats = { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 } } = usePayersStats();
 
   const clearSearch = () => {
     setSearchTerm("");
@@ -333,7 +333,7 @@ export default function Payers() {
                         <Skeleton key={i} className="h-20 w-full rounded-lg" />
                       ))}
                     </div>
-                  ) : payers && payers.length > 0 ? (
+                  ) : payers.length > 0 ? (
                     <>
                       {/* Mobile: Card list */}
                       <div className="lg:hidden p-3 space-y-3">
@@ -569,9 +569,7 @@ function PayerRow({
   onClick,
   onEdit,
 }: {
-  payer: ReturnType<typeof usePayers>["data"] extends (infer T)[] | undefined
-    ? T
-    : never;
+  payer: Payer;
   isSelected: boolean;
   onClick: () => void;
   onEdit: () => void;
@@ -695,9 +693,7 @@ function PayerCard({
   onClick,
   onEdit,
 }: {
-  payer: ReturnType<typeof usePayers>["data"] extends (infer T)[] | undefined
-    ? T
-    : never;
+  payer: Payer;
   isSelected: boolean;
   onClick: () => void;
   onEdit: () => void;
@@ -830,9 +826,9 @@ function EmptyState({
 
 // Quick view panel for desktop
 function QuickViewPanel({ payerId }: { payerId: string | null }) {
-  const { data: payer, isLoading } = usePayers({});
+  const { data: payerData } = usePayerById(payerId || "");
 
-  const selectedPayer = payer?.find((p) => p.id === payerId);
+  const selectedPayer = payerData;
 
   const payerCode = selectedPayer?.payer_code || null;
 
