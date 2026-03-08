@@ -201,18 +201,65 @@ export function DriveProcessorTab() {
               Autenticação Google Drive
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="access-token" className="text-sm">
                 Access Token do Google
               </Label>
-              <Textarea
-                id="access-token"
-                placeholder="Cole aqui o access_token do Google OAuth..."
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                className="mt-1 h-20 font-mono text-xs"
-              />
+              <div className="flex gap-2 mt-1">
+                <Textarea
+                  id="access-token"
+                  placeholder="Cole aqui o access_token do Google OAuth..."
+                  value={accessToken}
+                  onChange={(e) => {
+                    setAccessToken(e.target.value);
+                    setTokenStatus("idle");
+                    setTokenEmail(null);
+                  }}
+                  className="h-20 font-mono text-xs flex-1"
+                />
+                <Button
+                  variant={tokenStatus === "valid" ? "default" : "outline"}
+                  className={`shrink-0 self-start mt-0 ${
+                    tokenStatus === "valid"
+                      ? "bg-success hover:bg-success/90 text-success-foreground"
+                      : tokenStatus === "invalid"
+                      ? "border-destructive text-destructive"
+                      : ""
+                  }`}
+                  disabled={!accessToken.trim() || tokenStatus === "checking"}
+                  onClick={validateToken}
+                >
+                  {tokenStatus === "checking" ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : tokenStatus === "valid" ? (
+                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                  ) : tokenStatus === "invalid" ? (
+                    <XCircle className="h-4 w-4 mr-1" />
+                  ) : (
+                    <Key className="h-4 w-4 mr-1" />
+                  )}
+                  {tokenStatus === "checking"
+                    ? "Validando..."
+                    : tokenStatus === "valid"
+                    ? "Conectado"
+                    : tokenStatus === "invalid"
+                    ? "Inválido"
+                    : "Validar Token"}
+                </Button>
+              </div>
+              {tokenStatus === "valid" && tokenEmail && (
+                <p className="text-xs text-success mt-1 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  {tokenEmail}
+                </p>
+              )}
+              {tokenStatus === "invalid" && (
+                <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                  <XCircle className="h-3 w-3" />
+                  Token expirado ou inválido. Gere um novo.
+                </p>
+              )}
               <p className="text-xs text-muted-foreground mt-1">
                 Obtenha em{" "}
                 <a
