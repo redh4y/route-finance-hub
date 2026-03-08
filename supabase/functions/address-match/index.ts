@@ -154,19 +154,24 @@ function tokenList(s: string, aggressive: boolean, mode: string): string[] {
 }
 
 function tokenSim(a: string, b: string): number {
-  // SequenceMatcher-like ratio between two tokens
   if (a === b) return 1;
   if (!a || !b) return 0;
   const m = a.length;
   const n = b.length;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  // Early exit: if lengths differ too much, max possible ratio is low
+  const lenRatio = m > n ? n / m : m / n;
+  if (lenRatio < 0.5) return lenRatio; // fast approximation for very different lengths
+  // Use single reusable row DP (O(n) space instead of O(m*n))
+  const prev = new Array(n + 1).fill(0);
+  const curr = new Array(n + 1).fill(0);
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
-      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      if (a[i - 1] === b[j - 1]) curr[j] = prev[j - 1] + 1;
+      else curr[j] = prev[j] > curr[j - 1] ? prev[j] : curr[j - 1];
     }
+    for (let j = 0; j <= n; j++) { prev[j] = curr[j]; curr[j] = 0; }
   }
-  return (2 * dp[m][n]) / (m + n);
+  return (2 * prev[n]) / (m + n);
 }
 
 function softJaccard(qTokens: string[], refTokens: string[], tokenThreshold: number): number {
