@@ -100,6 +100,15 @@ interface PhoneMatchResult {
   match_type: "nome" | "telefone" | "";
 }
 
+interface PayerChangePreview {
+  doc_digits: string;
+  payer_name: string;
+  is_new: boolean;
+  existing_id?: string;
+  changes: { field: string; old_value: string; new_value: string }[];
+  update_data: Record<string, unknown>;
+}
+
 const DEFAULT_CONFIG: MatchConfig = {
   bairro_fuzzy_threshold: 0.405,
   min_score_logradouro: 0.50,
