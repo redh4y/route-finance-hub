@@ -1610,7 +1610,7 @@ export default function FinancialExpenses() {
                           onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                           disabled={page >= totalPages}
                         >
-                          Pr?xima
+                          Próxima
                         </Button>
                       </div>
                     </div>

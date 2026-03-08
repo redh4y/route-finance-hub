@@ -613,7 +613,7 @@ export default function FinancialRevenue() {
                   </div>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
-                    Nenhum boleto neste m?s
+                    Nenhum boleto neste mês
                   </div>
                 )}
               </CardContent>
