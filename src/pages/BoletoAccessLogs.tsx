@@ -44,6 +44,7 @@ type AccessLog = {
   found_count: number | null;
   source: string;
   user_agent: string | null;
+  _from_payers?: boolean;
 };
 
 const PAGE_SIZE = 50;
