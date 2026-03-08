@@ -143,7 +143,7 @@ serve(async (req) => {
         user_agent: userAgent || null,
         request_id: requestId,
       });
-      return json(404, { ok: false, error: "CPF nao encontrado no cadastro", requestId });
+      return json(200, { ok: false, error: "CPF nao encontrado no cadastro", requestId });
     }
 
     let query = sb
