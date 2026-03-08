@@ -158,6 +158,8 @@ export default function AddressMatch() {
   const [response, setResponse] = useState<MatchResponse | null>(null);
   const [phoneResults, setPhoneResults] = useState<PhoneMatchResult[]>([]);
   const [isSavingContacts, setIsSavingContacts] = useState(false);
+  const [isUpdatingPayers, setIsUpdatingPayers] = useState(false);
+  const [updatePayersResult, setUpdatePayersResult] = useState<{ updated: number; created: number; errors: number } | null>(null);
 
   const payersCols = useMemo(() => {
     if (payersData.length === 0) return [];
