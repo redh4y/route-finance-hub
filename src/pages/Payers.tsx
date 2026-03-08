@@ -333,7 +333,7 @@ export default function Payers() {
                         <Skeleton key={i} className="h-20 w-full rounded-lg" />
                       ))}
                     </div>
-                  ) : payers && payers.length > 0 ? (
+                  ) : payers.length > 0 ? (
                     <>
                       {/* Mobile: Card list */}
                       <div className="lg:hidden p-3 space-y-3">
