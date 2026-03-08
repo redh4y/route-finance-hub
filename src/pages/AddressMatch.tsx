@@ -994,7 +994,23 @@ export default function AddressMatch() {
             </Card>
           </div>
 
-          {/* Processing indicator */}
+          {/* Update payers result */}
+          {updatePayersResult && (
+            <Card className="border-emerald-500/30 bg-emerald-500/5">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-4 text-sm">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  <span><strong>{updatePayersResult.updated}</strong> pagadores atualizados</span>
+                  <span><strong>{updatePayersResult.created}</strong> novos criados</span>
+                  {updatePayersResult.errors > 0 && (
+                    <span className="text-destructive"><strong>{updatePayersResult.errors}</strong> erros</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+
           {isProcessing && (
             <Card>
               <CardContent className="py-8 flex flex-col items-center gap-3">
