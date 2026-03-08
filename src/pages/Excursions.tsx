@@ -47,6 +47,7 @@ const filterTabs: { value: StatusFilter; label: string }[] = [
 
 export default function Excursions() {
   const { data: excursions, isLoading } = useExcursions();
+  const deleteExcursion = useDeleteExcursion();
   const updateExcursion = useUpdateExcursion();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
