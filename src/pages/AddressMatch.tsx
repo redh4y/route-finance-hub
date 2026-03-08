@@ -626,7 +626,7 @@ export default function AddressMatch() {
     }
   };
 
-  // ── Confirm and execute update ──
+  // ── Confirm and execute update (batched for speed) ──
   const confirmUpdatePayers = async () => {
     if (payerChangesPreview.length === 0) return;
 
@@ -637,39 +637,61 @@ export default function AddressMatch() {
     let errors = 0;
 
     try {
-      for (let i = 0; i < payerChangesPreview.length; i++) {
-        const change = payerChangesPreview[i];
-        if (i % 20 === 0) {
-          const pct = Math.round(((i + 1) / payerChangesPreview.length) * 100);
-          toast.loading(`Atualizando ${i + 1}/${payerChangesPreview.length} (${pct}%)...`, { id: "update-payers" });
-        }
+      const updates = payerChangesPreview.filter(c => !c.is_new && c.existing_id);
+      const inserts = payerChangesPreview.filter(c => c.is_new || !c.existing_id);
 
-        try {
-          if (!change.is_new && change.existing_id) {
+      // ── Batch updates using Promise.all in chunks ──
+      const BATCH = 50;
+      for (let i = 0; i < updates.length; i += BATCH) {
+        const batch = updates.slice(i, i + BATCH);
+        const pct = Math.round(((i + batch.length) / (updates.length + inserts.length)) * 100);
+        toast.loading(`Atualizando ${i + batch.length}/${updates.length + inserts.length} (${pct}%)...`, { id: "update-payers" });
+
+        const results = await Promise.all(
+          batch.map(change => {
             const data = { ...change.update_data, updated_at: new Date().toISOString() };
-            const { error } = await supabase
+            return supabase
               .from("payers")
               .update(data)
-              .eq("id", change.existing_id);
-            if (error) { errors++; console.error("Update error:", error); }
-            else updated++;
+              .eq("id", change.existing_id!)
+              .then(({ error }) => {
+                if (error) { console.error("Update error:", error); return "error" as const; }
+                return "ok" as const;
+              });
+          })
+        );
+        for (const r of results) { if (r === "ok") updated++; else errors++; }
+      }
+
+      // ── Batch inserts ──
+      if (inserts.length > 0) {
+        const INSERT_BATCH = 50;
+        for (let i = 0; i < inserts.length; i += INSERT_BATCH) {
+          const batch = inserts.slice(i, i + INSERT_BATCH);
+          const pct = Math.round(((updates.length + i + batch.length) / (updates.length + inserts.length)) * 100);
+          toast.loading(`Criando ${i + batch.length}/${inserts.length} novos (${pct}%)...`, { id: "update-payers" });
+
+          const rows = batch.map(change => ({
+            legacy_id: crypto.randomUUID(),
+            name: change.payer_name,
+            document: change.doc_digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
+            document_digits: change.doc_digits,
+            document_valid: change.doc_digits.length === 11,
+            ...change.update_data,
+          }));
+
+          const { error, data } = await supabase.from("payers").insert(rows as any[]).select("id");
+          if (error) {
+            console.error("Batch insert error, falling back:", error);
+            // Fallback: insert one by one
+            for (const row of rows) {
+              const { error: e2 } = await supabase.from("payers").insert(row as any);
+              if (e2) { errors++; console.error("Insert error:", e2); }
+              else created++;
+            }
           } else {
-            const newPayer: Record<string, unknown> = {
-              legacy_id: crypto.randomUUID(),
-              name: change.payer_name,
-              name_lower: change.payer_name.toLowerCase(),
-              document: change.doc_digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
-              document_digits: change.doc_digits,
-              document_valid: change.doc_digits.length === 11,
-              ...change.update_data,
-            };
-            const { error } = await supabase.from("payers").insert(newPayer as any);
-            if (error) { errors++; console.error("Insert error:", error); }
-            else created++;
+            created += data?.length || batch.length;
           }
-        } catch (err) {
-          errors++;
-          console.error("Row error:", err);
         }
       }
 
