@@ -613,9 +613,12 @@ function PayerCardMobile({
 
       {/* Row 2: CPF + Phone + Billing mode */}
       <div className="flex items-center gap-1.5 mt-0.5 ml-[44px] text-xs text-muted-foreground">
-        <span className="font-mono truncate">
+        <span className={cn("font-mono truncate", payer.document_valid === false && "text-rose-500")}>
           {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
         </span>
+        {payer.document_valid === false && (
+          <ShieldAlert className="h-3 w-3 text-rose-500 shrink-0" />
+        )}
         {payer.phone && (
           <>
             <span className="opacity-40">·</span>
