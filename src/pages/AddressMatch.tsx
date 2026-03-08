@@ -288,7 +288,7 @@ export default function AddressMatch() {
           id: "match-progress",
         });
 
-        const requestBody: Record<string, unknown> = {
+        const requestBody = {
           payers_csv: chunk,
           config,
           endereco_column: enderecoCol,
@@ -296,8 +296,11 @@ export default function AddressMatch() {
           use_db_ceps: useDbCeps,
         };
 
+        console.log(`[AddressMatch] Batch ${batch + 1}: sending ${chunk.length} rows, keys:`, Object.keys(requestBody));
+
         const { data, error } = await supabase.functions.invoke("address-match", {
-          body: requestBody,
+          body: JSON.stringify(requestBody),
+          headers: { "Content-Type": "application/json" },
         });
 
         if (error) throw error;
@@ -317,7 +320,7 @@ export default function AddressMatch() {
         const { data: phoneData, error: phoneErr } = await supabase.functions.invoke(
           "address-match",
           {
-            body: {
+            body: JSON.stringify({
               payers_csv: allResults,
               is_phone_only: true,
               contacts_json: waContacts,
@@ -328,7 +331,8 @@ export default function AddressMatch() {
                 overwrite: false,
               },
               config,
-            },
+            }),
+            headers: { "Content-Type": "application/json" },
           }
         );
 
