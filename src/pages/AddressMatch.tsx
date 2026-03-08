@@ -186,7 +186,18 @@ export default function AddressMatch() {
     return { total, found, notFound: total - found };
   }, [phoneResults]);
 
-  // ── CSV parsing ──
+  // Phone results indexed by payer name for quick lookup in results table
+  const phoneResultsMap = useMemo(() => {
+    const map = new Map<string, PhoneMatchResult>();
+    for (const pr of phoneResults) {
+      // Index by normalized phone digits and by payer name
+      if (pr.payer_phone_digits) map.set(pr.payer_phone_digits, pr);
+      if (pr.payer_name) map.set(pr.payer_name.toLowerCase(), pr);
+    }
+    return map;
+  }, [phoneResults]);
+
+
   const handleFile = useCallback(
     (file: File, setter: (d: Record<string, unknown>[]) => void, fileSetter: (f: File) => void) => {
       fileSetter(file);
@@ -1251,7 +1262,17 @@ export default function AddressMatch() {
                                 {String(r.endereco_usado || "")}
                               </TableCell>
                               <TableCell className="text-xs font-mono">
-                                {String(r[phoneCol] || "")}
+                                {(() => {
+                                  const rawPhone = String(r[phoneCol] || "");
+                                  const norm = normalizePhone(rawPhone);
+                                  const pm = norm.length >= 8
+                                    ? (phoneResultsMap.get(norm) || phoneResultsMap.get(norm.slice(-8)))
+                                    : phoneResultsMap.get(String(r[nameCol] || "").toLowerCase());
+                                  if (pm?.wa_found && pm.wa_phone) {
+                                    return <span className="text-emerald-600">{pm.wa_phone}</span>;
+                                  }
+                                  return rawPhone || "—";
+                                })()}
                               </TableCell>
                               <TableCell>
                                 <GateBadge gate={String(r.bairro_gate || "")} />
