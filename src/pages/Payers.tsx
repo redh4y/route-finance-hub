@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -35,14 +35,12 @@ import {
   Search,
   Users,
   AlertCircle,
-  Filter,
   X,
   Phone,
   Mail,
   MapPin,
   Receipt,
   CheckCircle2,
-  XCircle,
   Clock,
   Edit,
   Plus,
@@ -50,16 +48,18 @@ import {
   UserX,
   AlertTriangle,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
-// Quick filter buttons
 const QUICK_FILTERS = [
   { key: "all", label: "Todos", icon: Users },
   { key: "active", label: "Ativos", icon: UserCheck },
   { key: "inactive", label: "Inativos", icon: UserX },
-  { key: "review", label: "Revis\u00e3o", icon: AlertTriangle },
+  { key: "review", label: "Revisão", icon: AlertTriangle },
   { key: "uncatalogued", label: "Sem cadastro", icon: AlertCircle },
 ] as const;
 
@@ -67,9 +67,7 @@ type QuickFilterKey = (typeof QUICK_FILTERS)[number]["key"];
 
 const IMPORT_MISSING_PAYER_REASON = "IMPORT_BILLING_SEM_CADASTRO";
 
-function isImportedWithoutRegister(
-  reviewReason: string | null | undefined,
-): boolean {
+function isImportedWithoutRegister(reviewReason: string | null | undefined): boolean {
   return reviewReason === IMPORT_MISSING_PAYER_REASON;
 }
 
@@ -105,31 +103,19 @@ export default function Payers() {
     return () => media.removeListener(update);
   }, []);
 
-  // Build filters based on quick filter
   const filters = useMemo(() => {
     switch (quickFilter) {
-      case "active":
-        return { status: "ATIVO" };
-      case "inactive":
-        return { status: "INATIVO" };
-      case "review":
-        return { needsReview: true };
-      case "uncatalogued":
-        return { reviewReason: IMPORT_MISSING_PAYER_REASON };
-      default:
-        return {};
+      case "active": return { status: "ATIVO" };
+      case "inactive": return { status: "INATIVO" };
+      case "review": return { needsReview: true };
+      case "uncatalogued": return { reviewReason: IMPORT_MISSING_PAYER_REASON };
+      default: return {};
     }
   }, [quickFilter]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [quickFilter, searchTerm]);
+  useEffect(() => { setPage(1); }, [quickFilter, searchTerm]);
 
-  const {
-    data: payersResult,
-    isLoading,
-    error,
-  } = usePayers({
+  const { data: payersResult, isLoading, error } = usePayers({
     ...filters,
     search: searchTerm || undefined,
     page,
@@ -140,38 +126,22 @@ export default function Payers() {
   const totalCount = payersResult?.count || 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  // Stats from separate lightweight query
   const { data: stats = { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 } } = usePayersStats();
 
-  const clearSearch = () => {
-    setSearchTerm("");
-  };
-
+  const clearSearch = () => setSearchTerm("");
 
   const resetNewPayer = () => {
-    setNewPayer({
-      name: "",
-      document: "",
-      phone: "",
-      neighborhood: "",
-      billingMode: "BOLETO",
-      status: "ATIVO",
-    });
+    setNewPayer({ name: "", document: "", phone: "", neighborhood: "", billingMode: "BOLETO", status: "ATIVO" });
   };
 
   const handleCreatePayer = async () => {
     const name = newPayer.name.trim();
-    if (!name) {
-      toast.error("Informe o nome do pagador.");
-      return;
-    }
-
+    if (!name) { toast.error("Informe o nome do pagador."); return; }
     const documentDigits = newPayer.document.replace(/\D/g, "");
     const phoneDigits = newPayer.phone.replace(/\D/g, "");
-
     setIsCreating(true);
     try {
-      const insertPayload = {
+      const { error } = await supabase.from("payers").insert([{
         id: crypto.randomUUID(),
         legacy_id: crypto.randomUUID(),
         name,
@@ -184,11 +154,8 @@ export default function Payers() {
         status: newPayer.status,
         needs_review: false,
         birth_date: null,
-      };
-
-      const { error } = await supabase.from("payers").insert([insertPayload]);
+      }]);
       if (error) throw error;
-
       toast.success("Pagador criado com sucesso.");
       setIsCreateOpen(false);
       resetNewPayer();
@@ -200,145 +167,111 @@ export default function Payers() {
     }
   };
 
+  const filterCount = (key: QuickFilterKey) => {
+    switch (key) {
+      case "all": return stats.total;
+      case "active": return stats.active;
+      case "inactive": return stats.inactive;
+      case "review": return stats.review;
+      case "uncatalogued": return stats.uncatalogued;
+    }
+  };
+
   return (
     <MainLayout>
       <PageTransition>
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-4 sm:space-y-6">
+          {/* ── Header ── */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Pagadores</h1>
-              <p className="text-muted-foreground text-sm">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Pagadores</h1>
+              <p className="text-muted-foreground text-xs sm:text-sm">
                 Gerencie alunos, cobranças e cadastros
               </p>
             </div>
-
-            {/* Stats pills */}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setIsCreateOpen(true)}
-              >
-                <Plus className="h-4 w-4" />
-                Novo pagador
-              </Button>
-              <StatPill icon={Users} label="Total" value={stats.total} />
-              <StatPill
-                icon={CheckCircle2}
-                label="Ativos"
-                value={stats.active}
-                variant="success"
-              />
-              {stats.review > 0 && (
-                <StatPill
-                  icon={AlertTriangle}
-                  label="Revisão"
-                  value={stats.review}
-                  variant="warning"
-                />
-              )}
-              {stats.uncatalogued > 0 && (
-                <StatPill
-                  icon={AlertCircle}
-                  label="Sem cadastro"
-                  value={stats.uncatalogued}
-                  variant="warning"
-                />
-              )}
-            </div>
+            <Button size="sm" className="gap-1.5 self-start sm:self-auto" onClick={() => setIsCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              <span className="sm:inline">Novo pagador</span>
+            </Button>
           </div>
 
-          {/* Search and filters */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            {/* Search */}
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por nome, CPF ou código..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-10"
-              />
-              {searchTerm && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={clearSearch}
+          {/* ── Stats row (scrollable on mobile) ── */}
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+            {QUICK_FILTERS.map((filter) => {
+              const isSelected = quickFilter === filter.key;
+              const count = filterCount(filter.key);
+              return (
+                <button
+                  key={filter.key}
+                  onClick={() => setQuickFilter(filter.key)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all shrink-0",
+                    "border",
+                    isSelected
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-card text-muted-foreground border-border hover:border-foreground/20 hover:text-foreground"
+                  )}
                 >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-
-            {/* Quick filters */}
-            <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg">
-              {QUICK_FILTERS.map((filter) => {
-                const isSelected = quickFilter === filter.key;
-                const iconColorClasses =
-                  filter.key === "all"
-                    ? "text-sky-600"
-                    : filter.key === "active"
-                      ? "text-emerald-600"
-                      : filter.key === "inactive"
-                        ? "text-red-600"
-                        : filter.key === "review"
-                          ? "text-violet-600"
-                          : filter.key === "uncatalogued"
-                            ? "text-amber-600"
-                            : "text-foreground";
-
-                return (
-                  <Button
-                    key={filter.key}
-                    variant={isSelected ? "secondary" : "ghost"}
-                    size="sm"
-                    onClick={() => setQuickFilter(filter.key)}
-                    className={cn("gap-1.5 text-xs", isSelected && "shadow-sm")}
-                  >
-                    <filter.icon
-                      className={cn("h-3.5 w-3.5", iconColorClasses)}
-                    />
-                    {filter.label}
-                  </Button>
-                );
-              })}
-            </div>
+                  <filter.icon className="h-3.5 w-3.5" />
+                  {filter.label}
+                  <span className={cn(
+                    "ml-0.5 tabular-nums",
+                    isSelected ? "text-primary-foreground/80" : "text-muted-foreground/60"
+                  )}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Error state */}
+          {/* ── Search ── */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por nome, CPF ou código..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-10 h-11"
+            />
+            {searchTerm && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                onClick={clearSearch}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Error */}
           {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-2 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive"
-            >
-              <AlertCircle className="h-5 w-5 shrink-0" />
-              <p className="text-sm">
-                Erro ao carregar pagadores: {error.message}
-              </p>
-            </motion.div>
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              Erro ao carregar pagadores: {error.message}
+            </div>
           )}
 
-          {/* Main content */}
+          {/* ── Main content ── */}
           <div className="grid gap-4 lg:grid-cols-3">
             {/* Payers list */}
             <div className="lg:col-span-2">
               <Card className="overflow-hidden">
-                <ScrollArea className="h-[calc(100vh-320px)] sm:h-[calc(100vh-280px)]">
+                <ScrollArea className="h-[calc(100vh-360px)] sm:h-[calc(100vh-310px)]">
                   {isLoading ? (
-                    <div className="p-4 space-y-3">
+                    <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                       {Array.from({ length: 8 }).map((_, i) => (
-                        <Skeleton key={i} className="h-20 w-full rounded-lg" />
+                        <Skeleton key={i} className="h-16 sm:h-20 w-full rounded-lg" />
                       ))}
                     </div>
                   ) : payers.length > 0 ? (
                     <>
                       {/* Mobile: Card list */}
-                      <div className="lg:hidden p-3 space-y-3">
+                      <div className="lg:hidden divide-y divide-border">
                         {payers.map((payer) => (
-                          <PayerCard
+                          <PayerCardMobile
                             key={payer.id}
                             payer={payer}
                             isSelected={selectedPayerId === payer.id}
@@ -354,13 +287,9 @@ export default function Payers() {
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
                               <TableHead>Pagador</TableHead>
-                              <TableHead className="text-center">
-                                Modo de cobrança
-                              </TableHead>
+                              <TableHead className="text-center">Modo</TableHead>
                               <TableHead>Status</TableHead>
-                              <TableHead className="text-right">
-                                Ações
-                              </TableHead>
+                              <TableHead className="text-right">Ações</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -378,87 +307,60 @@ export default function Payers() {
                       </div>
                     </>
                   ) : (
-                    <EmptyState
-                      searchTerm={searchTerm}
-                      quickFilter={quickFilter}
-                    />
+                    <EmptyState searchTerm={searchTerm} quickFilter={quickFilter} />
                   )}
                 </ScrollArea>
 
-                {/* Pagination controls */}
+                {/* Pagination */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t px-4 py-3">
-                    <span className="text-sm text-muted-foreground">
-                      {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} de {totalCount}
+                  <div className="flex items-center justify-between border-t px-3 py-2 sm:px-4 sm:py-3">
+                    <span className="text-xs sm:text-sm text-muted-foreground tabular-nums">
+                      <span className="hidden sm:inline">
+                        {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} de{" "}
+                      </span>
+                      <span className="sm:hidden">Pág {page}/{totalPages} · </span>
+                      {totalCount}
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page <= 1}
-                        onClick={() => setPage(1)}
-                      >
-                        «
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => setPage(1)}>
+                        <ChevronsLeft className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page <= 1}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      >
-                        ‹
+                      <Button variant="outline" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                        <ChevronLeft className="h-3.5 w-3.5" />
                       </Button>
-                      {(() => {
-                        const pages: (number | string)[] = [];
-                        const maxVisible = 5;
-                        let start = Math.max(1, page - Math.floor(maxVisible / 2));
-                        let end = Math.min(totalPages, start + maxVisible - 1);
-                        if (end - start + 1 < maxVisible) {
-                          start = Math.max(1, end - maxVisible + 1);
-                        }
-                        if (start > 1) {
-                          pages.push(1);
-                          if (start > 2) pages.push("...");
-                        }
-                        for (let i = start; i <= end; i++) {
-                          if (i !== 1 && i !== totalPages) pages.push(i);
-                          else if (!pages.includes(i)) pages.push(i);
-                        }
-                        if (end < totalPages) {
-                          if (end < totalPages - 1) pages.push("...");
-                          if (!pages.includes(totalPages)) pages.push(totalPages);
-                        }
-                        return pages.map((p, idx) =>
-                          typeof p === "string" ? (
-                            <span key={`ellipsis-${idx}`} className="px-1 text-sm text-muted-foreground">…</span>
-                          ) : (
-                            <Button
-                              key={p}
-                              variant={p === page ? "default" : "outline"}
-                              size="sm"
-                              className="min-w-[2rem]"
-                              onClick={() => setPage(p)}
-                            >
-                              {p}
-                            </Button>
-                          )
-                        );
-                      })()}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page >= totalPages}
-                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      >
-                        ›
+                      {/* Page numbers - hidden on very small screens */}
+                      <div className="hidden sm:flex items-center gap-1">
+                        {(() => {
+                          const pages: (number | string)[] = [];
+                          const maxVisible = 5;
+                          let start = Math.max(1, page - Math.floor(maxVisible / 2));
+                          let end = Math.min(totalPages, start + maxVisible - 1);
+                          if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1);
+                          if (start > 1) { pages.push(1); if (start > 2) pages.push("..."); }
+                          for (let i = start; i <= end; i++) {
+                            if (i !== 1 && i !== totalPages) pages.push(i);
+                            else if (!pages.includes(i)) pages.push(i);
+                          }
+                          if (end < totalPages) {
+                            if (end < totalPages - 1) pages.push("...");
+                            if (!pages.includes(totalPages)) pages.push(totalPages);
+                          }
+                          return pages.map((p, idx) =>
+                            typeof p === "string" ? (
+                              <span key={`e-${idx}`} className="px-1 text-xs text-muted-foreground">…</span>
+                            ) : (
+                              <Button key={p} variant={p === page ? "default" : "outline"} size="sm" className="h-8 min-w-[2rem] text-xs" onClick={() => setPage(p)}>
+                                {p}
+                              </Button>
+                            )
+                          );
+                        })()}
+                      </div>
+                      <Button variant="outline" size="icon" className="h-8 w-8" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                        <ChevronRight className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page >= totalPages}
-                        onClick={() => setPage(totalPages)}
-                      >
-                        »
+                      <Button variant="outline" size="icon" className="h-8 w-8" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
+                        <ChevronsRight className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -466,141 +368,77 @@ export default function Payers() {
               </Card>
             </div>
 
-            {/* Quick view panel - desktop only */}
+            {/* Quick view panel - desktop */}
             <div className="hidden lg:block">
               <QuickViewPanel payerId={selectedPayerId} />
             </div>
           </div>
 
-          {/* Mobile: Quick view as sheet */}
+          {/* Mobile: Quick view sheet */}
           {isMobile && (
-            <Sheet
-              open={!!selectedPayerId}
-              onOpenChange={(open) => !open && setSelectedPayerId(null)}
-            >
-              <SheetContent side="bottom" className="h-[70vh] p-0">
-                <ScrollArea className="h-full">
-                  <QuickViewPanel payerId={selectedPayerId} />
+            <Sheet open={!!selectedPayerId} onOpenChange={(open) => !open && setSelectedPayerId(null)}>
+              <SheetContent side="bottom" className="h-[75vh] rounded-t-2xl p-0">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Detalhes do pagador</SheetTitle>
+                </SheetHeader>
+                <div className="w-12 h-1.5 rounded-full bg-muted-foreground/20 mx-auto mt-3 mb-1" />
+                <ScrollArea className="h-[calc(75vh-2rem)]">
+                  <QuickViewPanel payerId={selectedPayerId} isMobileSheet />
                 </ScrollArea>
               </SheetContent>
             </Sheet>
           )}
         </div>
 
-        <PayerDetailsModal
-          payerId={editPayerId}
-          onClose={() => setEditPayerId(null)}
-        />
+        <PayerDetailsModal payerId={editPayerId} onClose={() => setEditPayerId(null)} />
 
-        <Dialog
-          open={isCreateOpen}
-          onOpenChange={(open) => {
-            setIsCreateOpen(open);
-            if (!open) resetNewPayer();
-          }}
-        >
+        {/* Create dialog */}
+        <Dialog open={isCreateOpen} onOpenChange={(open) => { setIsCreateOpen(open); if (!open) resetNewPayer(); }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Novo pagador</DialogTitle>
-              <DialogDescription>
-                Cadastre manualmente um pagador.
-              </DialogDescription>
+              <DialogDescription>Cadastre manualmente um pagador.</DialogDescription>
             </DialogHeader>
-
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="new-payer-name">Nome</Label>
-                <Input
-                  id="new-payer-name"
-                  value={newPayer.name}
-                  onChange={(e) =>
-                    setNewPayer((prev) => ({ ...prev, name: e.target.value }))
-                  }
-                  placeholder="Nome completo"
-                />
+                <Input id="new-payer-name" value={newPayer.name} onChange={(e) => setNewPayer((p) => ({ ...p, name: e.target.value }))} placeholder="Nome completo" />
               </div>
-
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="new-payer-document">CPF</Label>
-                  <Input
-                    id="new-payer-document"
-                    value={newPayer.document}
-                    onChange={(e) =>
-                      setNewPayer((prev) => ({ ...prev, document: e.target.value }))
-                    }
-                    placeholder="000.000.000-00"
-                  />
+                  <Input id="new-payer-document" value={newPayer.document} onChange={(e) => setNewPayer((p) => ({ ...p, document: e.target.value }))} placeholder="000.000.000-00" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="new-payer-phone">Telefone</Label>
-                  <Input
-                    id="new-payer-phone"
-                    value={newPayer.phone}
-                    onChange={(e) =>
-                      setNewPayer((prev) => ({ ...prev, phone: e.target.value }))
-                    }
-                    placeholder="(00) 00000-0000"
-                  />
+                  <Input id="new-payer-phone" value={newPayer.phone} onChange={(e) => setNewPayer((p) => ({ ...p, phone: e.target.value }))} placeholder="(00) 00000-0000" />
                 </div>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="new-payer-neighborhood">Bairro</Label>
-                <Input
-                  id="new-payer-neighborhood"
-                  value={newPayer.neighborhood}
-                  onChange={(e) =>
-                    setNewPayer((prev) => ({ ...prev, neighborhood: e.target.value }))
-                  }
-                  placeholder="Bairro"
-                />
+                <Input id="new-payer-neighborhood" value={newPayer.neighborhood} onChange={(e) => setNewPayer((p) => ({ ...p, neighborhood: e.target.value }))} placeholder="Bairro" />
               </div>
-
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="new-payer-billing-mode">Modo de cobranca</Label>
-                  <select
-                    id="new-payer-billing-mode"
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                    value={newPayer.billingMode}
-                    onChange={(e) =>
-                      setNewPayer((prev) => ({ ...prev, billingMode: e.target.value }))
-                    }
-                  >
+                  <Label>Modo de cobrança</Label>
+                  <select className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" value={newPayer.billingMode} onChange={(e) => setNewPayer((p) => ({ ...p, billingMode: e.target.value }))}>
                     <option value="BOLETO">BOLETO</option>
                     <option value="PIX_ONLY">PIX_ONLY</option>
                     <option value="MIXED">MIXED</option>
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-payer-status">Status</Label>
-                  <select
-                    id="new-payer-status"
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                    value={newPayer.status}
-                    onChange={(e) =>
-                      setNewPayer((prev) => ({ ...prev, status: e.target.value }))
-                    }
-                  >
+                  <Label>Status</Label>
+                  <select className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" value={newPayer.status} onChange={(e) => setNewPayer((p) => ({ ...p, status: e.target.value }))}>
                     <option value="ATIVO">ATIVO</option>
                     <option value="INATIVO">INATIVO</option>
                   </select>
                 </div>
               </div>
             </div>
-
             <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setIsCreateOpen(false)}
-                disabled={isCreating}
-              >
-                Cancelar
-              </Button>
-              <Button onClick={handleCreatePayer} disabled={isCreating}>
-                {isCreating ? "Salvando..." : "Adicionar pagador"}
-              </Button>
+              <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isCreating}>Cancelar</Button>
+              <Button onClick={handleCreatePayer} disabled={isCreating}>{isCreating ? "Salvando..." : "Adicionar pagador"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -609,39 +447,97 @@ export default function Payers() {
   );
 }
 
-// Stat pill component
-function StatPill({
-  icon: Icon,
-  label,
-  value,
-  variant = "default",
+/* ═══════════════════════════════════════════════ */
+/*  SUB-COMPONENTS                                 */
+/* ═══════════════════════════════════════════════ */
+
+// ── Mobile payer card (compact, touch-friendly) ──
+function PayerCardMobile({
+  payer,
+  isSelected,
+  onClick,
+  onEdit,
 }: {
-  icon: React.ElementType;
-  label: string;
-  value: number;
-  variant?: "default" | "success" | "warning";
+  payer: Payer;
+  isSelected: boolean;
+  onClick: () => void;
+  onEdit: () => void;
 }) {
+  if (!payer) return null;
+  const isActive = payer.status === "ATIVO";
+
   return (
     <div
+      onClick={onClick}
       className={cn(
-        "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
-        {
-          "bg-muted text-muted-foreground": variant === "default",
-          "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400":
-            variant === "success",
-          "bg-amber-500/10 text-amber-600 dark:text-amber-400":
-            variant === "warning",
-        },
+        "flex items-center gap-3 px-3 py-3 active:bg-muted/60 transition-colors cursor-pointer",
+        isSelected && "bg-primary/5"
       )}
     >
-      <Icon className="h-3 w-3" />
-      <span>{value}</span>
-      <span className="hidden sm:inline text-muted-foreground">{label}</span>
+      {/* Avatar */}
+      <div
+        className={cn(
+          "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-bold",
+          isActive
+            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+            : "bg-muted text-muted-foreground"
+        )}
+      >
+        {payer.name.charAt(0).toUpperCase()}
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-sm truncate">{payer.name}</span>
+          {payer.needs_review && (
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+          )}
+          {isImportedWithoutRegister(payer.review_reason) && (
+            <AlertCircle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+          <span className="font-mono">
+            {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
+          </span>
+          {payer.phone && (
+            <>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="truncate">{formatPhone(payer.phone)}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Right side: badges + action */}
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-col items-end gap-1">
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-[10px] px-1.5 py-0",
+              isActive
+                ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
+                : "text-muted-foreground"
+            )}
+          >
+            {isActive ? "Ativo" : "Inativo"}
+          </Badge>
+          <span className="text-[10px] text-muted-foreground">{payer.billing_mode}</span>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <Edit className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }
 
-// Payer row component
+// ── Desktop table row ──
 function PayerRow({
   payer,
   isSelected,
@@ -654,7 +550,6 @@ function PayerRow({
   onEdit: () => void;
 }) {
   if (!payer) return null;
-
   const isActive = payer.status === "ATIVO";
 
   return (
@@ -662,7 +557,7 @@ function PayerRow({
       onClick={onClick}
       className={cn(
         "cursor-pointer transition-colors hover:bg-muted/50",
-        isSelected && "bg-primary/5",
+        isSelected && "bg-primary/5"
       )}
     >
       <TableCell>
@@ -672,49 +567,31 @@ function PayerRow({
               "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold",
               isActive
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-muted text-muted-foreground",
+                : "bg-muted text-muted-foreground"
             )}
           >
             {payer.name.charAt(0).toUpperCase()}
           </div>
-
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{payer.name}</span>
               {payer.is_coordinator && (
-                <Badge
-                  variant="outline"
-                  className="text-[10px] px-1.5 py-0 shrink-0"
-                >
-                  Coord
-                </Badge>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">Coord</Badge>
               )}
               {payer.needs_review && (
-                <Badge
-                  variant="outline"
-                  className="text-[10px] px-1.5 py-0 shrink-0 border-amber-500/50 text-amber-600"
-                >
-                  Revis\u00e3o
-                </Badge>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 border-amber-500/50 text-amber-600">Revisão</Badge>
               )}
               {isImportedWithoutRegister(payer.review_reason) && (
-                <Badge
-                  variant="outline"
-                  className="text-[10px] px-1.5 py-0 shrink-0 border-orange-500/50 text-orange-600"
-                >
-                  Sem cadastro
-                </Badge>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 border-orange-500/50 text-orange-600">Sem cadastro</Badge>
               )}
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
               <span className="font-mono">
-                {payer.document_digits
-                  ? formatCPF(payer.document_digits)
-                  : payer.payer_code || "-"}
+                {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "-"}
               </span>
               {payer.phone && (
                 <>
-                  <span className="text-muted-foreground/50">{"\u2022"}</span>
+                  <span className="text-muted-foreground/50">•</span>
                   <span className="truncate">{formatPhone(payer.phone)}</span>
                 </>
               )}
@@ -726,12 +603,9 @@ function PayerRow({
         <Badge
           variant="outline"
           className={cn("text-xs", {
-            "border-emerald-500/40 text-emerald-600 bg-emerald-500/5":
-              payer.billing_mode === "PIX_ONLY",
-            "border-amber-500/40 text-amber-600 bg-amber-500/5":
-              payer.billing_mode === "MIXED",
-            "border-sky-500/40 text-sky-600 bg-sky-500/5":
-              payer.billing_mode === "BOLETO",
+            "border-emerald-500/40 text-emerald-600 bg-emerald-500/5": payer.billing_mode === "PIX_ONLY",
+            "border-amber-500/40 text-amber-600 bg-amber-500/5": payer.billing_mode === "MIXED",
+            "border-sky-500/40 text-sky-600 bg-sky-500/5": payer.billing_mode === "BOLETO",
           })}
         >
           {payer.billing_mode}
@@ -740,24 +614,13 @@ function PayerRow({
       <TableCell>
         <Badge
           variant={isActive ? "default" : "secondary"}
-          className={cn(
-            "text-xs",
-            isActive &&
-              "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
-          )}
+          className={cn("text-xs", isActive && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30")}
         >
           {isActive ? "Ativo" : "Inativo"}
         </Badge>
       </TableCell>
       <TableCell className="text-right">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit();
-          }}
-        >
+        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
           <Edit className="h-4 w-4" />
         </Button>
       </TableCell>
@@ -765,150 +628,30 @@ function PayerRow({
   );
 }
 
-// Mobile card component for payers
-function PayerCard({
-  payer,
-  isSelected,
-  onClick,
-  onEdit,
-}: {
-  payer: Payer;
-  isSelected: boolean;
-  onClick: () => void;
-  onEdit: () => void;
-}) {
-  if (!payer) return null;
-
-  const isActive = payer.status === "ATIVO";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      onClick={onClick}
-      className={cn(
-        "p-4 rounded-lg border transition-all cursor-pointer",
-        isSelected
-          ? "border-primary bg-primary/5"
-          : "border-border hover:border-muted-foreground/30",
-      )}
-    >
-      <div className="flex items-start gap-3">
-        {/* Avatar */}
-        <div
-          className={cn(
-            "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold",
-            isActive
-              ? "bg-success/10 text-success"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {payer.name.charAt(0).toUpperCase()}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="font-medium truncate">{payer.name}</span>
-            {payer.needs_review && (
-              <Badge
-                variant="outline"
-                className="text-[10px] px-1.5 py-0 shrink-0 border-warning/50 text-warning"
-              >
-                Revisão
-              </Badge>
-            )}
-            {isImportedWithoutRegister(payer.review_reason) && (
-              <Badge
-                variant="outline"
-                className="text-[10px] px-1.5 py-0 shrink-0 border-orange-500/50 text-orange-600"
-              >
-                Sem cadastro
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="font-mono">
-              {payer.document_digits
-                ? formatCPF(payer.document_digits)
-                : payer.payer_code || "-"}
-            </span>
-            {payer.phone && (
-              <>
-                <span>⬢</span>
-                <span className="truncate">{formatPhone(payer.phone)}</span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-2">
-            <Badge
-              variant={isActive ? "default" : "secondary"}
-              className={cn(
-                "text-xs",
-                isActive && "bg-success/10 text-success border-success/30",
-              )}
-            >
-              {isActive ? "Ativo" : "Inativo"}
-            </Badge>
-            <Badge variant="outline" className="text-xs">
-              {payer.billing_mode}
-            </Badge>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// Empty state component
-function EmptyState({
-  searchTerm,
-  quickFilter,
-}: {
-  searchTerm: string;
-  quickFilter: QuickFilterKey;
-}) {
+// ── Empty state ──
+function EmptyState({ searchTerm, quickFilter }: { searchTerm: string; quickFilter: QuickFilterKey }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-        <Users className="h-8 w-8 text-muted-foreground" />
+      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-3">
+        <Users className="h-7 w-7 text-muted-foreground" />
       </div>
-      <h3 className="font-medium text-lg mb-1">Nenhum pagador encontrado</h3>
-      <p className="text-sm text-muted-foreground max-w-sm">
+      <h3 className="font-medium text-base mb-1">Nenhum pagador encontrado</h3>
+      <p className="text-sm text-muted-foreground max-w-xs">
         {searchTerm
           ? `Nenhum resultado para "${searchTerm}"`
           : quickFilter === "review"
             ? "Não há pagadores pendentes de revisão"
             : quickFilter === "uncatalogued"
-              ? "N\u00e3o h\u00e1 pagadores criados automaticamente por importa\u00e7\u00e3o de boletos"
-              : "Importe pagadores atrav\u00e9s do menu de Importa\u00e7\u00e3o"}
+              ? "Não há pagadores criados automaticamente"
+              : "Importe pagadores através do menu de Importação"}
       </p>
     </div>
   );
 }
 
-// Quick view panel for desktop
-function QuickViewPanel({ payerId }: { payerId: string | null }) {
-  const { data: payerData } = usePayerById(payerId || "");
-
-  const selectedPayer = payerData;
-
+// ── Quick view panel ──
+function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | null; isMobileSheet?: boolean }) {
+  const { data: selectedPayer } = usePayerById(payerId || "");
   const payerCode = selectedPayer?.payer_code || null;
 
   const { data: paidBillings } = useQuery({
@@ -921,18 +664,10 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
         .eq("status", "PAID")
         .order("due_date", { ascending: false })
         .limit(50);
-
-      if (payerCode) {
-        query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payerCode}`);
-      } else {
-        query = query.eq("payer_id", payerId);
-      }
-
+      if (payerCode) query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payerCode}`);
+      else query = query.eq("payer_id", payerId);
       const { data, error } = await query;
       if (error) throw error;
-      if (import.meta.env.DEV) {
-        console.log("[Payers] paid billings for", { payerId, payerCode }, data);
-      }
       return data || [];
     },
     enabled: !!payerId,
@@ -944,60 +679,42 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
       if (!payerId) return [];
       let query = supabase
         .from("billings")
-        .select(
-          "id, status, settlement_at, liquidation_at, due_date, payer_id, payer_code, reference_month",
-        )
+        .select("id, status, settlement_at, liquidation_at, due_date, payer_id, payer_code, reference_month")
         .order("reference_month", { ascending: false })
         .limit(200);
-
-      if (payerCode) {
-        query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payerCode}`);
-      } else {
-        query = query.eq("payer_id", payerId);
-      }
-
+      if (payerCode) query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payerCode}`);
+      else query = query.eq("payer_id", payerId);
       const { data, error } = await query;
       if (error) throw error;
-      if (import.meta.env.DEV) {
-        console.log("[Payers] all billings for", { payerId, payerCode }, data);
-      }
       return data || [];
     },
     enabled: !!payerId,
   });
-  void allBillings;
 
   const latestPaidDate = useMemo(() => {
-    if (!paidBillings || paidBillings.length == 0) return null;
-    let latest = null;
+    if (!paidBillings || paidBillings.length === 0) return null;
+    let latest: Date | null = null;
     for (const b of paidBillings) {
       const raw = b.settlement_at || b.due_date;
       if (!raw) continue;
       const d = new Date(raw);
       if (!latest || d > latest) latest = d;
     }
-    if (import.meta.env.DEV) {
-      console.log("[Payers] latestPaidDate for", payerId, latest);
-    }
     return latest;
   }, [paidBillings]);
 
   const billingFlags = useMemo(() => {
     const statuses = new Set((allBillings || []).map((b) => b.status));
-    return {
-      hasAny: (allBillings || []).length > 0,
-      hasOpen: statuses.has("OPEN"),
-      hasCancelled: statuses.has("CANCELADO"),
-      hasPaid: statuses.has("PAID"),
-    };
+    return { hasAny: (allBillings || []).length > 0, hasOpen: statuses.has("OPEN"), hasCancelled: statuses.has("CANCELADO"), hasPaid: statuses.has("PAID") };
   }, [allBillings]);
 
   if (!payerId || !selectedPayer) {
+    if (isMobileSheet) return null;
     return (
-      <Card className="h-[calc(100vh-280px)] flex items-center justify-center">
+      <Card className="h-[calc(100vh-310px)] flex items-center justify-center">
         <div className="text-center text-muted-foreground p-8">
-          <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
-          <p className="text-sm">Selecione um pagador para ver detalhes</p>
+          <Users className="h-10 w-10 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">Selecione um pagador</p>
         </div>
       </Card>
     );
@@ -1005,186 +722,133 @@ function QuickViewPanel({ payerId }: { payerId: string | null }) {
 
   const isActive = selectedPayer.status === "ATIVO";
 
-  return (
-    <Card className="h-[calc(100vh-280px)] overflow-hidden">
-      <ScrollArea className="h-full">
-        <CardContent className="p-6">
-          <motion.div
-            key={payerId}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="space-y-6"
-          >
-            {/* Header */}
-            <div className="text-center">
-              <div
-                className={cn(
-                  "w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center text-2xl font-bold",
-                  isActive
-                    ? "bg-emerald-500/10 text-emerald-600"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {selectedPayer.name.charAt(0).toUpperCase()}
-              </div>
-              <h3 className="font-semibold text-lg">{selectedPayer.name}</h3>
-              <p className="text-sm text-muted-foreground font-mono">
-                {selectedPayer.document_digits
-                  ? formatCPF(selectedPayer.document_digits)
-                  : selectedPayer.payer_code}
+  const content = (
+    <motion.div
+      key={payerId}
+      initial={{ opacity: 0, y: isMobileSheet ? 10 : 0, x: isMobileSheet ? 0 : 20 }}
+      animate={{ opacity: 1, y: 0, x: 0 }}
+      className="space-y-5"
+    >
+      {/* Header */}
+      <div className={cn("text-center", isMobileSheet && "pt-2")}>
+        <div
+          className={cn(
+            "w-14 h-14 rounded-full mx-auto mb-2 flex items-center justify-center text-xl font-bold",
+            isActive ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"
+          )}
+        >
+          {selectedPayer.name.charAt(0).toUpperCase()}
+        </div>
+        <h3 className="font-semibold text-base">{selectedPayer.name}</h3>
+        <p className="text-xs text-muted-foreground font-mono">
+          {selectedPayer.document_digits ? formatCPF(selectedPayer.document_digits) : selectedPayer.payer_code}
+        </p>
+        <div className="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
+          <Badge variant={isActive ? "default" : "secondary"} className="text-xs">
+            {isActive ? "Ativo" : "Inativo"}
+          </Badge>
+          <Badge variant="outline" className="text-xs">{selectedPayer.billing_mode}</Badge>
+          {selectedPayer.default_route && selectedPayer.default_route !== "DESCONHECIDO" && (
+            <Badge variant="outline" className="text-xs">{selectedPayer.default_route}</Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Alerts */}
+      {selectedPayer.needs_review && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="text-xs">
+            <p className="font-medium">Necessita revisão</p>
+            {selectedPayer.review_reason && (
+              <p className="opacity-80 mt-0.5">
+                {isImportedWithoutRegister(selectedPayer.review_reason)
+                  ? "Criado automaticamente na importação de boletos."
+                  : selectedPayer.review_reason}
               </p>
-
-              {/* Status badges */}
-              <div className="flex items-center justify-center gap-2 mt-3">
-                <Badge variant={isActive ? "default" : "secondary"}>
-                  {isActive ? "Ativo" : "Inativo"}
-                </Badge>
-                <Badge variant="outline">{selectedPayer.billing_mode}</Badge>
-                {selectedPayer.default_route && (
-                  <Badge variant="outline">{selectedPayer.default_route}</Badge>
-                )}
-              </div>
-            </div>
-
-            {/* Alerts */}
-            {selectedPayer.needs_review && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium">Necessita revisão</p>
-                  {selectedPayer.review_reason && (
-                    <p className="text-xs opacity-80 mt-0.5">
-                      {isImportedWithoutRegister(selectedPayer.review_reason)
-                        ? "Criado automaticamente na importa\u00e7\u00e3o de boletos. Cadastre/complete os dados."
-                        : selectedPayer.review_reason}
-                    </p>
-                  )}
-                </div>
-              </div>
             )}
+          </div>
+        </div>
+      )}
 
-            {/* Contact info */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Contato
-              </h4>
-              {selectedPayer.phone && (
-                <InfoRow
-                  icon={Phone}
-                  label="Telefone"
-                  value={formatPhone(selectedPayer.phone)}
-                />
-              )}
-              {selectedPayer.email && (
-                <InfoRow
-                  icon={Mail}
-                  label="E-mail"
-                  value={selectedPayer.email}
-                />
-              )}
-              {selectedPayer.neighborhood && (
-                <InfoRow
-                  icon={MapPin}
-                  label="Bairro"
-                  value={`${selectedPayer.neighborhood}${
-                    selectedPayer.city ? `, ${selectedPayer.city}` : ""
-                  }`}
-                />
-              )}
-            </div>
+      {/* Contact info */}
+      <div className="space-y-2.5">
+        <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Contato</h4>
+        {selectedPayer.phone && <InfoRow icon={Phone} label="Telefone" value={formatPhone(selectedPayer.phone)} />}
+        {selectedPayer.email && <InfoRow icon={Mail} label="E-mail" value={selectedPayer.email} />}
+        {selectedPayer.neighborhood && (
+          <InfoRow icon={MapPin} label="Bairro" value={`${selectedPayer.neighborhood}${selectedPayer.city ? `, ${selectedPayer.city}` : ""}`} />
+        )}
+        {!selectedPayer.phone && !selectedPayer.email && !selectedPayer.neighborhood && (
+          <p className="text-xs text-muted-foreground italic">Sem dados de contato</p>
+        )}
+      </div>
 
-            {/* Billing info */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Cobrança
-              </h4>
-              <InfoRow
-                icon={Receipt}
-                label="Ultima ref."
-                value={selectedPayer.last_billing_ref || "-"}
-              />
-              <InfoRow
-                icon={Clock}
-                label="Ultimo pagamento"
-                value={
-                  selectedPayer.last_payment_at
-                    ? new Date(
-                        selectedPayer.last_payment_at,
-                      ).toLocaleDateString("pt-BR")
-                    : latestPaidDate
-                      ? latestPaidDate.toLocaleDateString("pt-BR")
-                      : "-"
-                }
-              />
-              {!latestPaidDate && billingFlags.hasOpen && (
-                <Badge variant="outline" className="gap-1 text-warning border-warning/50">
-                  <Clock className="h-3 w-3" />
-                  Boleto em aberto
-                </Badge>
-              )}
-              {!latestPaidDate && !billingFlags.hasOpen && billingFlags.hasCancelled && (
-                <Badge variant="outline" className="gap-1 text-muted-foreground">
-                  <CheckCircle2 className="h-3 w-3" />
-                  CANCELADO
-                </Badge>
-              )}
-              {selectedPayer.pix_monthly_amount_cents && (
-                <InfoRow
-                  icon={Receipt}
-                  label="PIX mensal"
-                  value={formatCurrency(selectedPayer.pix_monthly_amount_cents)}
-                />
-              )}
-            </div>
+      {/* Billing info */}
+      <div className="space-y-2.5">
+        <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Cobrança</h4>
+        <InfoRow icon={Receipt} label="Última ref." value={selectedPayer.last_billing_ref || "-"} />
+        <InfoRow
+          icon={Clock}
+          label="Último pagamento"
+          value={
+            selectedPayer.last_payment_at
+              ? new Date(selectedPayer.last_payment_at).toLocaleDateString("pt-BR")
+              : latestPaidDate
+                ? latestPaidDate.toLocaleDateString("pt-BR")
+                : "-"
+          }
+        />
+        {!latestPaidDate && billingFlags.hasOpen && (
+          <Badge variant="outline" className="gap-1 text-amber-600 border-amber-500/50 text-xs">
+            <Clock className="h-3 w-3" />
+            Boleto em aberto
+          </Badge>
+        )}
+        {selectedPayer.pix_monthly_amount_cents && (
+          <InfoRow icon={Receipt} label="PIX mensal" value={formatCurrency(selectedPayer.pix_monthly_amount_cents)} />
+        )}
+      </div>
 
-            {/* Flags */}
-            <div className="flex flex-wrap gap-2">
-              {selectedPayer.is_coordinator && (
-                <Badge variant="outline" className="gap-1">
-                  <UserCheck className="h-3 w-3" />
-                  Coordenador
-                </Badge>
-              )}
-              {selectedPayer.document_valid && (
-                <Badge variant="outline" className="gap-1 text-emerald-600">
-                  <CheckCircle2 className="h-3 w-3" />
-                  CPF válido
-                </Badge>
-              )}
-              {selectedPayer.match_ok && (
-                <Badge variant="outline" className="gap-1 text-emerald-600">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Endereço OK
-                </Badge>
-              )}
-            </div>
-          </motion.div>
-        </CardContent>
+      {/* Flags */}
+      <div className="flex flex-wrap gap-1.5">
+        {selectedPayer.is_coordinator && (
+          <Badge variant="outline" className="gap-1 text-xs"><UserCheck className="h-3 w-3" />Coordenador</Badge>
+        )}
+        {selectedPayer.document_valid && (
+          <Badge variant="outline" className="gap-1 text-emerald-600 text-xs"><CheckCircle2 className="h-3 w-3" />CPF válido</Badge>
+        )}
+        {selectedPayer.match_ok && (
+          <Badge variant="outline" className="gap-1 text-emerald-600 text-xs"><CheckCircle2 className="h-3 w-3" />Endereço OK</Badge>
+        )}
+      </div>
+    </motion.div>
+  );
+
+  if (isMobileSheet) {
+    return <div className="px-5 pb-6">{content}</div>;
+  }
+
+  return (
+    <Card className="h-[calc(100vh-310px)] overflow-hidden">
+      <ScrollArea className="h-full">
+        <CardContent className="p-5">{content}</CardContent>
       </ScrollArea>
     </Card>
   );
 }
 
-// Info row component
-function InfoRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-}) {
+// ── Info row ──
+function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
-        <Icon className="h-4 w-4 text-muted-foreground" />
+    <div className="flex items-center gap-2.5">
+      <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center shrink-0">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
       <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-[11px] text-muted-foreground leading-none">{label}</p>
         <p className="text-sm font-medium truncate">{value}</p>
       </div>
     </div>
   );
 }
-
