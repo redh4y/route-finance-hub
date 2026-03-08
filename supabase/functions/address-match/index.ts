@@ -1232,6 +1232,9 @@ Deno.serve(async (req) => {
       use_db_ceps,
       config: userConfig,
       endereco_column,
+      // Phone match params
+      contacts_json,
+      phone_match_config,
     } = body;
 
     if (!payers_csv || !Array.isArray(payers_csv) || payers_csv.length === 0) {
