@@ -373,7 +373,7 @@ export default function Audit() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered.map((row) => {
+                      {data.map((row) => {
                         const expanded = expandedRowId === row.id;
                         return (
                           <Fragment key={row.id}>
@@ -416,6 +416,33 @@ export default function Audit() {
                     </TableBody>
                   </Table>
                 </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t mt-4">
+                    <p className="text-sm text-muted-foreground">
+                      {total} registro{total !== 1 ? "s" : ""} · Página {page} de {totalPages}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1}
+                        onClick={() => setPage((p) => p - 1)}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage((p) => p + 1)}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
