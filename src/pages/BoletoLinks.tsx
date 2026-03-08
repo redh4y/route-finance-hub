@@ -25,6 +25,7 @@ type PayerLite = {
 type MonthActivePayer = {
   id: string;
   name: string;
+  document_digits: string | null;
 };
 
 type ParsedLine = {
@@ -221,7 +222,7 @@ export default function BoletoLinksPage() {
     queryFn: async (): Promise<MonthActivePayer[]> => {
       const { data, error } = await (supabase as any)
         .from("billings")
-        .select("payer_id,payers(id,name,status)")
+        .select("payer_id,payers(id,name,status,document_digits)")
         .eq("reference_month", referenceMonth)
         .in("status", ["OPEN", "PAID"]);
 
@@ -236,6 +237,7 @@ export default function BoletoLinksPage() {
         unique.set(payerId, {
           id: payerId,
           name: String(payerRel?.name || payerId),
+          document_digits: normalizeDigits(String(payerRel?.document_digits || "")) || null,
         });
       }
 
@@ -245,13 +247,13 @@ export default function BoletoLinksPage() {
 
   const { data: existingMonthLinks = [] } = useQuery({
     queryKey: ["boleto-links-existing-month", referenceMonth],
-    queryFn: async (): Promise<Array<{ payer_id: string }>> => {
+    queryFn: async (): Promise<Array<{ payer_id: string | null; cpf_digits: string | null }>> => {
       const { data, error } = await (supabase as any)
         .from("payer_boleto_links")
-        .select("payer_id")
+        .select("payer_id,cpf_digits")
         .eq("reference_month", referenceMonth);
       if (error) throw error;
-      return (data || []) as Array<{ payer_id: string }>;
+      return (data || []) as Array<{ payer_id: string | null; cpf_digits: string | null }>;
     },
   });
 
@@ -269,18 +271,28 @@ export default function BoletoLinksPage() {
 
   const monthCoverage = useMemo(() => {
     const linkedIds = new Set<string>();
+    const linkedCpfs = new Set<string>();
 
     for (const row of existingMonthLinks) {
       if (row?.payer_id) linkedIds.add(String(row.payer_id));
+      const cpf = normalizeDigits(row?.cpf_digits || "");
+      if (cpf) linkedCpfs.add(cpf);
     }
 
     for (const line of lines) {
       if (line.match_status === "MATCH" && line.payer_id) {
         linkedIds.add(String(line.payer_id));
       }
+      const cpf = normalizeDigits(line.cpf_digits || "");
+      if (cpf) linkedCpfs.add(cpf);
     }
 
-    const missing = activeMonthPayers.filter((payer) => !linkedIds.has(payer.id));
+    const missing = activeMonthPayers.filter((payer) => {
+      if (linkedIds.has(payer.id)) return false;
+      const cpf = normalizeDigits(payer.document_digits || "");
+      if (cpf && linkedCpfs.has(cpf)) return false;
+      return true;
+    });
 
     return {
       expected: activeMonthPayers.length,
@@ -582,7 +594,7 @@ export default function BoletoLinksPage() {
     try {
       const uniqueByKey = new Map<string, ParsedLine>();
       for (const row of valid) {
-        const key = `${String(row.cpf_digits)}|${String(row.drive_url)}`;
+        const key = row.our_number ? `OUR:${String(row.our_number)}` : `${String(row.cpf_digits)}|${String(row.drive_url)}`;
         uniqueByKey.set(key, row);
       }
 
@@ -605,11 +617,22 @@ export default function BoletoLinksPage() {
         source: l.read_source,
       }));
 
-      const { error } = await (supabase as any)
-        .from("payer_boleto_links")
-        .upsert(payload, { onConflict: "cpf_digits,drive_url" });
+      const withOurNumber = payload.filter((p) => !!p.our_number);
+      const withoutOurNumber = payload.filter((p) => !p.our_number);
 
-      if (error) throw error;
+      if (withOurNumber.length > 0) {
+        const { error: upsertByOurError } = await (supabase as any)
+          .from("payer_boleto_links")
+          .upsert(withOurNumber, { onConflict: "our_number" });
+        if (upsertByOurError) throw upsertByOurError;
+      }
+
+      if (withoutOurNumber.length > 0) {
+        const { error: upsertByCpfUrlError } = await (supabase as any)
+          .from("payer_boleto_links")
+          .upsert(withoutOurNumber, { onConflict: "cpf_digits,drive_url" });
+        if (upsertByCpfUrlError) throw upsertByCpfUrlError;
+      }
 
       toast.success(`Importacao concluida: ${dedupedValid.length} linhas processadas${repeatedInFile > 0 ? `, ${repeatedInFile} repetidas no arquivo consolidadas` : ""}.`);
     } catch (error: any) {

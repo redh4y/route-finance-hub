@@ -29,6 +29,39 @@ function maskCpf(cpf: string) {
   return cpf.length === 11 ? `${cpf.slice(0, 3)}***${cpf.slice(-2)}` : "invalid";
 }
 
+function billingStatusPriority(status: string) {
+  switch (status) {
+    case "PAID":
+      return 4;
+    case "OPEN":
+      return 3;
+    case "CANCELADO":
+      return 2;
+    case "NEEDS_REVIEW":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function toPublicBillingStatus(
+  status: string | null | undefined,
+  dueDate: string | null | undefined,
+) {
+  const normalized = String(status || "").toUpperCase();
+
+  if (normalized === "PAID") return "PAGO";
+  if (normalized === "CANCELADO") return "CANCELADO";
+  if (normalized === "NEEDS_REVIEW") return "REVISAO";
+  if (normalized === "OPEN") {
+    const today = new Date().toISOString().slice(0, 10);
+    if (dueDate && dueDate < today) return "VENCIDO";
+    return "EM_ABERTO";
+  }
+
+  return null;
+}
+
 async function writeAccessLog(sb: any, payload: Record<string, unknown>) {
   const { error } = await sb.from("public_boleto_access_logs").insert([payload]);
   if (error) {
@@ -122,7 +155,56 @@ serve(async (req) => {
       return json(500, { ok: false, error: error.message, requestId });
     }
 
-    const items = (data || []).map((row: any) => ({
+    const links = data || [];
+    const ourNumbers = Array.from(
+      new Set(
+        links
+          .map((row: any) => String(row.our_number || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const billingsByOurNumber = new Map<
+      string,
+      { status: string | null; due_date: string | null }
+    >();
+
+    if (ourNumbers.length > 0) {
+      const { data: billingRows, error: billingsError } = await sb
+        .from("billings")
+        .select("nosso_numero, status, due_date")
+        .eq("payer_id", payer.id)
+        .in("nosso_numero", ourNumbers);
+
+      if (billingsError) {
+        return json(500, { ok: false, error: billingsError.message, requestId });
+      }
+
+      for (const row of billingRows || []) {
+        const key = String(row.nosso_numero || "").trim();
+        if (!key) continue;
+
+        const current = billingsByOurNumber.get(key);
+        if (!current) {
+          billingsByOurNumber.set(key, {
+            status: row.status ?? null,
+            due_date: row.due_date ?? null,
+          });
+          continue;
+        }
+
+        const currentPriority = billingStatusPriority(String(current.status || ""));
+        const nextPriority = billingStatusPriority(String(row.status || ""));
+        if (nextPriority >= currentPriority) {
+          billingsByOurNumber.set(key, {
+            status: row.status ?? null,
+            due_date: row.due_date ?? null,
+          });
+        }
+      }
+    }
+
+    const items = (links || []).map((row: any) => ({
       reference_month: row.reference_month,
       student_name: row.student_name,
       drive_url: row.drive_url,
@@ -130,6 +212,15 @@ serve(async (req) => {
       amount_cents: row.amount_cents,
       our_number: row.our_number,
       digitable_line: row.digitable_line,
+      billing_status: row.our_number
+        ? billingsByOurNumber.get(String(row.our_number).trim())?.status || null
+        : null,
+      public_status: row.our_number
+        ? toPublicBillingStatus(
+            billingsByOurNumber.get(String(row.our_number).trim())?.status || null,
+            row.due_date || null,
+          )
+        : null,
     }));
 
     await writeAccessLog(sb, {

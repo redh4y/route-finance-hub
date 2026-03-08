@@ -551,7 +551,26 @@ export function useOptimizedImportBillings() {
           due_date: billing.due_date,
         });
 
-        const existingVariants = existingBillingsByBase.get(baseKey) || [];
+        const baseKeys = [baseKey];
+        if (billing.nosso_numero) {
+          baseKeys.push(
+            getBillingBaseLookupKey({
+              payer_id: payerId,
+              reference_month: billing.reference_month,
+              nosso_numero: null,
+              seu_numero: billing.seu_numero,
+              due_date: billing.due_date,
+            })
+          );
+        }
+
+        const existingVariants = Array.from(
+          new Map(
+            baseKeys
+              .flatMap((k) => existingBillingsByBase.get(k) || [])
+              .map((b) => [b.id, b])
+          ).values()
+        );
         const sameStatus = existingVariants.find((b) => b.status === billing.status);
         const hasPaidVariant = existingVariants.some((b) => b.status === "PAID");
         const openVariant = existingVariants.find((b) => b.status === "OPEN");
@@ -605,7 +624,9 @@ export function useOptimizedImportBillings() {
 
         if (sameStatus) {
           const dueDateChanged = (sameStatus.due_date || null) !== (billingData.due_date || null);
-          if (dueDateChanged) {
+          const nossoChanged = (sameStatus.nosso_numero || null) !== (billingData.nosso_numero || null);
+          const seuChanged = (sameStatus.seu_numero || null) !== (billingData.seu_numero || null);
+          if (dueDateChanged || nossoChanged || seuChanged) {
             registerPlannedUpdate(sameStatus.id, billing.status);
           }
         } else if (billing.status === "CANCELADO" && openVariant && !hasPaidVariant) {

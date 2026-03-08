@@ -208,7 +208,18 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
   return resolvedIncoming.map((b) => {
     const statusKey = getBillingPreviewStatusKey(b);
     const baseKey = getBillingPreviewBaseKey(b);
-    const existing = existingByStatusKey.get(statusKey);
+
+    const statusKeys = [statusKey];
+    const baseKeys = [baseKey];
+    if (b.nosso_numero) {
+      const fallbackBaseKey = getBillingPreviewBaseKey({ ...b, nosso_numero: null });
+      baseKeys.push(fallbackBaseKey);
+      statusKeys.push(`${fallbackBaseKey}|ST|${(b.status || "").trim().toUpperCase()}`);
+    }
+
+    const existing = statusKeys
+      .map((k) => existingByStatusKey.get(k))
+      .find((v) => !!v);
 
     if (!b._payerFound) {
       return {
@@ -227,7 +238,16 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
     }
 
     if (existing) {
-      if ((existing.due_date || null) !== (b.due_date || null)) {
+      const dueChanged = (existing.due_date || null) !== (b.due_date || null);
+      const nossoChanged = (existing.nosso_numero || null) !== (b.nosso_numero || null);
+      const seuChanged = (existing.seu_numero || null) !== (b.seu_numero || null);
+
+      if (dueChanged || nossoChanged || seuChanged) {
+        const changes: string[] = [];
+        if (dueChanged) changes.push(`vencimento ${existing.due_date || "-"} -> ${b.due_date || "-"}`);
+        if (nossoChanged) changes.push(`nosso numero ${existing.nosso_numero || "-"} -> ${b.nosso_numero || "-"}`);
+        if (seuChanged) changes.push(`seu numero ${existing.seu_numero || "-"} -> ${b.seu_numero || "-"}`);
+
         return {
           type: "UPDATE_DUE_DATE" as const,
           payerName: b._payerName,
@@ -239,7 +259,7 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
           nossoNumero: b.nosso_numero,
           seuNumero: b.seu_numero,
           amountExpectedCents: b.amount_expected_cents,
-          note: `Vencimento sera atualizado de ${existing.due_date || "-"} para ${b.due_date || "-"}.`,
+          note: `Atualizacoes: ${changes.join("; ")}.`,
         };
       }
 
@@ -258,7 +278,7 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
       };
     }
 
-    if (existingByBaseKey.has(baseKey)) {
+    if (baseKeys.some((k) => existingByBaseKey.has(k))) {
       return {
         type: "NEW_STATUS_VARIANT" as const,
         payerName: b._payerName,
@@ -1013,6 +1033,7 @@ function ImportBillingsCard() {
                     <th className="text-left p-2">Reference month</th>
                     <th className="text-left p-2">Status</th>
                     <th className="text-left p-2">Venc.</th>
+                    <th className="text-left p-2">Nosso numero</th>
                     <th className="text-left p-2">Valor</th>
                     <th className="text-left p-2">Observa??o</th>
                   </tr>
@@ -1025,6 +1046,7 @@ function ImportBillingsCard() {
                       <td className="p-2">{row.referenceMonth}</td>
                       <td className="p-2">{row.status}</td>
                       <td className="p-2">{row.dueDate || "-"}</td>
+                      <td className="p-2">{row.nossoNumero || "-"}</td>
                       <td className="p-2">R$ {(row.amountExpectedCents / 100).toFixed(2)}</td>
                       <td className="p-2">{row.note}</td>
                     </tr>

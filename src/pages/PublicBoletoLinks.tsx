@@ -17,6 +17,8 @@ type PublicBoletoItem = {
   amount_cents?: number | null;
   our_number?: string | null;
   digitable_line?: string | null;
+  billing_status?: string | null;
+  public_status?: string | null;
 };
 
 function onlyDigits(input: string) {
@@ -71,6 +73,25 @@ function formatCurrency(cents: number | null | undefined) {
     style: "currency",
     currency: "BRL",
   }).format(cents / 100);
+}
+
+function statusBadgeClass(status: string | null | undefined) {
+  switch (status) {
+    case "PAGO":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "CANCELADO":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "VENCIDO":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "EM_ABERTO":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "REVISAO":
+      return "border-violet-200 bg-violet-50 text-violet-700";
+    case "SEM_STATUS":
+      return "border-slate-200 bg-slate-50 text-slate-600";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600";
+  }
 }
 
 function sortBills(items: PublicBoletoItem[]) {
@@ -293,9 +314,17 @@ export default function PublicBoletoLinksPage() {
                   className="rounded-xl border bg-white p-3 md:p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between hover:shadow-sm transition-shadow"
                 >
                   <div className="min-w-0">
-                    <p className="font-semibold text-base">
-                      {formatMonth(item.reference_month)}
-                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-base">
+                        {formatMonth(item.reference_month)}
+                      </p>
+                      <Badge
+                        variant="outline"
+                        className={statusBadgeClass(item.public_status || "SEM_STATUS")}
+                      >
+                        {(item.public_status || "SEM_STATUS").replace("_", " ")}
+                      </Badge>
+                    </div>
                     <div className="mt-1 space-y-1.5">
                       <div className="flex items-center gap-2 flex-wrap text-xs">
                         <span className="text-muted-foreground">
