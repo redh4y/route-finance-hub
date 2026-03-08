@@ -691,6 +691,32 @@ export default function FinancialRevenue() {
                       </TableBody>
                     </Table>
                   </div>
+                  {/* Pagination */}
+                  {totalEntriesPages > 1 && (
+                    <div className="flex items-center justify-between pt-4 border-t mt-4">
+                      <p className="text-sm text-muted-foreground">
+                        {totalEntries} receita{totalEntries !== 1 ? 's' : ''} · Página {entriesPage} de {totalEntriesPages}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={entriesPage <= 1}
+                          onClick={() => setEntriesPage(p => p - 1)}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={entriesPage >= totalEntriesPages}
+                          onClick={() => setEntriesPage(p => p + 1)}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
