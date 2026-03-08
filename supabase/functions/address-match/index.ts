@@ -1232,11 +1232,8 @@ Deno.serve(async (req) => {
       use_db_ceps,
       config: userConfig,
       endereco_column,
-      // Phone match (only on final batch)
       contacts_json,
       phone_match_config,
-      // Batch mode: if cep_base is provided, skip DB fetch
-      cep_base_prefetched,
       is_phone_only,
     } = body;
 
