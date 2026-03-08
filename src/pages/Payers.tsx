@@ -693,9 +693,7 @@ function PayerCard({
   onClick,
   onEdit,
 }: {
-  payer: ReturnType<typeof usePayers>["data"] extends (infer T)[] | undefined
-    ? T
-    : never;
+  payer: Payer;
   isSelected: boolean;
   onClick: () => void;
   onEdit: () => void;
