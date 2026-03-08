@@ -578,7 +578,7 @@ export default function FinancialExpenses() {
         queryKey: ["financial-entry-allocations"],
       });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
-      toast.success("Todos os lan?amentos de sa?das foram removidos");
+      toast.success("Todos os lançamentos de saídas foram removidos");
     },
     onError: (error) => {
       toast.error("Erro ao limpar dados: " + error.message);
