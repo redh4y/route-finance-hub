@@ -1591,7 +1591,7 @@ export default function FinancialExpenses() {
                           <SelectContent>
                             {PAGE_SIZE_OPTIONS.map((size) => (
                               <SelectItem key={size} value={String(size)}>
-                                {size}/p?gina
+                                {size}/página
                               </SelectItem>
                             ))}
                           </SelectContent>
