@@ -1,44 +1,46 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageTransition } from "@/components/ui/page-transition";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useExcursions } from "@/hooks/useExcursions";
 import { formatCurrency } from "@/lib/formatters";
 import { Link } from "react-router-dom";
-import { Plus, Bus, MapPin, Calendar, Users, Search, Filter } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Plus, Bus, MapPin, Calendar, Users, Search, Ticket, TrendingUp, ShoppingBag, Eye } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Progress } from "@/components/ui/progress";
 
-const statusColors: Record<string, string> = {
-  RASCUNHO: "outline",
-  EM_VENDA: "default",
-  LOTADA: "destructive",
-  FINALIZADA: "secondary",
-  CANCELADA: "outline",
+const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; bg: string }> = {
+  RASCUNHO: { label: "Rascunho", variant: "outline", bg: "bg-muted/50" },
+  EM_VENDA: { label: "Em Venda", variant: "default", bg: "bg-success/5 border-success/20" },
+  LOTADA: { label: "Lotada", variant: "destructive", bg: "bg-warning/5 border-warning/20" },
+  FINALIZADA: { label: "Finalizada", variant: "secondary", bg: "bg-accent/5 border-accent/20" },
+  CANCELADA: { label: "Cancelada", variant: "outline", bg: "bg-destructive/5 border-destructive/20" },
 };
 
-const statusLabels: Record<string, string> = {
-  RASCUNHO: "Rascunho",
-  EM_VENDA: "Em Venda",
-  LOTADA: "Lotada",
-  FINALIZADA: "Finalizada",
-  CANCELADA: "Cancelada",
-};
+type StatusFilter = "ALL" | "EM_VENDA" | "RASCUNHO" | "LOTADA" | "FINALIZADA" | "CANCELADA";
+
+const filterTabs: { value: StatusFilter; label: string; icon?: string }[] = [
+  { value: "ALL", label: "Todas" },
+  { value: "EM_VENDA", label: "Em Venda" },
+  { value: "RASCUNHO", label: "Rascunho" },
+  { value: "LOTADA", label: "Lotada" },
+  { value: "FINALIZADA", label: "Finalizada" },
+  { value: "CANCELADA", label: "Cancelada" },
+];
 
 export default function Excursions() {
   const { data: excursions, isLoading } = useExcursions();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const isMobile = useIsMobile();
 
-  const filtered = (excursions || []).filter((e) => {
+  const all = excursions || [];
+  const filtered = all.filter((e) => {
     const matchSearch =
       !search ||
       e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -47,144 +49,190 @@ export default function Excursions() {
     return matchSearch && matchStatus;
   });
 
-  const totalRevenue = filtered.reduce((sum, e) => sum + e.seat_price_cents * e.total_seats, 0);
-  const totalSeats = filtered.reduce((sum, e) => sum + e.total_seats, 0);
+  const totalRevenue = all.reduce((sum, e) => sum + e.seat_price_cents * e.total_seats, 0);
+  const emVenda = all.filter((e) => e.status === "EM_VENDA").length;
+  const totalSeats = all.reduce((sum, e) => sum + e.total_seats, 0);
+
+  const statCards = [
+    { label: "Excursões", value: all.length, icon: Bus, color: "text-accent" },
+    { label: "Em Venda", value: emVenda, icon: ShoppingBag, color: "text-success" },
+    { label: "Assentos", value: totalSeats, icon: Ticket, color: "text-warning" },
+    { label: "Receita Potencial", value: formatCurrency(totalRevenue), icon: TrendingUp, color: "text-primary" },
+  ];
 
   return (
     <MainLayout>
       <PageTransition>
-      <div className="page-header">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h1 className="page-title">Excursões</h1>
-            <p className="page-subtitle">Gerencie viagens e venda de assentos</p>
+        {/* Header */}
+        <div className="page-header">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h1 className="page-title">Excursões</h1>
+              <p className="page-subtitle">Gerencie viagens e venda de assentos</p>
+            </div>
+            <Link to="/excursoes/nova">
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Excursão
+              </Button>
+            </Link>
           </div>
-          <Link to="/excursoes/nova">
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Excursão
-            </Button>
-          </Link>
         </div>
-      </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4 mb-6">
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{filtered.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Assentos</p>
-            <p className="text-2xl font-bold">{totalSeats}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Receita Potencial</p>
-            <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Em Venda</p>
-            <p className="text-2xl font-bold">
-              {(excursions || []).filter((e) => e.status === "EM_VENDA").length}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por nome ou destino..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <Filter className="h-4 w-4 mr-2" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">Todos</SelectItem>
-            <SelectItem value="RASCUNHO">Rascunho</SelectItem>
-            <SelectItem value="EM_VENDA">Em Venda</SelectItem>
-            <SelectItem value="LOTADA">Lotada</SelectItem>
-            <SelectItem value="FINALIZADA">Finalizada</SelectItem>
-            <SelectItem value="CANCELADA">Cancelada</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* List */}
-      {isLoading ? (
-        <div className="text-muted-foreground text-center py-12">Carregando...</div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-12">
-          <Bus className="h-12 w-12 mx-auto mb-3 text-muted-foreground/40" />
-          <p className="text-muted-foreground">Nenhuma excursão encontrada</p>
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((exc) => (
-            <Link key={exc.id} to={`/excursoes/${exc.id}`}>
-              <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base leading-tight">{exc.name}</CardTitle>
-                    <Badge variant={statusColors[exc.status] as any}>
-                      {statusLabels[exc.status] || exc.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="h-4 w-4 shrink-0" />
-                    <span className="truncate">
-                      {exc.destination}
-                      {exc.destination_state ? `/${exc.destination_state}` : ""}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-4 w-4 shrink-0" />
-                    <span>
-                      {new Date(exc.departure_at).toLocaleDateString("pt-BR", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Users className="h-4 w-4 shrink-0" />
-                    <span>{exc.total_seats} assentos</span>
-                  </div>
-                  {exc.vehicles?.name && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Bus className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{exc.vehicles.name}</span>
+        {/* Stats */}
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-4 mb-6">
+          {statCards.map((s, i) => (
+            <motion.div key={s.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+              <Card className="hover:shadow-md transition-shadow">
+                <CardContent className="pt-4 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg bg-muted ${s.color}`}>
+                      <s.icon className="h-4 w-4" />
                     </div>
-                  )}
-                  <div className="pt-2 border-t">
-                    <span className="text-sm font-medium">
-                      {formatCurrency(exc.seat_price_cents)} / assento
-                    </span>
+                    <div>
+                      <p className="text-xs text-muted-foreground">{s.label}</p>
+                      <p className="text-xl font-bold">{s.value}</p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
-            </Link>
+            </motion.div>
           ))}
         </div>
-      )}
+
+        {/* Filters */}
+        <div className="flex flex-col gap-3 mb-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por nome ou destino..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {filterTabs.map((tab) => {
+              const count = tab.value === "ALL" ? all.length : all.filter((e) => e.status === tab.value).length;
+              const active = statusFilter === tab.value;
+              return (
+                <Button
+                  key={tab.value}
+                  variant={active ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setStatusFilter(tab.value)}
+                  className="shrink-0 relative"
+                >
+                  {tab.label}
+                  <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0 h-4 min-w-[1.25rem]">
+                    {count}
+                  </Badge>
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* List */}
+        {isLoading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <Card key={i} className="animate-pulse">
+                <CardContent className="pt-6 pb-6 space-y-3">
+                  <div className="h-5 bg-muted rounded w-3/4" />
+                  <div className="h-4 bg-muted rounded w-1/2" />
+                  <div className="h-4 bg-muted rounded w-2/3" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
+            <Bus className="h-14 w-14 mx-auto mb-4 text-muted-foreground/30" />
+            <p className="text-muted-foreground mb-1">Nenhuma excursão encontrada</p>
+            <p className="text-xs text-muted-foreground/60 mb-4">Tente alterar os filtros ou crie uma nova</p>
+            <Link to="/excursoes/nova">
+              <Button size="sm" variant="outline">
+                <Plus className="h-4 w-4 mr-1.5" />
+                Nova Excursão
+              </Button>
+            </Link>
+          </motion.div>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <AnimatePresence mode="popLayout">
+                {filtered.map((exc, i) => {
+                  const cfg = statusConfig[exc.status] || statusConfig.RASCUNHO;
+                  return (
+                    <motion.div
+                      key={exc.id}
+                      layout
+                      initial={{ opacity: 0, scale: 0.97 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.97 }}
+                      transition={{ delay: i * 0.02 }}
+                    >
+                      <Link to={`/excursoes/${exc.id}`}>
+                        <Card className={`hover:border-primary/40 hover:shadow-md transition-all cursor-pointer h-full border ${cfg.bg}`}>
+                          <CardContent className="pt-5 pb-5 space-y-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <h3 className="font-semibold text-sm leading-tight line-clamp-2">{exc.name}</h3>
+                              <Badge variant={cfg.variant} className="shrink-0 text-[10px]">
+                                {cfg.label}
+                              </Badge>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">
+                                  {exc.destination}
+                                  {exc.destination_state ? `/${exc.destination_state}` : ""}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Calendar className="h-3.5 w-3.5 shrink-0" />
+                                <span>
+                                  {new Date(exc.departure_at).toLocaleDateString("pt-BR", {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                  })}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Users className="h-3.5 w-3.5 shrink-0" />
+                                <span>{exc.total_seats} assentos</span>
+                              </div>
+                              {exc.vehicles?.name && (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Bus className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="truncate">{exc.vehicles.name}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="pt-2 border-t flex items-center justify-between">
+                              <span className="text-sm font-semibold text-primary">
+                                {formatCurrency(exc.seat_price_cents)}
+                                <span className="text-xs font-normal text-muted-foreground"> /assento</span>
+                              </span>
+                              <Eye className="h-3.5 w-3.5 text-muted-foreground/40" />
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </Link>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+            <p className="text-xs text-muted-foreground text-center mt-4">
+              {filtered.length} excursão(ões) encontrada(s)
+            </p>
+          </>
+        )}
       </PageTransition>
     </MainLayout>
   );
