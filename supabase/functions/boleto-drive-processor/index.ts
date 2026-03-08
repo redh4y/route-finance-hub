@@ -587,6 +587,126 @@ async function uploadJsonToDrive(
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Single-file processing helper (reused by process_file & process_batch)
+   ═══════════════════════════════════════════════════════════ */
+
+async function processSingleFile(
+  access_token: string,
+  file: { id: string; name: string },
+  flags?: DriveProcessorFlags
+) {
+  const skipPat = /\s-\s\d{11}\.pdf$/i;
+
+  if (flags?.skip_already_renamed && skipPat.test(file.name)) {
+    return {
+      read_source: "",
+      payer_name: "",
+      payer_cpf: "",
+      our_number: "",
+      digitable_line: "",
+      amount: "",
+      due_date: "",
+      original_file_name: file.name,
+      final_file_name: file.name,
+      file_id: file.id,
+      download_link: `https://drive.google.com/uc?export=download&id=${file.id}`,
+      view_link: `https://drive.google.com/file/d/${file.id}/view`,
+      success: true,
+      error: "SKIPPED_ALREADY_RENAMED",
+    };
+  }
+
+  let text = "";
+  const readSource = "google_ocr";
+  const debugLog: string[] = [];
+
+  try {
+    if (flags?.debug_mode) {
+      debugLog.push(`[DEBUG][FILE] id=${file.id}`);
+      debugLog.push(`[DEBUG][FILE] nome_original=${file.name}`);
+    }
+
+    text = await extractTextViaDriveOcr(access_token, file.id);
+
+    if (flags?.debug_mode) {
+      debugLog.push(`[DEBUG][LEITURA] tamanho_texto=${text.trim().length}`);
+    }
+  } catch (e) {
+    return {
+      read_source: "error",
+      payer_name: "",
+      payer_cpf: "",
+      our_number: "",
+      digitable_line: "",
+      amount: "",
+      due_date: "",
+      original_file_name: file.name,
+      final_file_name: file.name,
+      file_id: file.id,
+      download_link: `https://drive.google.com/uc?export=download&id=${file.id}`,
+      view_link: `https://drive.google.com/file/d/${file.id}/view`,
+      success: false,
+      error: `OCR falhou: ${(e as Error).message}`,
+    };
+  }
+
+  const parsed = parseBoletoFields(text, file.name);
+
+  if (flags?.debug_mode) {
+    debugLog.push(`[DEBUG][CAMPOS] nosso_numero=${parsed.our_number}`);
+    debugLog.push(`[DEBUG][CAMPOS] linha_digitavel=${parsed.digitable_line}`);
+    debugLog.push(`[DEBUG][CAMPOS] valor=${parsed.amount}`);
+    debugLog.push(`[DEBUG][CAMPOS] vencimento=${parsed.due_date}`);
+    debugLog.push(`[DEBUG][NOME_CPF] nome=${JSON.stringify(parsed.payer_name)}`);
+    debugLog.push(`[DEBUG][NOME_CPF] cpf=${JSON.stringify(parsed.payer_cpf)}`);
+  }
+
+  let finalName = file.name;
+  if (flags?.rename_files !== false && parsed.payer_name && parsed.payer_cpf) {
+    const safeName = sanitizeFilename(
+      `${parsed.payer_name.toUpperCase()} - ${parsed.payer_cpf}.pdf`
+    );
+    if (safeName && safeName !== file.name) {
+      try {
+        await renameFile(access_token, file.id, safeName);
+        finalName = safeName;
+        if (flags?.debug_mode) debugLog.push("[DEBUG][RENOMEAR] aplicado=true");
+      } catch {
+        finalName = file.name;
+        if (flags?.debug_mode) debugLog.push("[DEBUG][RENOMEAR] aplicado=false erro=true");
+      }
+    }
+  } else if (flags?.debug_mode) {
+    debugLog.push("[DEBUG][RENOMEAR] aplicado=false motivo='nome/cpf insuficientes ou desabilitado'");
+  }
+
+  return {
+    read_source: readSource,
+    payer_name: parsed.payer_name,
+    payer_cpf: parsed.payer_cpf,
+    our_number: parsed.our_number,
+    digitable_line: parsed.digitable_line,
+    amount: parsed.amount,
+    due_date: parsed.due_date,
+    original_file_name: file.name,
+    final_file_name: finalName,
+    file_id: file.id,
+    download_link: `https://drive.google.com/uc?export=download&id=${file.id}`,
+    view_link: `https://drive.google.com/file/d/${file.id}/view`,
+    success: true,
+    error: null,
+    ...(flags?.debug_mode ? { debug_full_text: text, debug_log: debugLog } : {}),
+  };
+}
+
+type DriveProcessorFlags = {
+  rename_files?: boolean;
+  skip_already_renamed?: boolean;
+  debug_mode?: boolean;
+  save_json_on_drive?: boolean;
+};
+
+/* ═══════════════════════════════════════════════════════════
    Main handler
    ═══════════════════════════════════════════════════════════ */
 
