@@ -121,29 +121,27 @@ export default function Payers() {
     }
   }, [quickFilter]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [quickFilter, searchTerm]);
+
   const {
-    data: payers,
+    data: payersResult,
     isLoading,
     error,
   } = usePayers({
     ...filters,
     search: searchTerm || undefined,
+    page,
+    pageSize: PAGE_SIZE,
   });
 
-  // Stats
-  const stats = useMemo(() => {
-    if (!payers)
-      return { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 };
-    return {
-      total: payers.length,
-      active: payers.filter((p) => p.status === "ATIVO").length,
-      inactive: payers.filter((p) => p.status === "INATIVO").length,
-      review: payers.filter((p) => p.needs_review).length,
-      uncatalogued: payers.filter((p) =>
-        isImportedWithoutRegister(p.review_reason),
-      ).length,
-    };
-  }, [payers]);
+  const payers = payersResult?.rows || [];
+  const totalCount = payersResult?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  // Stats from separate lightweight query
+  const { data: stats = { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 } } = usePayersStats();
 
   const clearSearch = () => {
     setSearchTerm("");
