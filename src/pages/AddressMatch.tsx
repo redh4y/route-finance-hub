@@ -443,10 +443,8 @@ export default function AddressMatch() {
   };
 
   // ── CSV download ──
-  const downloadCsv = () => {
-    if (!response?.results) return;
-
-    // Enrich results with phone data if available
+  const getEnrichedResults = () => {
+    if (!response?.results) return [];
     let enriched = response.results;
     if (phoneResults.length > 0) {
       const phoneMap = new Map<string, PhoneMatchResult>();
@@ -468,13 +466,19 @@ export default function AddressMatch() {
         };
       });
     }
+    return enriched;
+  };
 
-    const csv = Papa.unparse(enriched);
+  const downloadCsv = (delimiter: "," | ";") => {
+    const enriched = getEnrichedResults();
+    if (!enriched.length) return;
+    const csv = Papa.unparse(enriched, { delimiter });
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `match_enderecos_${new Date().toISOString().slice(0, 10)}.csv`;
+    const suffix = delimiter === ";" ? "_ponto_virgula" : "";
+    a.download = `match_enderecos_${new Date().toISOString().slice(0, 10)}${suffix}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
