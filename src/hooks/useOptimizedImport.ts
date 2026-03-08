@@ -606,6 +606,7 @@ export function useOptimizedImportBillings() {
           source: billing.source,
           route: billing.route,
           source_file_name: file.name,
+          run_id: runId,
         };
 
         const registerPlannedUpdate = (targetId: string, status: string) => {
