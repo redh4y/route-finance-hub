@@ -478,11 +478,11 @@ function PayerCardMobile({
         isSelected && "bg-primary/5"
       )}
     >
-      <div className="flex items-start gap-3">
-        {/* Avatar */}
+      {/* Row 1: Avatar + Name + Action button */}
+      <div className="flex items-center gap-2.5">
         <div
           className={cn(
-            "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-bold mt-0.5",
+            "flex items-center justify-center w-9 h-9 rounded-full shrink-0 text-xs font-bold",
             isActive
               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
               : "bg-muted text-muted-foreground"
@@ -491,62 +491,51 @@ function PayerCardMobile({
           {payer.name.charAt(0).toUpperCase()}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0 space-y-1">
-          {/* Name row */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-medium text-sm truncate">{payer.name}</span>
-            {payer.needs_review && (
-              <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
-            )}
-            {isImportedWithoutRegister(payer.review_reason) && (
-              <AlertCircle className="h-3 w-3 text-orange-500 shrink-0" />
-            )}
-          </div>
+        <span className="font-medium text-sm truncate flex-1 min-w-0">{payer.name}</span>
 
-          {/* Info row */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="font-mono">
-              {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
-            </span>
-            {payer.phone && (
-              <>
-                <span className="text-muted-foreground/40">·</span>
-                <span>{formatPhone(payer.phone)}</span>
-              </>
-            )}
-          </div>
+        {payer.needs_review && (
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        )}
+        {isImportedWithoutRegister(payer.review_reason) && (
+          <AlertCircle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        )}
 
-          {/* Badges row */}
-          <div className="flex items-center gap-1.5">
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-[10px] px-1.5 py-0",
-                isActive
-                  ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
-                  : "text-muted-foreground"
-              )}
-            >
-              {isActive ? "Ativo" : "Inativo"}
-            </Badge>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-              {payer.billing_mode}
-            </Badge>
-          </div>
-        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          className="flex items-center gap-1 pl-2 pr-1 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          aria-label="Editar"
+        >
+          <Edit className="h-3.5 w-3.5" />
+          <ChevronRight className="h-3.5 w-3.5 opacity-40" />
+        </button>
+      </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            aria-label="Editar"
-          >
-            <Edit className="h-4 w-4" />
-          </button>
-          <ChevronRight className="h-4 w-4 text-muted-foreground/40" />
-        </div>
+      {/* Row 2: CPF + Phone + Badges */}
+      <div className="flex items-center gap-1.5 mt-1 ml-[46px] text-xs text-muted-foreground flex-wrap">
+        <span className="font-mono">
+          {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
+        </span>
+        {payer.phone && (
+          <>
+            <span className="opacity-40">·</span>
+            <span>{formatPhone(payer.phone)}</span>
+          </>
+        )}
+        <span className="flex-1" />
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-[10px] px-1.5 py-0",
+            isActive
+              ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
+              : "text-muted-foreground"
+          )}
+        >
+          {isActive ? "Ativo" : "Inativo"}
+        </Badge>
+        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+          {payer.billing_mode}
+        </Badge>
       </div>
     </div>
   );
