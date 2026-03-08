@@ -1012,6 +1012,188 @@ function processRow(
 }
 
 // ══════════════════════════════════════════════════
+//  PHONE MATCH (mirroring Python)
+// ══════════════════════════════════════════════════
+
+function normNamePhone(s: string): string {
+  s = stripAccents(s).toUpperCase();
+  s = s.replace(/[^A-Z0-9 ]+/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function tokenListPhone(s: string): string[] {
+  return normNamePhone(s).split(/\s+/).filter(Boolean);
+}
+
+function tokenJaccardPhone(a: string, b: string): number {
+  const ta = new Set(tokenListPhone(a));
+  const tb = new Set(tokenListPhone(b));
+  if (!ta.size && !tb.size) return 1;
+  if (!ta.size || !tb.size) return 0;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  return inter / (ta.size + tb.size - inter);
+}
+
+function seqRatioPhone(a: string, b: string): number {
+  const na = normNamePhone(a);
+  const nb = normNamePhone(b);
+  if (na === nb) return 1;
+  if (!na || !nb) return 0;
+  const m = na.length;
+  const n = nb.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (na[i - 1] === nb[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return (2 * dp[m][n]) / (m + n);
+}
+
+function scoreNamePhone(a: string, b: string): number {
+  const tj = tokenJaccardPhone(a, b);
+  const sr = seqRatioPhone(a, b);
+  let base = 0.55 * tj + 0.45 * sr;
+  const aTokens = tokenListPhone(a);
+  const bTokens = tokenListPhone(b);
+  if (aTokens.length > 0 && bTokens.length > 0) {
+    const firstSim = tokenSim(aTokens[0], bTokens[0]);
+    if (firstSim < 0.70) base -= 0.12;
+  }
+  return Math.max(0, Math.min(1, base));
+}
+
+function normPhoneDigits(p: string): string {
+  let digits = (p || "").replace(/\D/g, "");
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2);
+  }
+  return digits;
+}
+
+function formatPhoneE164(p: string): string {
+  const digits = normPhoneDigits(p);
+  if (!digits) return "";
+  return `+55${digits}`;
+}
+
+interface ContactEntry {
+  name: string;
+  phone: string;
+  dup_count: number;
+  dup_phones: string;
+}
+
+function parseContacts(data: unknown): ContactEntry[] {
+  let arr: Record<string, unknown>[] = [];
+  if (Array.isArray(data)) {
+    arr = data;
+  } else if (data && typeof data === "object") {
+    const d = data as Record<string, unknown>;
+    if (Array.isArray(d.contacts)) arr = d.contacts as Record<string, unknown>[];
+    else arr = [d];
+  }
+
+  const grouped = new Map<string, Array<{ name: string; phone: string; isMy: boolean }>>();
+  for (const c of arr) {
+    let name = String(c.saved_name || c.public_name || "").trim();
+    name = name.replace(/\s+(26|2026)\s*$/, "");
+    const phone = String(c.formatted_phone || c.phone_number || "").trim();
+    if (!name || !phone) continue;
+    const key = normNamePhone(name);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push({ name, phone, isMy: !!c.is_my_contact });
+  }
+
+  const rows: ContactEntry[] = [];
+  for (const [, items] of grouped) {
+    items.sort((a, b) => (b.isMy ? 1 : 0) - (a.isMy ? 1 : 0));
+    const phoneCounts = new Map<string, number>();
+    for (const it of items) {
+      phoneCounts.set(it.phone, (phoneCounts.get(it.phone) || 0) + 1);
+    }
+    const phonesSorted = [...phoneCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const preferredPhone = phonesSorted.length > 0 ? phonesSorted[0][0] : "";
+    const preferredName = items[0].name;
+    const uniquePhones = [...new Set(items.map(i => i.phone))].sort();
+    rows.push({
+      name: preferredName,
+      phone: preferredPhone,
+      dup_count: items.length,
+      dup_phones: uniquePhones.join(" | "),
+    });
+  }
+  return rows;
+}
+
+interface PhoneMatchConfig {
+  name_column: string;
+  phone_column: string;
+  threshold: number;
+  overwrite: boolean;
+}
+
+function applyPhoneMatch(
+  rows: Record<string, unknown>[],
+  contacts: ContactEntry[],
+  cfg: PhoneMatchConfig,
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const nome = String(row[cfg.name_column] || "").trim();
+    if (!nome) {
+      return { ...row, phone_match_status: "SEM_NOME" };
+    }
+
+    let bestS = 0;
+    let bestC: ContactEntry | null = null;
+    for (const c of contacts) {
+      const s = scoreNamePhone(nome, c.name);
+      if (s > bestS) { bestS = s; bestC = c; }
+    }
+
+    if (!bestC) {
+      return { ...row, phone_match_status: "SEM_MATCH" };
+    }
+
+    const out: Record<string, unknown> = {
+      ...row,
+      phone_match_score: bestS.toFixed(3),
+      phone_match_name: bestC.name,
+      phone_match_phone: bestC.phone,
+      phone_match_dup_count: bestC.dup_count,
+      phone_match_dup_phones: bestC.dup_phones,
+    };
+
+    const currentPhone = String(row[cfg.phone_column] || "").trim();
+    const hasPhone = !!currentPhone;
+    const currentNorm = normPhoneDigits(currentPhone);
+    const bestNorm = normPhoneDigits(bestC.phone);
+
+    if (bestS >= cfg.threshold) {
+      if (!hasPhone || cfg.overwrite) {
+        out[cfg.phone_column] = formatPhoneE164(bestC.phone);
+        out.phone_match_status = bestC.dup_count > 1 ? "ATUALIZADO_DUPLICADO" : "ATUALIZADO";
+      } else {
+        if (currentNorm && bestNorm && currentNorm !== bestNorm) {
+          out.Telefone_secundario = formatPhoneE164(bestC.phone);
+          out.phone_match_status = "TELEFONE_SECUNDARIO";
+        } else {
+          out[cfg.phone_column] = formatPhoneE164(currentPhone);
+          out.phone_match_status = "JA_TINHA_TELEFONE";
+        }
+      }
+    } else {
+      out.phone_match_status = "ABAIXO_THRESHOLD";
+    }
+
+    return out;
+  });
+}
+
+// ══════════════════════════════════════════════════
 //  EDGE FUNCTION HANDLER
 // ══════════════════════════════════════════════════
 
