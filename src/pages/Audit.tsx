@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronLeft } from "lucide-react";
 
 type AuditRow = {
   id: string;
@@ -204,42 +204,69 @@ function AuditDetails({ row }: { row: AuditRow }) {
   );
 }
 
+const PAGE_SIZE = 50;
+
 export default function Audit() {
   const [tableFilter, setTableFilter] = useState<string>("all");
   const [operationFilter, setOperationFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["audit-logs"],
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+
+  const { data: result, isLoading } = useQuery({
+    queryKey: ["audit-logs", tableFilter, operationFilter, search, page],
     queryFn: async () => {
       const sb = supabase as any;
-      const { data: rows, error } = await sb
+      let query = sb
         .from("audit_logs")
         .select(
           "id, table_name, record_id, operation, changed_fields, actor_user_id, actor_email, old_data, new_data, created_at",
+          { count: "exact" }
         )
-        .order("created_at", { ascending: false })
-        .limit(1000);
+        .order("created_at", { ascending: false });
+
+      if (tableFilter !== "all") {
+        query = query.eq("table_name", tableFilter);
+      }
+      if (operationFilter !== "all") {
+        query = query.eq("operation", operationFilter);
+      }
+      if (search.trim()) {
+        query = query.or(
+          `table_name.ilike.%${search}%,record_id.ilike.%${search}%,actor_email.ilike.%${search}%`
+        );
+      }
+
+      const { data: rows, error, count } = await query.range(from, to);
       if (error) throw error;
-      return (rows || []) as AuditRow[];
+      return { rows: (rows || []) as AuditRow[], count: count || 0 };
     },
   });
 
-  const tableOptions = useMemo(() => {
-    const fromLogs = (data || []).map((r) => r.table_name);
-    return Array.from(new Set([...AUDITABLE_TABLES, ...fromLogs])).sort();
-  }, [data]);
+  const data = result?.rows || [];
+  const total = result?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (data || []).filter((row) => {
-      const byTable = tableFilter === "all" || row.table_name === tableFilter;
-      const byOp = operationFilter === "all" || row.operation === operationFilter;
-      const haystack = getRowSearchText(row);
-      return byTable && byOp && (!q || haystack.includes(q));
-    });
-  }, [data, tableFilter, operationFilter, search]);
+  const tableOptions = useMemo(() => {
+    return [...AUDITABLE_TABLES].sort();
+  }, []);
+
+  // Reset page when filters change
+  const handleTableFilterChange = (v: string) => {
+    setTableFilter(v);
+    setPage(1);
+  };
+  const handleOperationFilterChange = (v: string) => {
+    setOperationFilter(v);
+    setPage(1);
+  };
+  const handleSearchChange = (v: string) => {
+    setSearch(v);
+    setPage(1);
+  };
 
   return (
     <MainLayout>
@@ -257,9 +284,9 @@ export default function Audit() {
               <Input
                 placeholder="Buscar por tabela, registro, usuário ou campo..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
-              <Select value={tableFilter} onValueChange={setTableFilter}>
+              <Select value={tableFilter} onValueChange={handleTableFilterChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Tabela" />
                 </SelectTrigger>
@@ -272,7 +299,7 @@ export default function Audit() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={operationFilter} onValueChange={setOperationFilter}>
+              <Select value={operationFilter} onValueChange={handleOperationFilterChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Operação" />
                 </SelectTrigger>
@@ -291,12 +318,12 @@ export default function Audit() {
           <CardContent className="pt-4">
             {isLoading ? (
               <div className="text-center py-10 text-muted-foreground">Carregando auditoria...</div>
-            ) : filtered.length === 0 ? (
+            ) : data.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">Nenhum evento encontrado</div>
             ) : (
               <>
                 <div className="lg:hidden space-y-2">
-                  {filtered.map((row) => {
+                  {data.map((row) => {
                     const expanded = expandedRowId === row.id;
                     return (
                       <div key={row.id} className="p-3 rounded-lg border bg-card space-y-2">
@@ -348,7 +375,7 @@ export default function Audit() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered.map((row) => {
+                      {data.map((row) => {
                         const expanded = expandedRowId === row.id;
                         return (
                           <Fragment key={row.id}>
@@ -391,6 +418,33 @@ export default function Audit() {
                     </TableBody>
                   </Table>
                 </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t mt-4">
+                    <p className="text-sm text-muted-foreground">
+                      {total} registro{total !== 1 ? "s" : ""} · Página {page} de {totalPages}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1}
+                        onClick={() => setPage((p) => p - 1)}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage((p) => p + 1)}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
