@@ -308,9 +308,14 @@ export default function FinancialRevenue() {
       <PageTransition>
         <div className="page-header">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="page-title">Entradas</h1>
-              <p className="page-subtitle">Receitas e cobranças</p>
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/financeiro')}>
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div>
+                <h1 className="page-title">Entradas</h1>
+                <p className="page-subtitle">Receitas e cobranças</p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               {statusFilter && (
