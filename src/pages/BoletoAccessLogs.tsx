@@ -44,6 +44,7 @@ type AccessLog = {
   found_count: number | null;
   source: string;
   user_agent: string | null;
+  _from_payers?: boolean;
 };
 
 const PAGE_SIZE = 50;
@@ -79,7 +80,34 @@ export default function BoletoAccessLogsPage() {
 
       const { data, error, count } = await query.range(from, to);
       if (error) throw error;
-      return { rows: (data || []) as AccessLog[], count: count || 0 };
+
+      const logs = (data || []) as AccessLog[];
+
+      // Enrich: cross-reference CPFs without student_name against payers table
+      const cpfsWithoutName = Array.from(
+        new Set(logs.filter((r) => !r.student_name).map((r) => r.cpf_digits)),
+      );
+
+      const payerMap = new Map<string, string>();
+
+      if (cpfsWithoutName.length > 0) {
+        const { data: payers } = await supabase
+          .from("payers")
+          .select("document_digits, name")
+          .in("document_digits", cpfsWithoutName);
+
+        for (const p of payers || []) {
+          if (p.document_digits) payerMap.set(p.document_digits, p.name);
+        }
+      }
+
+      const enriched = logs.map((row) => ({
+        ...row,
+        student_name: row.student_name || payerMap.get(row.cpf_digits) || null,
+        _from_payers: !row.student_name && payerMap.has(row.cpf_digits),
+      }));
+
+      return { rows: enriched, count: count || 0 };
     },
   });
 
@@ -271,7 +299,18 @@ export default function BoletoAccessLogsPage() {
                         </TableCell>
                         <TableCell className="text-sm">{row.reference_month || "–"}</TableCell>
                         <TableCell className="text-sm max-w-[200px] truncate">
-                          {row.student_name || "–"}
+                          {row.student_name ? (
+                            <span className="flex items-center gap-1.5">
+                              {row.student_name}
+                              {row._from_payers && (
+                                <Badge variant="outline" className="text-[10px] px-1 py-0 font-normal text-muted-foreground">
+                                  cadastro
+                                </Badge>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">–</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {row.found_count != null ? (
