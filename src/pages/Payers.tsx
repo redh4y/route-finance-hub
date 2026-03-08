@@ -52,6 +52,7 @@ import {
   ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
+  ShieldAlert,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ const QUICK_FILTERS = [
   { key: "inactive", label: "Inativos", icon: UserX },
   { key: "review", label: "Revisão", icon: AlertTriangle },
   { key: "uncatalogued", label: "Sem cadastro", icon: AlertCircle },
+  { key: "invalidCpf", label: "CPF inválido", icon: ShieldAlert },
 ] as const;
 
 type QuickFilterKey = (typeof QUICK_FILTERS)[number]["key"];
