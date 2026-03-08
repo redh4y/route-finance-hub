@@ -598,7 +598,7 @@ export default function AddressMatch() {
                 document_valid: rawDoc.length === 11,
                 ...updateData,
               };
-              const { error } = await supabase.from("payers").insert(newPayer);
+              const { error } = await supabase.from("payers").insert(newPayer as any);
               if (error) {
                 console.error("Insert error:", error, rawDoc);
                 errors++;
