@@ -1255,8 +1255,8 @@ export default function AddressMatch() {
                 </TabsContent>
 
                 <TabsContent value="phones">
-                  {phoneResults.length > 0 ? (
-                    <PhoneResultsTable results={phoneResults} />
+                  {phoneDisplayRows.length > 0 ? (
+                    <PhoneResultsTable results={phoneDisplayRows} />
                   ) : (
                     <Card>
                       <CardContent className="py-8 text-center text-muted-foreground">
