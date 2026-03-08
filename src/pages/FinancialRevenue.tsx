@@ -139,20 +139,39 @@ export default function FinancialRevenue() {
     return map
   }, [dreSubgroups])
 
-  // Get billings for the month
-  const { data: billings, isLoading: loadingBillings } = useQuery({
-    queryKey: ['billings', selectedMonth],
+  // Reset pages when month/filter changes
+  React.useEffect(() => {
+    setBillingsPage(1)
+    setEntriesPage(1)
+  }, [selectedMonth, statusFilter])
+
+  const billingsFrom = (billingsPage - 1) * BILLINGS_PAGE_SIZE
+  const billingsTo = billingsFrom + BILLINGS_PAGE_SIZE - 1
+
+  // Get billings for the month with server-side pagination
+  const { data: billingsResult, isLoading: loadingBillings } = useQuery({
+    queryKey: ['billings', selectedMonth, statusFilter, billingsPage],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('billings')
-        .select('*, payers(name)')
+        .select('*, payers(name)', { count: 'exact' })
         .eq('reference_month', selectedMonth)
         .order('due_date', { ascending: true })
 
+      if (statusFilter) {
+        query = query.eq('status', statusFilter)
+      }
+
+      const { data, error, count } = await query.range(billingsFrom, billingsTo)
+
       if (error) throw error
-      return data as Billing[]
+      return { rows: data as Billing[], count: count || 0 }
     }
   })
+
+  const billings = billingsResult?.rows || []
+  const totalBillings = billingsResult?.count || 0
+  const totalBillingsPages = Math.max(1, Math.ceil(totalBillings / BILLINGS_PAGE_SIZE))
 
   const billingIds = useMemo(
     () => (billings || []).map((b) => b.id),
