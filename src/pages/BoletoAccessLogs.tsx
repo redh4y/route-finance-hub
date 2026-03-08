@@ -299,7 +299,18 @@ export default function BoletoAccessLogsPage() {
                         </TableCell>
                         <TableCell className="text-sm">{row.reference_month || "–"}</TableCell>
                         <TableCell className="text-sm max-w-[200px] truncate">
-                          {row.student_name || "–"}
+                          {row.student_name ? (
+                            <span className="flex items-center gap-1.5">
+                              {row.student_name}
+                              {row._from_payers && (
+                                <Badge variant="outline" className="text-[10px] px-1 py-0 font-normal text-muted-foreground">
+                                  cadastro
+                                </Badge>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">–</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {row.found_count != null ? (
