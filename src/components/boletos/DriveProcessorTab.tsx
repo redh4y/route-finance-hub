@@ -219,11 +219,24 @@ export function DriveProcessorTab() {
                 >
                   Google Cloud Console → API Credentials
                 </a>
-                . Adicione{" "}
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">
-                  {window.location.origin}/boletos-links
-                </code>{" "}
-                como URI de redirecionamento autorizado.
+                . Adicione a URI abaixo como <strong>URI de redirecionamento autorizado</strong>:
+                <span className="flex items-center gap-1 mt-1">
+                  <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded select-all">
+                    {window.location.origin}/boletos-links
+                  </code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/boletos-links`);
+                      toast.success("URI copiada!");
+                    }}
+                  >
+                    <FileText className="h-3 w-3" />
+                  </Button>
+                </span>
               </p>
             </div>
 
