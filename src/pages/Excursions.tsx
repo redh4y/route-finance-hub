@@ -5,14 +5,22 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useExcursions } from "@/hooks/useExcursions";
+import { useExcursions, useUpdateExcursion } from "@/hooks/useExcursions";
 import { formatCurrency } from "@/lib/formatters";
-import { Link } from "react-router-dom";
-import { Plus, Bus, MapPin, Calendar, Users, Search, Ticket, TrendingUp, ShoppingBag, Eye } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  Plus, Bus, MapPin, Calendar, Users, Search, Ticket, TrendingUp,
+  ShoppingBag, Eye, Play, Pause, Copy, ExternalLink, MoreHorizontal,
+  Edit, XCircle, CheckCircle2, Link2
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Progress } from "@/components/ui/progress";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; bg: string }> = {
   RASCUNHO: { label: "Rascunho", variant: "outline", bg: "bg-muted/50" },
@@ -24,7 +32,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
 
 type StatusFilter = "ALL" | "EM_VENDA" | "RASCUNHO" | "LOTADA" | "FINALIZADA" | "CANCELADA";
 
-const filterTabs: { value: StatusFilter; label: string; icon?: string }[] = [
+const filterTabs: { value: StatusFilter; label: string }[] = [
   { value: "ALL", label: "Todas" },
   { value: "EM_VENDA", label: "Em Venda" },
   { value: "RASCUNHO", label: "Rascunho" },
@@ -35,6 +43,8 @@ const filterTabs: { value: StatusFilter; label: string; icon?: string }[] = [
 
 export default function Excursions() {
   const { data: excursions, isLoading } = useExcursions();
+  const updateExcursion = useUpdateExcursion();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const isMobile = useIsMobile();
@@ -59,6 +69,24 @@ export default function Excursions() {
     { label: "Assentos", value: totalSeats, icon: Ticket, color: "text-warning" },
     { label: "Receita Potencial", value: formatCurrency(totalRevenue), icon: TrendingUp, color: "text-primary" },
   ];
+
+  const handleStatusChange = (id: string, newStatus: string) => {
+    updateExcursion.mutate({ id, status: newStatus } as any);
+  };
+
+  const handleCopyLink = (exc: typeof all[0]) => {
+    if (exc.public_token) {
+      const url = `${window.location.origin}/excursao/${exc.public_token}`;
+      navigator.clipboard.writeText(url);
+      toast.success("Link copiado!");
+    } else {
+      toast.error("Excursão não possui link público");
+    }
+  };
+
+  const handleTogglePublic = (exc: typeof all[0]) => {
+    updateExcursion.mutate({ id: exc.id, public_enabled: !exc.public_enabled } as any);
+  };
 
   return (
     <MainLayout>
@@ -160,74 +188,213 @@ export default function Excursions() {
           </motion.div>
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <AnimatePresence mode="popLayout">
-                {filtered.map((exc, i) => {
-                  const cfg = statusConfig[exc.status] || statusConfig.RASCUNHO;
-                  return (
-                    <motion.div
-                      key={exc.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.97 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.97 }}
-                      transition={{ delay: i * 0.02 }}
-                    >
-                      <Link to={`/excursoes/${exc.id}`}>
-                        <Card className={`hover:border-primary/40 hover:shadow-md transition-all cursor-pointer h-full border ${cfg.bg}`}>
-                          <CardContent className="pt-5 pb-5 space-y-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <h3 className="font-semibold text-sm leading-tight line-clamp-2">{exc.name}</h3>
-                              <Badge variant={cfg.variant} className="shrink-0 text-[10px]">
-                                {cfg.label}
-                              </Badge>
-                            </div>
+            <TooltipProvider delayDuration={300}>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <AnimatePresence mode="popLayout">
+                  {filtered.map((exc, i) => {
+                    const cfg = statusConfig[exc.status] || statusConfig.RASCUNHO;
+                    const canStart = exc.status === "RASCUNHO";
+                    const canPause = exc.status === "EM_VENDA";
+                    const canFinish = exc.status === "EM_VENDA" || exc.status === "LOTADA";
+                    const hasPublicLink = exc.public_token && exc.public_enabled;
 
-                            <div className="space-y-1.5">
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <MapPin className="h-3.5 w-3.5 shrink-0" />
-                                <span className="truncate">
-                                  {exc.destination}
-                                  {exc.destination_state ? `/${exc.destination_state}` : ""}
-                                </span>
+                    return (
+                      <motion.div
+                        key={exc.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.97 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.97 }}
+                        transition={{ delay: i * 0.02 }}
+                      >
+                        <Card className={`hover:shadow-md transition-all h-full border ${cfg.bg} flex flex-col`}>
+                          {/* Clickable body */}
+                          <Link to={`/excursoes/${exc.id}`} className="flex-1">
+                            <CardContent className="pt-5 pb-3 space-y-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <h3 className="font-semibold text-sm leading-tight line-clamp-2">{exc.name}</h3>
+                                <Badge variant={cfg.variant} className="shrink-0 text-[10px]">
+                                  {cfg.label}
+                                </Badge>
                               </div>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Calendar className="h-3.5 w-3.5 shrink-0" />
-                                <span>
-                                  {new Date(exc.departure_at).toLocaleDateString("pt-BR", {
-                                    day: "2-digit",
-                                    month: "short",
-                                    year: "numeric",
-                                  })}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Users className="h-3.5 w-3.5 shrink-0" />
-                                <span>{exc.total_seats} assentos</span>
-                              </div>
-                              {exc.vehicles?.name && (
+
+                              <div className="space-y-1.5">
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <Bus className="h-3.5 w-3.5 shrink-0" />
-                                  <span className="truncate">{exc.vehicles.name}</span>
+                                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="truncate">
+                                    {exc.destination}
+                                    {exc.destination_state ? `/${exc.destination_state}` : ""}
+                                  </span>
                                 </div>
-                              )}
-                            </div>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-3.5 w-3.5 shrink-0" />
+                                  <span>
+                                    {new Date(exc.departure_at).toLocaleDateString("pt-BR", {
+                                      day: "2-digit",
+                                      month: "short",
+                                      year: "numeric",
+                                    })}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Users className="h-3.5 w-3.5 shrink-0" />
+                                  <span>{exc.total_seats} assentos</span>
+                                </div>
+                                {exc.vehicles?.name && (
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Bus className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="truncate">{exc.vehicles.name}</span>
+                                  </div>
+                                )}
+                              </div>
 
-                            <div className="pt-2 border-t flex items-center justify-between">
-                              <span className="text-sm font-semibold text-primary">
-                                {formatCurrency(exc.seat_price_cents)}
-                                <span className="text-xs font-normal text-muted-foreground"> /assento</span>
-                              </span>
-                              <Eye className="h-3.5 w-3.5 text-muted-foreground/40" />
-                            </div>
-                          </CardContent>
+                              <div className="pt-2 border-t flex items-center justify-between">
+                                <span className="text-sm font-semibold text-primary">
+                                  {formatCurrency(exc.seat_price_cents)}
+                                  <span className="text-xs font-normal text-muted-foreground"> /assento</span>
+                                </span>
+                                {hasPublicLink && (
+                                  <Badge variant="outline" className="text-[9px] gap-1 px-1.5 py-0 h-4 text-success border-success/30">
+                                    <Link2 className="h-2.5 w-2.5" />
+                                    Online
+                                  </Badge>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Link>
+
+                          {/* Quick Actions Footer */}
+                          <div className="px-4 pb-3 pt-0 flex items-center gap-1.5 border-t mt-auto">
+                            {/* Primary action based on status */}
+                            {canStart && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs flex-1 text-success border-success/30 hover:bg-success/10"
+                                    onClick={() => handleStatusChange(exc.id, "EM_VENDA")}
+                                  >
+                                    <Play className="h-3 w-3 mr-1" />
+                                    Iniciar Vendas
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Abrir vendas desta excursão</TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {canPause && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs flex-1 text-warning border-warning/30 hover:bg-warning/10"
+                                    onClick={() => handleStatusChange(exc.id, "RASCUNHO")}
+                                  >
+                                    <Pause className="h-3 w-3 mr-1" />
+                                    Pausar
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Pausar vendas (volta a rascunho)</TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {/* Copy public link */}
+                            {exc.public_token && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    onClick={() => handleCopyLink(exc)}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copiar link público</TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {/* View detail */}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() => navigate(`/excursoes/${exc.id}`)}
+                                >
+                                  <Eye className="h-3 w-3" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Ver detalhes</TooltipContent>
+                            </Tooltip>
+
+                            {/* More actions dropdown */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 ml-auto">
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem onClick={() => navigate(`/excursoes/${exc.id}`)}>
+                                  <Eye className="h-3.5 w-3.5 mr-2" />
+                                  Ver Detalhes
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleTogglePublic(exc)}>
+                                  <ExternalLink className="h-3.5 w-3.5 mr-2" />
+                                  {exc.public_enabled ? "Desativar Link Público" : "Ativar Link Público"}
+                                </DropdownMenuItem>
+                                {exc.public_token && (
+                                  <DropdownMenuItem onClick={() => handleCopyLink(exc)}>
+                                    <Copy className="h-3.5 w-3.5 mr-2" />
+                                    Copiar Link
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuSeparator />
+                                {canStart && (
+                                  <DropdownMenuItem onClick={() => handleStatusChange(exc.id, "EM_VENDA")}>
+                                    <Play className="h-3.5 w-3.5 mr-2 text-success" />
+                                    Iniciar Vendas
+                                  </DropdownMenuItem>
+                                )}
+                                {canPause && (
+                                  <DropdownMenuItem onClick={() => handleStatusChange(exc.id, "RASCUNHO")}>
+                                    <Pause className="h-3.5 w-3.5 mr-2 text-warning" />
+                                    Pausar Vendas
+                                  </DropdownMenuItem>
+                                )}
+                                {canFinish && (
+                                  <DropdownMenuItem onClick={() => handleStatusChange(exc.id, "FINALIZADA")}>
+                                    <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-primary" />
+                                    Finalizar
+                                  </DropdownMenuItem>
+                                )}
+                                {exc.status !== "CANCELADA" && exc.status !== "FINALIZADA" && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => handleStatusChange(exc.id, "CANCELADA")}
+                                    >
+                                      <XCircle className="h-3.5 w-3.5 mr-2" />
+                                      Cancelar Excursão
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </Card>
-                      </Link>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            </TooltipProvider>
             <p className="text-xs text-muted-foreground text-center mt-4">
               {filtered.length} excursão(ões) encontrada(s)
             </p>
