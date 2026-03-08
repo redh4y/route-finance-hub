@@ -182,6 +182,7 @@ export default function Payers() {
       case "inactive": return { status: "INATIVO" };
       case "review": return { needsReview: true };
       case "uncatalogued": return { reviewReason: IMPORT_MISSING_PAYER_REASON };
+      case "invalidCpf": return { documentValid: false };
       default: return {};
     }
   }, [quickFilter]);
