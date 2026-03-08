@@ -16,6 +16,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { processAllRows, type CepRecord, type MatchConfig as EngineMatchConfig } from "@/lib/address-match-engine";
+import {
+  type GroupedContact,
+  type PhoneMatchRow,
+  type PhoneMatchConfig,
+  readJsonContacts,
+  applyPhoneMatch,
+  normPhoneDigits,
+  formatPhoneE164,
+} from "@/lib/phone-match-engine";
 import Papa from "papaparse";
 import {
   MapPin,
