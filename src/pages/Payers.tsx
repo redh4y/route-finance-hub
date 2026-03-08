@@ -313,7 +313,7 @@ export default function Payers() {
                   ) : (
                     <EmptyState searchTerm={searchTerm} quickFilter={quickFilter} />
                   )}
-                </ScrollArea>
+                </div>
 
                 {/* Pagination */}
                 {totalPages > 1 && (
