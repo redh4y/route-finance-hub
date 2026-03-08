@@ -1424,7 +1424,17 @@ export default function AddressMatch() {
 
 // ── Sub-components ──
 
-function PhoneResultsTable({ results }: { results: PhoneMatchResult[] }) {
+function PhoneResultsTable({ results }: { results: PhoneDisplayRow[] }) {
+  const statusColors: Record<string, string> = {
+    ATUALIZADO: "bg-emerald-500/10 text-emerald-600 border-emerald-500/40",
+    ATUALIZADO_DUPLICADO: "bg-amber-500/10 text-amber-600 border-amber-500/40",
+    JA_TINHA_TELEFONE: "bg-blue-500/10 text-blue-600 border-blue-500/40",
+    TELEFONE_SECUNDARIO: "bg-violet-500/10 text-violet-600 border-violet-500/40",
+    ABAIXO_THRESHOLD: "bg-red-500/10 text-red-600 border-red-500/40",
+    SEM_NOME: "bg-muted text-muted-foreground",
+    SEM_MATCH: "bg-muted text-muted-foreground",
+  };
+
   return (
     <Card>
       <ScrollArea className="h-[500px]">
@@ -1432,49 +1442,51 @@ function PhoneResultsTable({ results }: { results: PhoneMatchResult[] }) {
           <TableHeader>
             <TableRow>
               <TableHead>Nome Pagador</TableHead>
-              <TableHead>Telefone</TableHead>
+              <TableHead>Tel. Original</TableHead>
+              <TableHead>Score</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Match via</TableHead>
-              <TableHead>Nome WA</TableHead>
-              <TableHead>Nome Público</TableHead>
-              <TableHead>Labels</TableHead>
-              <TableHead>Empresa</TableHead>
+              <TableHead>Nome Match</TableHead>
+              <TableHead>Tel. Match</TableHead>
+              <TableHead>Tel. Final</TableHead>
+              <TableHead>Tel. Secundário</TableHead>
+              <TableHead>Dups</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {results.slice(0, 300).map((r, i) => (
               <TableRow key={i}>
                 <TableCell className="text-xs">{r.payer_name}</TableCell>
-                <TableCell className="text-xs font-mono">{r.payer_phone}</TableCell>
-                <TableCell>
-                  {r.wa_found ? (
-                    <Badge className="text-[10px] px-1.5 py-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/40" variant="outline">
-                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                      Encontrado
-                    </Badge>
-                  ) : (
-                    <Badge className="text-[10px] px-1.5 py-0 bg-red-500/10 text-red-600 border-red-500/40" variant="outline">
-                      <XCircle className="h-3 w-3 mr-1" />
-                      Não encontrado
-                    </Badge>
-                  )}
+                <TableCell className="text-xs font-mono">{r.payer_phone || "—"}</TableCell>
+                <TableCell className="text-xs font-mono tabular-nums">
+                  {r.match.phone_match_score || "—"}
                 </TableCell>
-                <TableCell className="text-xs">
-                  {r.match_type === "nome" ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/40">Nome</Badge>
-                  ) : r.match_type === "telefone" ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-500/10 text-amber-600 border-amber-500/40">Telefone</Badge>
+                <TableCell>
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-1.5 py-0 ${statusColors[r.match.phone_match_status] || ""}`}
+                  >
+                    {r.match.phone_match_status || "—"}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-xs">{r.match.phone_match_name || "—"}</TableCell>
+                <TableCell className="text-xs font-mono">{r.match.phone_match_phone || "—"}</TableCell>
+                <TableCell className="text-xs font-mono">
+                  {r.match.phone_final ? (
+                    <span className={
+                      r.match.phone_match_status === "ATUALIZADO" || r.match.phone_match_status === "ATUALIZADO_DUPLICADO"
+                        ? "text-emerald-600 font-medium" : ""
+                    }>
+                      {r.match.phone_final}
+                    </span>
                   ) : "—"}
                 </TableCell>
-                <TableCell className="text-xs">{r.wa_saved_name || "—"}</TableCell>
-                <TableCell className="text-xs">{r.wa_public_name || "—"}</TableCell>
-                <TableCell className="text-xs max-w-[150px] truncate">{r.wa_labels || "—"}</TableCell>
-                <TableCell>
-                  {r.wa_is_business && (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                      Empresa
-                    </Badge>
-                  )}
+                <TableCell className="text-xs font-mono text-violet-600">
+                  {r.match.telefone_secundario || "—"}
+                </TableCell>
+                <TableCell className="text-xs tabular-nums">
+                  {r.match.phone_match_dup_count && Number(r.match.phone_match_dup_count) > 1
+                    ? r.match.phone_match_dup_count
+                    : "—"}
                 </TableCell>
               </TableRow>
             ))}
