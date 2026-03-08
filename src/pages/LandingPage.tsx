@@ -37,33 +37,72 @@ export default function LandingPage() {
 
   const budgetUrl = `${whatsappUrl}?text=${encodeURIComponent(TAVARES_BUDGET_TEXT)}`;
 
+  const DEFAULT_TITLE = "Tavares Transportes | Excursões, Eventos e Universitário em Guaíra, Barretos e Franca - SP";
+  const DEFAULT_DESC = "Tavares Transportes: fretamento para excursões, eventos e transporte universitário em Guaíra, Barretos e Franca. Frota própria, motoristas experientes e pontualidade garantida.";
+
   // SEO meta tags
   useEffect(() => {
-    if (!settings?.seo?.content) return;
-    const seo = settings.seo.content;
-    document.title = seo.title || "Tavares Transportes";
+    const seo = settings?.seo?.content || {};
+    document.title = seo.title || DEFAULT_TITLE;
 
-    let metaDesc = document.querySelector('meta[name="description"]');
-    if (!metaDesc) {
-      metaDesc = document.createElement("meta");
-      metaDesc.setAttribute("name", "description");
-      document.head.appendChild(metaDesc);
-    }
-    metaDesc.setAttribute("content", seo.description || "");
+    const setMeta = (selector: string, attr: string, value: string) => {
+      let tag = document.querySelector(selector);
+      if (!tag) {
+        tag = document.createElement("meta");
+        const [key, val] = selector.match(/\[(.+?)="(.+?)"\]/)?.slice(1) || [];
+        if (key && val) tag.setAttribute(key, val);
+        document.head.appendChild(tag);
+      }
+      tag.setAttribute(attr, value);
+    };
+
+    setMeta('meta[name="description"]', "content", seo.description || DEFAULT_DESC);
 
     // OG tags
     const setOg = (property: string, content: string) => {
-      let tag = document.querySelector(`meta[property="${property}"]`);
-      if (!tag) {
-        tag = document.createElement("meta");
-        tag.setAttribute("property", property);
-        document.head.appendChild(tag);
-      }
-      tag.setAttribute("content", content);
+      setMeta(`meta[property="${property}"]`, "content", content);
     };
-    setOg("og:title", seo.title || "Tavares Transportes");
-    setOg("og:description", seo.description || "");
+    setOg("og:title", seo.title || DEFAULT_TITLE);
+    setOg("og:description", seo.description || DEFAULT_DESC);
     if (seo.og_image) setOg("og:image", seo.og_image);
+
+    // JSON-LD structured data
+    const existingLd = document.querySelector('script[data-ld="tavares"]');
+    if (existingLd) existingLd.remove();
+
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@type": "LocalBusiness",
+      "name": "Tavares Transportes",
+      "description": seo.description || DEFAULT_DESC,
+      "url": "https://tavarestransp.lovable.app/",
+      "telephone": "+5517981606721",
+      "email": "tavarestransportes017@gmail.com",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Guaíra",
+        "addressRegion": "SP",
+        "addressCountry": "BR"
+      },
+      "areaServed": [
+        { "@type": "City", "name": "Guaíra", "containedInPlace": { "@type": "State", "name": "São Paulo" } },
+        { "@type": "City", "name": "Barretos", "containedInPlace": { "@type": "State", "name": "São Paulo" } },
+        { "@type": "City", "name": "Franca", "containedInPlace": { "@type": "State", "name": "São Paulo" } }
+      ],
+      "serviceType": ["Fretamento de ônibus", "Transporte universitário", "Excursões", "Transporte para eventos"],
+      "priceRange": "$$"
+    };
+
+    const script = document.createElement("script");
+    script.setAttribute("type", "application/ld+json");
+    script.setAttribute("data-ld", "tavares");
+    script.textContent = JSON.stringify(jsonLd);
+    document.head.appendChild(script);
+
+    return () => {
+      const el = document.querySelector('script[data-ld="tavares"]');
+      if (el) el.remove();
+    };
   }, [settings]);
 
   useEffect(() => {
