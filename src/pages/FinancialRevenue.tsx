@@ -61,6 +61,8 @@ interface FinancialEntry {
   source: string
 }
 
+const BILLINGS_PAGE_SIZE = 50;
+
 export default function FinancialRevenue() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef())
   const [groupId, setGroupId] = useState('')
@@ -71,6 +73,8 @@ export default function FinancialRevenue() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [searchParams, setSearchParams] = useSearchParams()
   const statusFilter = searchParams.get('status')
+  const [billingsPage, setBillingsPage] = useState(1)
+  const [entriesPage, setEntriesPage] = useState(1)
 
   const queryClient = useQueryClient()
 
