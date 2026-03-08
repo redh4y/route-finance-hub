@@ -1304,23 +1304,46 @@ Deno.serve(async (req) => {
     const endCol = endereco_column || "Endereco";
 
     // Process each payer row
-    const results = payers_csv.map((row: Record<string, unknown>) => {
+    let results: Record<string, unknown>[] = payers_csv.map((row: Record<string, unknown>) => {
       const endereco = String(row[endCol] || "");
       const matchResult = processRow(endereco, cepBase, bairroIndex, keyToLabel, config);
       return { ...row, ...matchResult };
     });
 
+    // Phone match (optional)
+    let phoneSummary: { total: number; updated: number; secondary: number; below: number } | null = null;
+    if (contacts_json) {
+      const contacts = parseContacts(contacts_json);
+      const pmCfg: PhoneMatchConfig = {
+        name_column: phone_match_config?.name_column || "Nome",
+        phone_column: phone_match_config?.phone_column || "Telefone",
+        threshold: phone_match_config?.threshold ?? 0.86,
+        overwrite: phone_match_config?.overwrite ?? false,
+      };
+      results = applyPhoneMatch(results, contacts, pmCfg);
+
+      // Phone summary
+      let updated = 0, secondary = 0, below = 0;
+      for (const r of results) {
+        const st = String(r.phone_match_status || "");
+        if (st === "ATUALIZADO" || st === "ATUALIZADO_DUPLICADO") updated++;
+        else if (st === "TELEFONE_SECUNDARIO") secondary++;
+        else if (st === "ABAIXO_THRESHOLD") below++;
+      }
+      phoneSummary = { total: contacts.length, updated, secondary, below };
+    }
+
     // Summary stats
     const total = results.length;
-    const matched = results.filter((r: MatchResult) => r.match_ok).length;
-    const review = results.filter((r: MatchResult) => r.review_status === "REVIEW").length;
-    const failed = results.filter((r: MatchResult) => !r.match_ok && r.review_status !== "REVIEW").length;
+    const matched = results.filter((r) => r.match_ok === true).length;
+    const review = results.filter((r) => r.review_status === "REVIEW").length;
+    const failed = results.filter((r) => r.match_ok !== true && r.review_status !== "REVIEW").length;
 
     // Bairro diagnostics
     const bairroStats = new Map<string, { count: number; gate: string }>();
-    for (const r of results as MatchResult[]) {
-      const key = r.bairro_candidato || "(vazio)";
-      if (!bairroStats.has(key)) bairroStats.set(key, { count: 0, gate: r.bairro_gate });
+    for (const r of results) {
+      const key = String(r.bairro_candidato || "(vazio)");
+      if (!bairroStats.has(key)) bairroStats.set(key, { count: 0, gate: String(r.bairro_gate || "") });
       bairroStats.get(key)!.count++;
     }
     const topBairros = Array.from(bairroStats.entries())
@@ -1329,15 +1352,15 @@ Deno.serve(async (req) => {
       .map(([bairro, { count, gate }]) => ({ bairro, count, gate }));
 
     // Top failures
-    const failures = (results as MatchResult[])
-      .filter((r) => !r.match_ok)
+    const failures = results
+      .filter((r) => r.match_ok !== true)
       .slice(0, 50)
       .map((r) => ({
-        endereco: r.endereco_usado,
-        bairro_gate: r.bairro_gate,
+        endereco: String(r.endereco_usado || ""),
+        bairro_gate: String(r.bairro_gate || ""),
         bairro_score: r.bairro_score,
         logradouro_score: r.logradouro_score,
-        review_reason: r.review_reason,
+        review_reason: String(r.review_reason || ""),
       }));
 
     return new Response(
@@ -1348,6 +1371,7 @@ Deno.serve(async (req) => {
         config,
         cep_base_size: cepBase.length,
         bairro_index_size: bairroIndex.size,
+        phone_summary: phoneSummary,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
