@@ -1091,6 +1091,7 @@ function PhoneResultsTable({ results }: { results: PhoneMatchResult[] }) {
               <TableHead>Nome Pagador</TableHead>
               <TableHead>Telefone</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Match via</TableHead>
               <TableHead>Nome WA</TableHead>
               <TableHead>Nome Público</TableHead>
               <TableHead>Labels</TableHead>
