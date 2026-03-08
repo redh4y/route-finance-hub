@@ -129,7 +129,7 @@ function normalizeBairroRules(bairroRaw: string): BairroResult {
 }
 
 // ══════════════════════════════════════════════════
-//  ADDRESS PARSER
+//  ADDRESS PARSER (replicates Python parse_endereco_parts)
 // ══════════════════════════════════════════════════
 
 interface ParsedAddress {
@@ -138,44 +138,167 @@ interface ParsedAddress {
   bairro: string;
 }
 
+const VIA_TYPES = new Set([
+  "RUA", "AVENIDA", "TRAVESSA", "ALAMEDA", "PRACA", "RODOVIA",
+  "ESTRADA", "VIELA", "BECO", "LARGO",
+]);
+
+const VIA_ABBREVS: Record<string, string> = {
+  "R": "RUA", "AV": "AVENIDA", "TV": "TRAVESSA", "TRAV": "TRAVESSA",
+  "AL": "ALAMEDA", "PC": "PRACA", "PCA": "PRACA", "ROD": "RODOVIA",
+  "EST": "ESTRADA",
+};
+
+const NUM_MARKERS = new Set(["N", "NO", "NR", "NUM", "NUMERO"]);
+
+const BAIRRO_ANCHORS = new Set([
+  "JARDIM", "JD", "VILA", "VL", "RESIDENCIAL", "RES", "RESD",
+  "CONJUNTO", "CONJ", "CJ", "PARQUE", "PQ", "PORTAL",
+  "CENTRO", "COHAB", "COAB", "CHOAB", "MUTIRAO", "CECAP",
+  "CAMPOS", "DESMEMBRAMENTO", "VIVENDAS", "BANESPINHA",
+  "MURAISHI", "NOBRE", "NADIA", "TONICO",
+  // Known full bairro names from BAIRRO_MAP keys (normalized)
+  ...Object.keys(BAIRRO_MAP).map(k => normStr(k).split(/\s+/)[0]),
+]);
+
+function normTextKeepNumbers(s: string): string {
+  let t = s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[°º]/g, "")
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Expand abbreviations at start
+  const parts = t.split(/\s+/);
+  if (parts.length > 0 && VIA_ABBREVS[parts[0]]) {
+    parts[0] = VIA_ABBREVS[parts[0]];
+    t = parts.join(" ");
+  }
+
+  // Normalize number markers: "N:", "N.", "Nº" etc already handled by removing °º and punct
+  // Normalize "N89" → "N 89" when N is followed immediately by digit
+  t = t.replace(/\bN(\d)/g, "N $1");
+
+  return t;
+}
+
 function parseEndereco(endereco: string): ParsedAddress {
   const raw = (endereco || "").trim();
   if (!raw) return { logradouro: "", numero: "", bairro: "" };
 
-  let work = raw;
-  let bairro = "";
+  const normalized = normTextKeepNumbers(raw);
+  const toks = normalized.split(/\s+/).filter(Boolean);
+  if (toks.length === 0) return { logradouro: "", numero: "", bairro: "" };
 
-  // Extract bairro after "BAIRRO" keyword
-  const bairroMatch = work.match(/\bBAIRRO\s+(.+)$/i);
-  if (bairroMatch) {
-    bairro = bairroMatch[1].trim();
-    work = work.substring(0, bairroMatch.index).trim();
+  // ── Step 1: find real start (skip tokens before first via type) ──
+  let startIdx = 0;
+  if (!VIA_TYPES.has(toks[0])) {
+    for (let i = 0; i < toks.length; i++) {
+      if (VIA_TYPES.has(toks[i])) {
+        startIdx = i;
+        break;
+      }
+    }
   }
+  const workToks = toks.slice(startIdx);
+  if (workToks.length === 0) return { logradouro: "", numero: "", bairro: "" };
 
-  // Extract number patterns: N 861, N861, numero 681, n: 681, n° 424, nº 424, etc.
+  // ── Step 2: extract numero via NUM_MARKERS ──
   let numero = "";
-  const numPatterns = [
-    /\b(?:N(?:UMERO|[°º.:])?\s*)(\d+[A-Z]?)\b/i,
-    /\bN(\d+[A-Z]?)\b/i,
-    /,\s*(\d+[A-Z]?)\s*(?:[-,]|$)/i,
-  ];
+  let idxMarker = -1;
 
-  for (const pat of numPatterns) {
-    const m = work.match(pat);
-    if (m) {
-      numero = m[1];
-      work = work.replace(m[0], " ").trim();
+  for (let i = 0; i < workToks.length; i++) {
+    if (NUM_MARKERS.has(workToks[i]) && i + 1 < workToks.length && /^\d+[A-Z]?$/.test(workToks[i + 1])) {
+      numero = workToks[i + 1];
+      idxMarker = i;
       break;
     }
   }
 
-  // Clean logradouro
-  const logradouro = work
-    .replace(/\s*[-,]\s*$/, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  // Fallback: find standalone number token (not first token, not via-like)
+  let idxNumToken = -1;
+  if (!numero) {
+    for (let i = 1; i < workToks.length; i++) {
+      if (/^\d+[A-Z]?$/.test(workToks[i]) && !VIA_TYPES.has(workToks[i])) {
+        // Skip if it looks like a numbered street name (e.g., "RUA 36")
+        if (i === 1 && VIA_TYPES.has(workToks[0])) continue;
+        numero = workToks[i];
+        idxNumToken = i;
+        break;
+      }
+    }
+  }
 
-  return { logradouro, numero, bairro: bairro || "" };
+  // ── Step 3: separate logradouro / bairro ──
+  let logToks: string[] = [];
+  let bairroToks: string[] = [];
+
+  if (idxMarker >= 0) {
+    // Marker found: logradouro = tokens before marker, bairro = tokens after marker+number
+    logToks = workToks.slice(0, idxMarker);
+    bairroToks = workToks.slice(idxMarker + 2);
+  } else if (idxNumToken >= 0) {
+    // Number without marker: logradouro = before number, bairro = after number
+    logToks = workToks.slice(0, idxNumToken);
+    bairroToks = workToks.slice(idxNumToken + 1);
+  } else {
+    // No number found: special cases
+    if (
+      workToks.length >= 3 &&
+      VIA_TYPES.has(workToks[0]) &&
+      /^\d+$/.test(workToks[1]) &&
+      !(/^\d+$/.test(workToks[2]))
+    ) {
+      // "AVENIDA 3 CENTRO" → logradouro=AVENIDA 3, bairro=CENTRO...
+      logToks = workToks.slice(0, 2);
+      bairroToks = workToks.slice(2);
+    } else {
+      // Fallback: try to find bairro anchor
+      let anchorIdx = -1;
+      // Skip first 2 tokens (likely street name)
+      for (let i = 2; i < workToks.length; i++) {
+        if (BAIRRO_ANCHORS.has(workToks[i])) {
+          anchorIdx = i;
+          break;
+        }
+      }
+      if (anchorIdx >= 0) {
+        logToks = workToks.slice(0, anchorIdx);
+        bairroToks = workToks.slice(anchorIdx);
+      } else {
+        // Last resort: first 3 tokens = logradouro, rest = bairro
+        logToks = workToks.slice(0, Math.min(3, workToks.length));
+        bairroToks = workToks.slice(Math.min(3, workToks.length));
+      }
+    }
+  }
+
+  // ── Step 4: handle explicit BAIRRO keyword within bairroToks ──
+  const bairroKeyIdx = bairroToks.indexOf("BAIRRO");
+  if (bairroKeyIdx >= 0 && bairroKeyIdx + 1 < bairroToks.length) {
+    bairroToks = bairroToks.slice(bairroKeyIdx + 1);
+  } else if (bairroKeyIdx >= 0) {
+    bairroToks = [];
+  }
+
+  // ── Step 5: if no bairro from splitting, try anchor detection in remaining tokens ──
+  if (bairroToks.length === 0 && logToks.length > 2) {
+    for (let i = 2; i < logToks.length; i++) {
+      if (BAIRRO_ANCHORS.has(logToks[i])) {
+        bairroToks = logToks.slice(i);
+        logToks = logToks.slice(0, i);
+        break;
+      }
+    }
+  }
+
+  const logradouro = logToks.join(" ").replace(/\s*[-,]\s*$/, "").trim();
+  const bairro = bairroToks.join(" ").trim();
+
+  return { logradouro, numero, bairro };
 }
 
 // ══════════════════════════════════════════════════
