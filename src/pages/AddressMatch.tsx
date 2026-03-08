@@ -1081,14 +1081,14 @@ export default function AddressMatch() {
           )}
 
           {/* Phone-only results (when no address match) */}
-          {phoneResults.length > 0 && !response && (
+          {phoneDisplayRows.length > 0 && !response && (
             <>
               <div className="grid gap-3 grid-cols-3">
                 <SummaryCard label="Telefones" value={phoneSummary.total} icon={Phone} color="text-foreground" />
-                <SummaryCard label="Encontrados" value={phoneSummary.found} icon={CheckCircle2} color="text-emerald-600" pct={Math.round((phoneSummary.found / Math.max(phoneSummary.total, 1)) * 100)} />
-                <SummaryCard label="Não encontrados" value={phoneSummary.notFound} icon={XCircle} color="text-red-600" />
+                <SummaryCard label="Atualizados" value={phoneSummary.updated} icon={CheckCircle2} color="text-emerald-600" pct={Math.round((phoneSummary.updated / Math.max(phoneSummary.total, 1)) * 100)} />
+                <SummaryCard label="Abaixo threshold" value={phoneSummary.below} icon={XCircle} color="text-red-600" />
               </div>
-              <PhoneResultsTable results={phoneResults} />
+              <PhoneResultsTable results={phoneDisplayRows} />
             </>
           )}
 
