@@ -42,16 +42,23 @@ import {
   Key,
   Settings2,
   FileText,
-  Copy,
   Loader2,
+  LogOut,
+  LogIn,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 
 export function DriveProcessorTab() {
   const {
-    accessToken,
-    setAccessToken,
+    credentialsJson,
+    updateCredentialsJson,
+    credentials,
+    oauthStatus,
+    connectedEmail,
+    startOAuth,
+    disconnect,
     folderId,
     setFolderId,
     flags,
@@ -69,34 +76,6 @@ export function DriveProcessorTab() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDebug, setShowDebug] = useState<string | null>(null);
-  const [tokenStatus, setTokenStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
-  const [tokenEmail, setTokenEmail] = useState<string | null>(null);
-
-  const validateToken = async () => {
-    if (!accessToken.trim()) {
-      toast.error("Cole o Access Token primeiro");
-      return;
-    }
-    setTokenStatus("checking");
-    setTokenEmail(null);
-    try {
-      const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: { Authorization: `Bearer ${accessToken.trim()}` },
-      });
-      if (!res.ok) {
-        setTokenStatus("invalid");
-        toast.error("Token inválido ou expirado");
-        return;
-      }
-      const info = await res.json();
-      setTokenStatus("valid");
-      setTokenEmail(info.email || null);
-      toast.success(`Conectado como ${info.email || "usuário Google"}`);
-    } catch {
-      setTokenStatus("invalid");
-      toast.error("Falha ao validar token");
-    }
-  };
 
   const stats = useMemo(() => {
     const total = results.length;
@@ -127,8 +106,8 @@ export function DriveProcessorTab() {
   }, [results, search]);
 
   const handleProcess = async () => {
-    if (!accessToken.trim()) {
-      toast.error("Informe o Access Token do Google");
+    if (oauthStatus !== "connected") {
+      toast.error("Conecte ao Google Drive primeiro");
       return;
     }
     if (!folderId.trim()) {
@@ -190,6 +169,8 @@ export function DriveProcessorTab() {
       ? Math.round((progress.current / progress.total) * 100)
       : 0;
 
+  const isConnected = oauthStatus === "connected";
+
   return (
     <div className="space-y-6">
       {/* Auth & Config */}
@@ -202,82 +183,99 @@ export function DriveProcessorTab() {
               Autenticação Google Drive
             </CardTitle>
           </CardHeader>
-           <CardContent className="space-y-4">
+          <CardContent className="space-y-4">
+            {/* Credentials JSON */}
             <div>
-              <Label htmlFor="access-token" className="text-sm">
-                Access Token do Google
+              <Label htmlFor="credentials-json" className="text-sm">
+                Credenciais Google (JSON)
               </Label>
-              <div className="flex gap-2 mt-1">
-                <Textarea
-                  id="access-token"
-                  placeholder="Cole aqui o access_token do Google OAuth..."
-                  value={accessToken}
-                  onChange={(e) => {
-                    setAccessToken(e.target.value);
-                    setTokenStatus("idle");
-                    setTokenEmail(null);
-                  }}
-                  className="h-20 font-mono text-xs flex-1"
-                />
-                <Button
-                  variant={tokenStatus === "valid" ? "default" : "outline"}
-                  className={`shrink-0 self-start mt-0 ${
-                    tokenStatus === "valid"
-                      ? "bg-success hover:bg-success/90 text-success-foreground"
-                      : tokenStatus === "invalid"
-                      ? "border-destructive text-destructive"
-                      : ""
-                  }`}
-                  disabled={!accessToken.trim() || tokenStatus === "checking"}
-                  onClick={validateToken}
-                >
-                  {tokenStatus === "checking" ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  ) : tokenStatus === "valid" ? (
-                    <CheckCircle2 className="h-4 w-4 mr-1" />
-                  ) : tokenStatus === "invalid" ? (
-                    <XCircle className="h-4 w-4 mr-1" />
-                  ) : (
-                    <Key className="h-4 w-4 mr-1" />
-                  )}
-                  {tokenStatus === "checking"
-                    ? "Validando..."
-                    : tokenStatus === "valid"
-                    ? "Conectado"
-                    : tokenStatus === "invalid"
-                    ? "Inválido"
-                    : "Validar Token"}
-                </Button>
-              </div>
-              {tokenStatus === "valid" && tokenEmail && (
-                <p className="text-xs text-success mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" />
-                  {tokenEmail}
-                </p>
-              )}
-              {tokenStatus === "invalid" && (
+              <Textarea
+                id="credentials-json"
+                placeholder='Cole aqui o conteúdo do arquivo credentials.json do Google Cloud Console...'
+                value={credentialsJson}
+                onChange={(e) => updateCredentialsJson(e.target.value)}
+                className="h-24 font-mono text-xs mt-1"
+                disabled={isConnected}
+              />
+              {credentialsJson && !credentials && (
                 <p className="text-xs text-destructive mt-1 flex items-center gap-1">
                   <XCircle className="h-3 w-3" />
-                  Token expirado ou inválido. Gere um novo.
+                  JSON inválido. Verifique o formato.
+                </p>
+              )}
+              {credentials && !isConnected && (
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3 text-success" />
+                  Credenciais reconhecidas: {credentials.client_id.slice(0, 20)}...
                 </p>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                Obtenha em{" "}
+                Baixe o JSON em{" "}
                 <a
-                  href="https://developers.google.com/oauthplayground/"
+                  href="https://console.cloud.google.com/apis/credentials"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary underline"
                 >
-                  OAuth Playground
-                </a>{" "}
-                com o escopo{" "}
+                  Google Cloud Console → API Credentials
+                </a>
+                . Adicione{" "}
                 <code className="text-[10px] bg-muted px-1 py-0.5 rounded">
-                  https://www.googleapis.com/auth/drive
-                </code>
+                  {window.location.origin}/boletos-links
+                </code>{" "}
+                como URI de redirecionamento autorizado.
               </p>
             </div>
 
+            {/* Connect / Status */}
+            <div className="flex items-center gap-3">
+              {!isConnected ? (
+                <Button
+                  onClick={startOAuth}
+                  disabled={!credentials || oauthStatus === "connecting"}
+                  className="gap-2"
+                >
+                  {oauthStatus === "connecting" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <LogIn className="h-4 w-4" />
+                  )}
+                  {oauthStatus === "connecting"
+                    ? "Conectando..."
+                    : "Conectar ao Google Drive"}
+                </Button>
+              ) : (
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                    <span className="font-medium">Conectado</span>
+                    {connectedEmail && (
+                      <span className="text-muted-foreground">
+                        ({connectedEmail})
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={disconnect}
+                    className="gap-1.5 ml-auto"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    Desconectar
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {oauthStatus === "error" && (
+              <p className="text-xs text-destructive flex items-center gap-1">
+                <XCircle className="h-3 w-3" />
+                Erro na autenticação. Tente novamente.
+              </p>
+            )}
+
+            {/* Folder ID */}
             <div>
               <Label htmlFor="folder-id" className="text-sm">
                 Folder ID
@@ -370,7 +368,7 @@ export function DriveProcessorTab() {
       {/* Action Bar */}
       <div className="flex items-center gap-3 flex-wrap">
         {!isProcessing ? (
-          <Button onClick={handleProcess} disabled={!accessToken || !folderId}>
+          <Button onClick={handleProcess} disabled={!isConnected || !folderId}>
             <Play className="h-4 w-4 mr-2" />
             Processar Boletos
           </Button>

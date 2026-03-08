@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export type DriveProcessorFlags = {
@@ -28,7 +28,82 @@ export type BoletoResult = {
   drive_folder_name?: string;
 };
 
+export type GoogleCredentials = {
+  client_id: string;
+  client_secret: string;
+  auth_uri: string;
+  token_uri: string;
+} | null;
+
+export type OAuthStatus = "disconnected" | "connecting" | "connected" | "error";
+
 type DriveFile = { id: string; name: string };
+
+const STORAGE_KEY_CREDS = "drive_processor_credentials";
+const STORAGE_KEY_TOKENS = "drive_processor_tokens";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
+
+function parseCredentialsJson(raw: string): GoogleCredentials {
+  try {
+    const parsed = JSON.parse(raw);
+    const web = parsed.web || parsed.installed || parsed;
+    if (!web.client_id || !web.client_secret) return null;
+    return {
+      client_id: web.client_id,
+      client_secret: web.client_secret,
+      auth_uri: web.auth_uri || "https://accounts.google.com/o/oauth2/auth",
+      token_uri: web.token_uri || "https://oauth2.googleapis.com/token",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getRedirectUri() {
+  return window.location.origin + "/boletos-links";
+}
+
+async function exchangeCodeForTokens(
+  creds: NonNullable<GoogleCredentials>,
+  code: string
+): Promise<{ access_token: string; refresh_token?: string; expires_in: number }> {
+  const res = await fetch(creds.token_uri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: creds.client_id,
+      client_secret: creds.client_secret,
+      redirect_uri: getRedirectUri(),
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error_description || err.error || "Falha ao trocar código por token");
+  }
+  return res.json();
+}
+
+async function refreshAccessToken(
+  creds: NonNullable<GoogleCredentials>,
+  refreshToken: string
+): Promise<{ access_token: string; expires_in: number }> {
+  const res = await fetch(creds.token_uri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: creds.client_id,
+      client_secret: creds.client_secret,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) {
+    throw new Error("Falha ao renovar token");
+  }
+  return res.json();
+}
 
 async function callEdgeFunction(action: string, payload: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke("boleto-drive-processor", {
@@ -40,7 +115,19 @@ async function callEdgeFunction(action: string, payload: Record<string, unknown>
 }
 
 export function useDriveProcessor() {
+  const [credentialsJson, setCredentialsJson] = useState(() => {
+    return localStorage.getItem(STORAGE_KEY_CREDS) || "";
+  });
+  const [credentials, setCredentials] = useState<GoogleCredentials>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_CREDS);
+    return saved ? parseCredentialsJson(saved) : null;
+  });
   const [accessToken, setAccessToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
+  const [tokenExpiresAt, setTokenExpiresAt] = useState(0);
+  const [oauthStatus, setOauthStatus] = useState<OAuthStatus>("disconnected");
+  const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
+
   const [folderId, setFolderId] = useState("");
   const [flags, setFlags] = useState<DriveProcessorFlags>({
     rename_files: true,
@@ -55,14 +142,160 @@ export function useDriveProcessor() {
   const [folderName, setFolderName] = useState("");
   const abortRef = useRef(false);
 
+  // Restore tokens from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_TOKENS);
+      if (saved) {
+        const t = JSON.parse(saved);
+        if (t.access_token) {
+          setAccessToken(t.access_token);
+          setRefreshToken(t.refresh_token || "");
+          setTokenExpiresAt(t.expires_at || 0);
+          // Validate the token
+          fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${t.access_token}` },
+          }).then(async (res) => {
+            if (res.ok) {
+              const info = await res.json();
+              setOauthStatus("connected");
+              setConnectedEmail(info.email || null);
+            } else if (t.refresh_token && credentials) {
+              // Try refresh
+              try {
+                const newTokens = await refreshAccessToken(credentials, t.refresh_token);
+                setAccessToken(newTokens.access_token);
+                setTokenExpiresAt(Date.now() + newTokens.expires_in * 1000);
+                localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({
+                  access_token: newTokens.access_token,
+                  refresh_token: t.refresh_token,
+                  expires_at: Date.now() + newTokens.expires_in * 1000,
+                }));
+                setOauthStatus("connected");
+                // Re-fetch email
+                const infoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                  headers: { Authorization: `Bearer ${newTokens.access_token}` },
+                });
+                if (infoRes.ok) {
+                  const info = await infoRes.json();
+                  setConnectedEmail(info.email || null);
+                }
+              } catch {
+                setOauthStatus("disconnected");
+              }
+            } else {
+              setOauthStatus("disconnected");
+            }
+          }).catch(() => setOauthStatus("disconnected"));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [credentials]);
+
+  // Handle OAuth callback code from URL
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("code");
+    if (!code || !credentials) return;
+
+    // Clean URL
+    url.searchParams.delete("code");
+    url.searchParams.delete("scope");
+    window.history.replaceState({}, "", url.pathname + url.search);
+
+    setOauthStatus("connecting");
+    exchangeCodeForTokens(credentials, code)
+      .then(async (tokens) => {
+        setAccessToken(tokens.access_token);
+        setRefreshToken(tokens.refresh_token || "");
+        const expiresAt = Date.now() + tokens.expires_in * 1000;
+        setTokenExpiresAt(expiresAt);
+        localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token || "",
+          expires_at: expiresAt,
+        }));
+
+        // Fetch user info
+        const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        if (res.ok) {
+          const info = await res.json();
+          setConnectedEmail(info.email || null);
+        }
+        setOauthStatus("connected");
+      })
+      .catch(() => {
+        setOauthStatus("error");
+      });
+  }, [credentials]);
+
+  const updateCredentialsJson = useCallback((raw: string) => {
+    setCredentialsJson(raw);
+    const parsed = parseCredentialsJson(raw);
+    setCredentials(parsed);
+    if (raw.trim()) {
+      localStorage.setItem(STORAGE_KEY_CREDS, raw);
+    } else {
+      localStorage.removeItem(STORAGE_KEY_CREDS);
+    }
+  }, []);
+
+  const startOAuth = useCallback(() => {
+    if (!credentials) return;
+    const params = new URLSearchParams({
+      client_id: credentials.client_id,
+      redirect_uri: getRedirectUri(),
+      response_type: "code",
+      scope: DRIVE_SCOPE,
+      access_type: "offline",
+      prompt: "consent",
+    });
+    window.location.href = `${credentials.auth_uri}?${params.toString()}`;
+  }, [credentials]);
+
+  const disconnect = useCallback(() => {
+    setAccessToken("");
+    setRefreshToken("");
+    setTokenExpiresAt(0);
+    setOauthStatus("disconnected");
+    setConnectedEmail(null);
+    localStorage.removeItem(STORAGE_KEY_TOKENS);
+  }, []);
+
+  // Ensure fresh token before API calls
+  const getValidToken = useCallback(async (): Promise<string> => {
+    if (accessToken && tokenExpiresAt > Date.now() + 60_000) {
+      return accessToken;
+    }
+    if (refreshToken && credentials) {
+      const newTokens = await refreshAccessToken(credentials, refreshToken);
+      const expiresAt = Date.now() + newTokens.expires_in * 1000;
+      setAccessToken(newTokens.access_token);
+      setTokenExpiresAt(expiresAt);
+      localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({
+        access_token: newTokens.access_token,
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
+      }));
+      return newTokens.access_token;
+    }
+    if (accessToken) return accessToken;
+    throw new Error("Não autenticado. Conecte ao Google Drive primeiro.");
+  }, [accessToken, refreshToken, tokenExpiresAt, credentials]);
+
   const listFiles = useCallback(async () => {
+    const token = await getValidToken();
     const data = await callEdgeFunction("list_pdfs", {
-      access_token: accessToken,
+      access_token: token,
       folder_id: folderId.trim(),
     });
     setFolderName(data.folder_name || "");
     return data.files as DriveFile[];
-  }, [accessToken, folderId]);
+  }, [getValidToken, folderId]);
 
   const processFiles = useCallback(async () => {
     setIsProcessing(true);
@@ -74,13 +307,14 @@ export function useDriveProcessor() {
       setProgress({ current: 0, total: files.length });
 
       const allResults: BoletoResult[] = [];
+      const token = await getValidToken();
 
       for (let i = 0; i < files.length; i++) {
         if (abortRef.current) break;
 
         try {
           const result = await callEdgeFunction("process_file", {
-            access_token: accessToken,
+            access_token: token,
             folder_id: folderId.trim(),
             file: files[i],
             flags,
@@ -120,8 +354,9 @@ export function useDriveProcessor() {
       // Upload JSON to drive if enabled
       if (flags.save_json_on_drive && allResults.length > 0) {
         try {
+          const t = await getValidToken();
           await callEdgeFunction("upload_json", {
-            access_token: accessToken,
+            access_token: t,
             folder_id: folderId.trim(),
             json_text: JSON.stringify(allResults, null, 2),
           });
@@ -134,7 +369,7 @@ export function useDriveProcessor() {
     } finally {
       setIsProcessing(false);
     }
-  }, [accessToken, folderId, flags, folderName, listFiles]);
+  }, [getValidToken, folderId, flags, folderName, listFiles]);
 
   const abort = useCallback(() => {
     abortRef.current = true;
@@ -142,18 +377,25 @@ export function useDriveProcessor() {
 
   const deleteDuplicateFiles = useCallback(
     async (fileIds: string[]) => {
+      const token = await getValidToken();
       const data = await callEdgeFunction("delete_files", {
-        access_token: accessToken,
+        access_token: token,
         file_ids: fileIds,
       });
       return data as { deleted: string[]; errors: string[] };
     },
-    [accessToken]
+    [getValidToken]
   );
 
   return {
+    credentialsJson,
+    updateCredentialsJson,
+    credentials,
     accessToken,
-    setAccessToken,
+    oauthStatus,
+    connectedEmail,
+    startOAuth,
+    disconnect,
     folderId,
     setFolderId,
     flags,
