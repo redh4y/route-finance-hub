@@ -143,6 +143,7 @@ export default function AddressMatch() {
   const [enderecoCol, setEnderecoCol] = useState("Endereco");
   const [phoneCol, setPhoneCol] = useState("Telefone");
   const [nameCol, setNameCol] = useState("Nome");
+  const [docCol, setDocCol] = useState("Identif");
   const [useDbCeps, setUseDbCeps] = useState(true);
 
   // WhatsApp contacts
@@ -157,6 +158,8 @@ export default function AddressMatch() {
   const [response, setResponse] = useState<MatchResponse | null>(null);
   const [phoneResults, setPhoneResults] = useState<PhoneMatchResult[]>([]);
   const [isSavingContacts, setIsSavingContacts] = useState(false);
+  const [isUpdatingPayers, setIsUpdatingPayers] = useState(false);
+  const [updatePayersResult, setUpdatePayersResult] = useState<{ updated: number; created: number; errors: number } | null>(null);
 
   const payersCols = useMemo(() => {
     if (payersData.length === 0) return [];
@@ -494,7 +497,138 @@ export default function AddressMatch() {
     }
   };
 
-  // ── CSV download ──
+  // ── Update payers in DB ──
+  const updatePayersInDb = async () => {
+    const enriched = getEnrichedResults();
+    if (!enriched.length) {
+      toast.error("Execute o match primeiro");
+      return;
+    }
+
+    setIsUpdatingPayers(true);
+    setUpdatePayersResult(null);
+    let updated = 0;
+    let created = 0;
+    let errors = 0;
+    const BATCH = 50;
+
+    try {
+      // Build phone map from phoneResults
+      const phoneMap = new Map<string, PhoneMatchResult>();
+      for (const pr of phoneResults) {
+        if (pr.payer_phone_digits) phoneMap.set(pr.payer_phone_digits, pr);
+      }
+
+      for (let i = 0; i < enriched.length; i += BATCH) {
+        const batch = enriched.slice(i, i + BATCH);
+        const pct = Math.round(((i + batch.length) / enriched.length) * 100);
+        toast.loading(`Atualizando pagadores ${i + 1}-${i + batch.length} de ${enriched.length} (${pct}%)...`, { id: "update-payers" });
+
+        for (const row of batch) {
+          try {
+            const rawDoc = String(row[docCol] || "").replace(/\D/g, "").padStart(11, "0");
+            if (!rawDoc || rawDoc === "00000000000") continue;
+
+            const payerName = String(row[nameCol] || "");
+            const matchOk = row.match_ok === true;
+
+            // Build update payload
+            const updateData: Record<string, unknown> = {};
+
+            // Address fields (only if match was successful)
+            if (matchOk) {
+              const street = String(row.matched_logradouro || "");
+              const number = String(row.matched_numero || "");
+              const neighborhood = String(row.bairro_candidato || "");
+              const cep = String(row.matched_cep || "");
+              const city = String(row.matched_cidade || "");
+              const state = String(row.matched_uf || "");
+
+              if (street) updateData.street = street;
+              if (number) updateData.number = number;
+              if (neighborhood) updateData.neighborhood = neighborhood;
+              if (cep) updateData.cep = cep.replace(/\D/g, "");
+              if (city) updateData.city = city;
+              if (state) updateData.state = state;
+              updateData.match_ok = true;
+              updateData.address_base = String(row[enderecoCol] || "");
+              updateData.address_original = String(row[enderecoCol] || "");
+            }
+
+            // Phone from WhatsApp match
+            const rawPhone = String(row[phoneCol] || "");
+            const normPhone = normalizePhone(rawPhone);
+            const pm = normPhone.length >= 8 ? (phoneMap.get(normPhone) || phoneMap.get(normPhone.slice(-8))) : undefined;
+            if (pm?.wa_found && pm.wa_phone) {
+              updateData.phone = pm.wa_phone;
+            } else if (rawPhone && rawPhone !== "undefined") {
+              updateData.phone = rawPhone;
+            }
+
+            if (Object.keys(updateData).length === 0) continue;
+
+            // Try to find existing payer by document_digits
+            const { data: existing } = await supabase
+              .from("payers")
+              .select("id")
+              .eq("document_digits", rawDoc)
+              .limit(1);
+
+            if (existing && existing.length > 0) {
+              // Update
+              updateData.updated_at = new Date().toISOString();
+              const { error } = await supabase
+                .from("payers")
+                .update(updateData)
+                .eq("id", existing[0].id);
+              if (error) {
+                console.error("Update error:", error, rawDoc);
+                errors++;
+              } else {
+                updated++;
+              }
+            } else {
+              // Create new payer
+              const newPayer: Record<string, unknown> = {
+                legacy_id: crypto.randomUUID(),
+                name: payerName,
+                name_lower: payerName.toLowerCase(),
+                document: rawDoc.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
+                document_digits: rawDoc,
+                document_valid: rawDoc.length === 11,
+                ...updateData,
+              };
+              const { error } = await supabase.from("payers").insert(newPayer as any);
+              if (error) {
+                console.error("Insert error:", error, rawDoc);
+                errors++;
+              } else {
+                created++;
+              }
+            }
+          } catch (err) {
+            console.error("Row error:", err);
+            errors++;
+          }
+        }
+      }
+
+      setUpdatePayersResult({ updated, created, errors });
+      toast.dismiss("update-payers");
+      if (errors > 0) {
+        toast.warning(`Pagadores: ${updated} atualizados, ${created} criados, ${errors} erros`);
+      } else {
+        toast.success(`Pagadores: ${updated} atualizados, ${created} criados`);
+      }
+    } catch (err) {
+      console.error("updatePayersInDb error:", err);
+      toast.error("Erro ao atualizar pagadores");
+    } finally {
+      setIsUpdatingPayers(false);
+    }
+  };
+
+
   const getEnrichedResults = () => {
     if (!response?.results) return [];
     let enriched = response.results;
@@ -572,6 +706,17 @@ export default function AddressMatch() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+              )}
+              {response && (
+                <Button
+                  onClick={updatePayersInDb}
+                  disabled={isUpdatingPayers}
+                  variant="default"
+                  className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                >
+                  <Save className="h-4 w-4" />
+                  {isUpdatingPayers ? "Atualizando..." : "Atualizar Pagadores no Banco"}
+                </Button>
               )}
             </div>
           </div>
@@ -728,6 +873,29 @@ export default function AddressMatch() {
                     )}
                   </div>
 
+                  <div className="space-y-2 flex-1">
+                    <Label>Coluna CPF/Identif</Label>
+                    {payersCols.length > 0 ? (
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        value={docCol}
+                        onChange={(e) => setDocCol(e.target.value)}
+                      >
+                        {payersCols.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        value={docCol}
+                        onChange={(e) => setDocCol(e.target.value)}
+                        placeholder="Nome da coluna"
+                      />
+                    )}
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <Switch checked={useDbCeps} onCheckedChange={setUseDbCeps} id="use-db" />
                     <Label htmlFor="use-db" className="flex items-center gap-1 text-sm cursor-pointer">
@@ -826,7 +994,23 @@ export default function AddressMatch() {
             </Card>
           </div>
 
-          {/* Processing indicator */}
+          {/* Update payers result */}
+          {updatePayersResult && (
+            <Card className="border-emerald-500/30 bg-emerald-500/5">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-4 text-sm">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  <span><strong>{updatePayersResult.updated}</strong> pagadores atualizados</span>
+                  <span><strong>{updatePayersResult.created}</strong> novos criados</span>
+                  {updatePayersResult.errors > 0 && (
+                    <span className="text-destructive"><strong>{updatePayersResult.errors}</strong> erros</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+
           {isProcessing && (
             <Card>
               <CardContent className="py-8 flex flex-col items-center gap-3">
