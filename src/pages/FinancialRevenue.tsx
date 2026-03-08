@@ -296,6 +296,7 @@ export default function FinancialRevenue() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['financial-entries'] })
+      queryClient.invalidateQueries({ queryKey: ['billings-summary'] })
       queryClient.invalidateQueries({ queryKey: ['dre'] })
       toast.success('Receita registrada com sucesso')
       setGroupId('')
