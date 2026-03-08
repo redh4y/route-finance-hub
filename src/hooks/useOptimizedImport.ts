@@ -296,6 +296,14 @@ export function useOptimizedImportPayers() {
         setProgress(Math.round(((batchIdx + 1) / totalBatches) * 100));
       }
 
+      // Build diff summary
+      const diffSummary = {
+        inserted: resolvedTransformed.filter((t) => !candidatePayers.some((p: any) => p.id === t.payer.id)).length,
+        updated: resolvedTransformed.filter((t) => candidatePayers.some((p: any) => p.id === t.payer.id)).length,
+        skipped: droppedDuplicates,
+        errors: result.errors,
+      };
+
       // Update import log
       const { data: importLog } = await logPromise;
       if (importLog?.id) {
@@ -306,8 +314,9 @@ export function useOptimizedImportPayers() {
             processed_rows: result.total,
             success_rows: result.success,
             error_rows: result.errors,
-            errors: result.errorDetails.slice(0, 100), // Limit error details
+            errors: result.errorDetails.slice(0, 100),
             completed_at: new Date().toISOString(),
+            diff_summary: diffSummary,
           })
           .eq("id", importLog.id);
       }
@@ -316,9 +325,10 @@ export function useOptimizedImportPayers() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
 
       if (result.errors > 0) {
-        toast.warning(`Importa??o: ${result.success} OK, ${result.errors} erros`);
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
       } else {
         toast.success(`${result.success} pagadores importados!`);
       }
