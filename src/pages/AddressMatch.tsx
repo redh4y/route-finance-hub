@@ -338,7 +338,7 @@ export default function AddressMatch() {
           wa_number: normalizePhone(c.phone_number),
           wa_jid: normalizePhone(c.phone_number) + "@s.whatsapp.net",
           display_name: c.saved_name || c.public_name || "",
-          raw: c as unknown as Record<string, unknown>,
+          raw: JSON.parse(JSON.stringify(c)),
         }));
 
         const { error } = await supabase
