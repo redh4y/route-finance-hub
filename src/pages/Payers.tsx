@@ -262,8 +262,8 @@ export default function Payers() {
           <div className="grid gap-4 lg:grid-cols-3">
             {/* Payers list */}
             <div className="lg:col-span-2">
-              <Card className="overflow-hidden">
-                <ScrollArea className="h-[calc(100vh-360px)] sm:h-[calc(100vh-310px)]">
+              <Card>
+                <div className="h-[calc(100vh-360px)] sm:h-[calc(100vh-310px)] overflow-y-auto">
                   {isLoading ? (
                     <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                       {Array.from({ length: 8 }).map((_, i) => (
@@ -313,7 +313,7 @@ export default function Payers() {
                   ) : (
                     <EmptyState searchTerm={searchTerm} quickFilter={quickFilter} />
                   )}
-                </ScrollArea>
+                </div>
 
                 {/* Pagination */}
                 {totalPages > 1 && (
@@ -474,15 +474,15 @@ function PayerCardMobile({
     <div
       onClick={onClick}
       className={cn(
-        "px-3 py-3 active:bg-muted/60 transition-colors cursor-pointer",
+        "px-3 py-3 active:bg-muted/60 transition-colors cursor-pointer overflow-hidden",
         isSelected && "bg-primary/5"
       )}
     >
-      <div className="flex items-start gap-3">
-        {/* Avatar */}
+      {/* Row 1: Avatar + Name + Badges + Edit */}
+      <div className="flex items-center gap-2 w-full overflow-hidden">
         <div
           className={cn(
-            "flex items-center justify-center w-10 h-10 rounded-full shrink-0 text-sm font-bold mt-0.5",
+            "flex items-center justify-center w-9 h-9 rounded-full shrink-0 text-xs font-bold",
             isActive
               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
               : "bg-muted text-muted-foreground"
@@ -491,62 +491,50 @@ function PayerCardMobile({
           {payer.name.charAt(0).toUpperCase()}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0 space-y-1">
-          {/* Name row */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-medium text-sm truncate">{payer.name}</span>
-            {payer.needs_review && (
-              <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
-            )}
-            {isImportedWithoutRegister(payer.review_reason) && (
-              <AlertCircle className="h-3 w-3 text-orange-500 shrink-0" />
-            )}
-          </div>
-
-          {/* Info row */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="font-mono">
-              {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
-            </span>
-            {payer.phone && (
-              <>
-                <span className="text-muted-foreground/40">·</span>
-                <span>{formatPhone(payer.phone)}</span>
-              </>
-            )}
-          </div>
-
-          {/* Badges row */}
-          <div className="flex items-center gap-1.5">
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-[10px] px-1.5 py-0",
-                isActive
-                  ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
-                  : "text-muted-foreground"
-              )}
-            >
-              {isActive ? "Ativo" : "Inativo"}
-            </Badge>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-              {payer.billing_mode}
-            </Badge>
-          </div>
+        <div className="flex-1 w-0">
+          <span className="font-medium text-sm truncate block">{payer.name}</span>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            aria-label="Editar"
-          >
-            <Edit className="h-4 w-4" />
-          </button>
-          <ChevronRight className="h-4 w-4 text-muted-foreground/40" />
-        </div>
+        {payer.needs_review && (
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        )}
+
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-[10px] px-1.5 py-0 shrink-0",
+            isActive
+              ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5"
+              : "text-muted-foreground"
+          )}
+        >
+          {isActive ? "Ativo" : "Inativo"}
+        </Badge>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          aria-label="Editar"
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Row 2: CPF + Phone + Billing mode */}
+      <div className="flex items-center gap-1.5 mt-0.5 ml-[44px] text-xs text-muted-foreground">
+        <span className="font-mono truncate">
+          {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
+        </span>
+        {payer.phone && (
+          <>
+            <span className="opacity-40">·</span>
+            <span className="truncate">{formatPhone(payer.phone)}</span>
+          </>
+        )}
+        <span className="opacity-40">·</span>
+        <span className="shrink-0">{payer.billing_mode}</span>
       </div>
     </div>
   );
