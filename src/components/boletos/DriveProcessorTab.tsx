@@ -68,6 +68,34 @@ export function DriveProcessorTab() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDebug, setShowDebug] = useState<string | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
+  const [tokenEmail, setTokenEmail] = useState<string | null>(null);
+
+  const validateToken = async () => {
+    if (!accessToken.trim()) {
+      toast.error("Cole o Access Token primeiro");
+      return;
+    }
+    setTokenStatus("checking");
+    setTokenEmail(null);
+    try {
+      const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${accessToken.trim()}` },
+      });
+      if (!res.ok) {
+        setTokenStatus("invalid");
+        toast.error("Token inválido ou expirado");
+        return;
+      }
+      const info = await res.json();
+      setTokenStatus("valid");
+      setTokenEmail(info.email || null);
+      toast.success(`Conectado como ${info.email || "usuário Google"}`);
+    } catch {
+      setTokenStatus("invalid");
+      toast.error("Falha ao validar token");
+    }
+  };
 
   const stats = useMemo(() => {
     const total = results.length;
