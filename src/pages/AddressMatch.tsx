@@ -272,14 +272,27 @@ export default function AddressMatch() {
     setPhoneResults([]);
 
     try {
+      const requestBody: Record<string, unknown> = {
+        payers_csv: payersData,
+        ceps_csv: cepsData.length > 0 ? cepsData : undefined,
+        use_db_ceps: useDbCeps,
+        config,
+        endereco_column: enderecoCol,
+      };
+
+      // Include contacts for server-side phone match
+      if (waContacts.length > 0) {
+        requestBody.contacts_json = waContacts;
+        requestBody.phone_match_config = {
+          name_column: nameCol,
+          phone_column: phoneCol,
+          threshold: 0.86,
+          overwrite: false,
+        };
+      }
+
       const { data, error } = await supabase.functions.invoke("address-match", {
-        body: {
-          payers_csv: payersData,
-          ceps_csv: cepsData.length > 0 ? cepsData : undefined,
-          use_db_ceps: useDbCeps,
-          config,
-          endereco_column: enderecoCol,
-        },
+        body: requestBody,
       });
 
       if (error) throw error;
@@ -287,13 +300,13 @@ export default function AddressMatch() {
 
       setResponse(data as MatchResponse);
 
-      // Phone match
+      // Client-side phone match (for WA validation tab)
       if (waContacts.length > 0) {
         const pr = runPhoneMatch();
         setPhoneResults(pr);
-        const found = pr.filter((r) => r.wa_found).length;
+        const ps = data.phone_summary;
         toast.success(
-          `Processamento concluído: ${data.summary.matched} endereços + ${found}/${pr.length} telefones`
+          `Concluído: ${data.summary.matched} endereços + ${ps?.updated || 0} telefones atualizados`
         );
       } else {
         toast.success(
