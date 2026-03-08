@@ -1957,6 +1957,7 @@ export type Database = {
       }
     }
     Functions: {
+      get_dre_summary: { Args: { p_month: string }; Returns: Json }
       release_expired_locks: { Args: never; Returns: number }
       reserve_seats: {
         Args: {

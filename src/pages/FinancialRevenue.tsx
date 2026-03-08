@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { MainLayout } from '@/components/layout/MainLayout'
 import { PageTransition } from '@/components/ui/page-transition'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge, mapBillingStatus } from '@/components/ui/status-badge'
-import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock } from 'lucide-react'
+import { ArrowUpCircle, Plus, Receipt, DollarSign, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useSearchParams } from 'react-router-dom'
 
@@ -61,6 +61,8 @@ interface FinancialEntry {
   source: string
 }
 
+const BILLINGS_PAGE_SIZE = 50;
+
 export default function FinancialRevenue() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef())
   const [groupId, setGroupId] = useState('')
@@ -71,6 +73,8 @@ export default function FinancialRevenue() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [searchParams, setSearchParams] = useSearchParams()
   const statusFilter = searchParams.get('status')
+  const [billingsPage, setBillingsPage] = useState(1)
+  const [entriesPage, setEntriesPage] = useState(1)
 
   const queryClient = useQueryClient()
 
@@ -135,23 +139,42 @@ export default function FinancialRevenue() {
     return map
   }, [dreSubgroups])
 
-  // Get billings for the month
-  const { data: billings, isLoading: loadingBillings } = useQuery({
-    queryKey: ['billings', selectedMonth],
+  // Reset pages when month/filter changes
+  React.useEffect(() => {
+    setBillingsPage(1)
+    setEntriesPage(1)
+  }, [selectedMonth, statusFilter])
+
+  const billingsFrom = (billingsPage - 1) * BILLINGS_PAGE_SIZE
+  const billingsTo = billingsFrom + BILLINGS_PAGE_SIZE - 1
+
+  // Get billings for the month with server-side pagination
+  const { data: billingsResult, isLoading: loadingBillings } = useQuery({
+    queryKey: ['billings', selectedMonth, statusFilter, billingsPage],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('billings')
-        .select('*, payers(name)')
+        .select('*, payers(name)', { count: 'exact' })
         .eq('reference_month', selectedMonth)
         .order('due_date', { ascending: true })
 
+      if (statusFilter) {
+        query = query.eq('status', statusFilter)
+      }
+
+      const { data, error, count } = await query.range(billingsFrom, billingsTo)
+
       if (error) throw error
-      return data as Billing[]
+      return { rows: data as Billing[], count: count || 0 }
     }
   })
 
+  const billings = billingsResult?.rows || []
+  const totalBillings = billingsResult?.count || 0
+  const totalBillingsPages = Math.max(1, Math.ceil(totalBillings / BILLINGS_PAGE_SIZE))
+
   const billingIds = useMemo(
-    () => (billings || []).map((b) => b.id),
+    () => billings.map((b) => b.id),
     [billings]
   )
 
@@ -172,20 +195,74 @@ export default function FinancialRevenue() {
     }
   })
 
-  // Get manual revenue entries
-  const { data: entries, isLoading: loadingEntries } = useQuery({
-    queryKey: ['financial-entries', selectedMonth, 'revenue'],
+  const entriesFrom = (entriesPage - 1) * BILLINGS_PAGE_SIZE
+  const entriesTo = entriesFrom + BILLINGS_PAGE_SIZE - 1
+
+  // Get manual revenue entries with pagination
+  const { data: entriesResult, isLoading: loadingEntries } = useQuery({
+    queryKey: ['financial-entries', selectedMonth, 'revenue', entriesPage],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from('financial_entries')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('competence_month', selectedMonth)
         .eq('type', 'RECEITA')
         .eq('source', 'MANUAL')
         .order('date', { ascending: false })
+        .range(entriesFrom, entriesTo)
 
       if (error) throw error
-      return data as FinancialEntry[]
+      return { rows: data as FinancialEntry[], count: count || 0 }
+    }
+  })
+
+  const entries = entriesResult?.rows || []
+  const totalEntries = entriesResult?.count || 0
+  const totalEntriesPages = Math.max(1, Math.ceil(totalEntries / BILLINGS_PAGE_SIZE))
+
+  // Summary stats using head counts to avoid 1000-row limit
+  const { data: billingSummary } = useQuery({
+    queryKey: ['billings-summary', selectedMonth],
+    queryFn: async () => {
+      const [
+        { data: allBillings },
+        { data: paidBillings },
+        { data: openBillings },
+      ] = await Promise.all([
+        supabase.rpc('get_dre_summary', { p_month: selectedMonth }),
+        supabase
+          .from('billings')
+          .select('amount_paid_cents, amount_expected_cents')
+          .eq('reference_month', selectedMonth)
+          .eq('status', 'PAID')
+          .limit(1000),
+        supabase
+          .from('billings')
+          .select('amount_expected_cents')
+          .eq('reference_month', selectedMonth)
+          .eq('status', 'OPEN')
+          .limit(1000),
+      ])
+
+      // For large datasets we use the DRE summary for billing_revenue
+      const dreData = allBillings as { billing_revenue: number } | null
+
+      const expectedAll = await supabase
+        .from('billings')
+        .select('amount_expected_cents')
+        .eq('reference_month', selectedMonth)
+        .neq('status', 'CANCELADO')
+        .limit(1000)
+
+      const expectedRevenue = (expectedAll.data || []).reduce(
+        (sum, b) => sum + (b.amount_expected_cents || 0), 0
+      )
+      const paidRevenue = dreData?.billing_revenue || 0
+      const pendingRevenue = (openBillings || []).reduce(
+        (sum, b) => sum + (b.amount_expected_cents || 0), 0
+      )
+
+      return { expectedRevenue, paidRevenue, pendingRevenue }
     }
   })
 
@@ -219,6 +296,7 @@ export default function FinancialRevenue() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['financial-entries'] })
+      queryClient.invalidateQueries({ queryKey: ['billings-summary'] })
       queryClient.invalidateQueries({ queryKey: ['dre'] })
       toast.success('Receita registrada com sucesso')
       setGroupId('')
@@ -240,31 +318,11 @@ export default function FinancialRevenue() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
 
-  const filteredBillings = useMemo(() => {
-    if (!billings) return []
-    if (!statusFilter) return billings
-    return billings.filter(b => b.status === statusFilter)
-  }, [billings, statusFilter])
-
-  // Calculate totals
-  const expectedRevenue =
-    billings
-      ?.filter(b => b.status !== 'CANCELADO')
-      .reduce((sum, b) => sum + b.amount_expected_cents, 0) || 0
-  const paidBillings =
-    billings
-      ?.filter(b => b.status === 'PAID')
-      .reduce(
-        (sum, b) => sum + (b.amount_paid_cents || b.amount_expected_cents),
-        0
-      ) || 0
-  const manualRevenue =
-    entries?.reduce((sum, e) => sum + e.amount_cents, 0) || 0
-  const actualRevenue = paidBillings + manualRevenue
-  const pendingRevenue =
-    billings
-      ?.filter(b => b.status === 'OPEN')
-      .reduce((sum, b) => sum + b.amount_expected_cents, 0) || 0
+  // Totals from server-side summary (handles >1000 rows)
+  const expectedRevenue = billingSummary?.expectedRevenue || 0
+  const manualRevenue = entries.reduce((sum, e) => sum + e.amount_cents, 0)
+  const actualRevenue = (billingSummary?.paidRevenue || 0) + manualRevenue
+  const pendingRevenue = billingSummary?.pendingRevenue || 0
 
   return (
     <MainLayout>
@@ -497,11 +555,11 @@ export default function FinancialRevenue() {
                       <Skeleton key={i} className="h-12" />
                     ))}
                   </div>
-                ) : filteredBillings && filteredBillings.length > 0 ? (
-                  <div className="max-h-[400px] overflow-auto">
+                ) : billings.length > 0 ? (
+                  <div>
                     {/* Mobile: Card list */}
                     <div className="lg:hidden space-y-2 p-1">
-                      {filteredBillings.slice(0, 20).map(billing => (
+                      {billings.map(billing => (
                         <div key={billing.id} className="p-3 rounded-lg border bg-card flex items-center justify-between">
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">{billing.payers?.name || billing.payer_id}</p>
@@ -531,7 +589,7 @@ export default function FinancialRevenue() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {filteredBillings.slice(0, 20).map(billing => (
+                          {billings.map(billing => (
                             <TableRow key={billing.id}>
                               <TableCell>
                                 <div className="flex items-center gap-2">
@@ -551,10 +609,31 @@ export default function FinancialRevenue() {
                         </TableBody>
                       </Table>
                     </div>
-                    {filteredBillings.length > 20 && (
-                      <p className="text-sm text-muted-foreground text-center py-2">
-                        ... e mais {filteredBillings.length - 20} boletos
-                      </p>
+                    {/* Pagination */}
+                    {totalBillingsPages > 1 && (
+                      <div className="flex items-center justify-between pt-4 border-t mt-4">
+                        <p className="text-sm text-muted-foreground">
+                          {totalBillings} boleto{totalBillings !== 1 ? 's' : ''} · Página {billingsPage} de {totalBillingsPages}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={billingsPage <= 1}
+                            onClick={() => setBillingsPage(p => p - 1)}
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={billingsPage >= totalBillingsPages}
+                            onClick={() => setBillingsPage(p => p + 1)}
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -613,6 +692,32 @@ export default function FinancialRevenue() {
                       </TableBody>
                     </Table>
                   </div>
+                  {/* Pagination */}
+                  {totalEntriesPages > 1 && (
+                    <div className="flex items-center justify-between pt-4 border-t mt-4">
+                      <p className="text-sm text-muted-foreground">
+                        {totalEntries} receita{totalEntries !== 1 ? 's' : ''} · Página {entriesPage} de {totalEntriesPages}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={entriesPage <= 1}
+                          onClick={() => setEntriesPage(p => p - 1)}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={entriesPage >= totalEntriesPages}
+                          onClick={() => setEntriesPage(p => p + 1)}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

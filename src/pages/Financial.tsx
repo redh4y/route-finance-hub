@@ -39,57 +39,37 @@ function useDREData(month: string) {
   return useQuery({
     queryKey: ["dre", month],
     queryFn: async (): Promise<DREData> => {
-      // Get all financial entries for the month
-      const { data: entries, error } = await supabase
-        .from("financial_entries")
-        .select("*")
-        .eq("competence_month", month);
+      // Use server-side aggregation to avoid the 1000-row limit
+      const { data, error } = await supabase.rpc("get_dre_summary", {
+        p_month: month,
+      });
 
       if (error) throw error;
 
-      // Get paid billings for the month
-      const { data: billings, error: billingsError } = await supabase
-        .from("billings")
-        .select("*")
-        .eq("reference_month", month)
-        .eq("status", "PAID");
+      const result = data as {
+        receitas: number;
+        custos: number;
+        despesas: number;
+        outras: number;
+        billing_revenue: number;
+      };
 
-      if (billingsError) throw billingsError;
-
-      // Calculate billing revenue
-      const billingRevenue = billings?.reduce(
-        (sum, b) => sum + (b.amount_paid_cents || b.amount_expected_cents || 0),
-        0
-      ) || 0;
-
-      // Calculate entries by type
-      const receitas = entries?.filter((e) => e.type === "RECEITA") || [];
-      const custos = entries?.filter((e) => e.type === "CUSTO") || [];
-      const despesas = entries?.filter((e) => e.type === "DESPESA") || [];
-      const outras = entries?.filter((e) => e.type === "OUTRAS") || [];
-
-      const totalReceitas = receitas.reduce((sum, e) => sum + e.amount_cents, 0);
-      const totalCustos = custos.reduce((sum, e) => sum + e.amount_cents, 0);
-      const totalDespesas = despesas.reduce((sum, e) => sum + e.amount_cents, 0);
-      const totalOutras = outras.reduce((sum, e) => sum + e.amount_cents, 0);
-
-      // DRE calculation
-      const receitaBruta = billingRevenue + totalReceitas;
-      const deducoes = 0; // No deductions defined yet
+      const receitaBruta = (result.billing_revenue || 0) + (result.receitas || 0);
+      const deducoes = 0;
       const receitaLiquida = receitaBruta - deducoes;
-      const lucroBruto = receitaLiquida - totalCustos;
-      const resultadoOperacional = lucroBruto - totalDespesas;
-      const lucroPrejuizo = resultadoOperacional + totalOutras;
+      const lucroBruto = receitaLiquida - (result.custos || 0);
+      const resultadoOperacional = lucroBruto - (result.despesas || 0);
+      const lucroPrejuizo = resultadoOperacional + (result.outras || 0);
 
       return {
         receitaBruta,
         deducoes,
         receitaLiquida,
-        custos: totalCustos,
+        custos: result.custos || 0,
         lucroBruto,
-        despesas: totalDespesas,
+        despesas: result.despesas || 0,
         resultadoOperacional,
-        outras: totalOutras,
+        outras: result.outras || 0,
         lucroPrejuizo,
       };
     },
