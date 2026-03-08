@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
@@ -11,9 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle, FileText, Users, Search, Eye } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Upload, Loader2, Link as LinkIcon, CheckCircle2, AlertTriangle, FileText, Users, Search, Eye, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { DriveProcessorTab } from "@/components/boletos/DriveProcessorTab";
 
 type PayerLite = {
   id: string;
