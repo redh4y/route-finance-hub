@@ -33,10 +33,13 @@ export default function Routes() {
   const [neighborhoodFilter, setNeighborhoodFilter] = useState("");
   const [matchFilter, setMatchFilter] = useState<string>("all");
 
-  const { data: payers, isLoading } = usePayers({
+  const { data: payersResult, isLoading } = usePayers({
     ...filters,
     search: searchTerm || undefined,
+    pageSize: 5000,
   });
+
+  const payers = payersResult?.rows;
 
   const isReview = (p: { needs_review: boolean | null; match_ok: boolean | null }) =>
     !!p.needs_review || p.match_ok === false;
