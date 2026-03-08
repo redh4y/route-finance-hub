@@ -267,6 +267,8 @@ export default function Audit() {
     setSearch(v);
     setPage(1);
   };
+
+  return (
     <MainLayout>
       <PageTransition>
         <div className="page-header">
