@@ -219,10 +219,10 @@ export default function Payers() {
                   variant={isSelected ? "secondary" : "ghost"}
                   size="sm"
                   onClick={() => setQuickFilter(filter.key)}
-                  className={cn("gap-1.5 text-xs shrink-0 whitespace-nowrap", isSelected && "shadow-sm")}
+                  className={cn("gap-1 sm:gap-1.5 text-xs shrink-0 whitespace-nowrap px-2 sm:px-3", isSelected && "shadow-sm")}
                 >
                   <filter.icon className={cn("h-3.5 w-3.5", iconColorClasses)} />
-                  {filter.label}
+                  <span className="hidden sm:inline">{filter.label}</span>
                   <span className="ml-0.5 tabular-nums text-muted-foreground/60">{count}</span>
                 </Button>
               );
