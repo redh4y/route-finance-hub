@@ -474,7 +474,7 @@ function PayerCardMobile({
     <div
       onClick={onClick}
       className={cn(
-        "px-3 py-3 active:bg-muted/60 transition-colors cursor-pointer",
+        "px-3 py-3 active:bg-muted/60 transition-colors cursor-pointer overflow-hidden",
         isSelected && "bg-primary/5"
       )}
     >
