@@ -60,7 +60,7 @@ function parseCredentialsJson(raw: string): GoogleCredentials {
 }
 
 function getRedirectUri() {
-  return window.location.origin + "/boletos-links";
+  return window.location.origin + "/oauth/callback";
 }
 
 async function exchangeCodeForTokens(

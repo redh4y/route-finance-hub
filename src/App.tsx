@@ -295,6 +295,7 @@ const App = () => (
               <Route path="/public/excursoes" element={<PublicExcursions />} />
               <Route path="/public/excursoes/:token" element={<PublicExcursion />} />
               <Route path="/2-via-boletos" element={<PublicBoletoLinksPage />} />
+              <Route path="/oauth/callback" element={<OAuthCallback />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
