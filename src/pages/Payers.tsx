@@ -491,7 +491,7 @@ function PayerCardMobile({
           {payer.name.charAt(0).toUpperCase()}
         </div>
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 w-0">
           <span className="font-medium text-sm truncate block">{payer.name}</span>
         </div>
 
