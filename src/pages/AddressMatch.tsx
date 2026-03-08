@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { processAllRows, type CepRecord, type MatchConfig as EngineMatchConfig } from "@/lib/address-match-engine";
 import Papa from "papaparse";
 import {
   MapPin,
@@ -258,15 +259,9 @@ export default function AddressMatch() {
   }, [payersData, waContacts, phoneCol, nameCol]);
 
   // ── Run match (chunked) ──
-  const BATCH_SIZE = 5;
-
   const runMatch = async () => {
     if (payersData.length === 0) {
       toast.error("Carregue o CSV de pagadores primeiro");
-      return;
-    }
-    if (!useDbCeps && cepsData.length === 0) {
-      toast.error("Carregue a base de CEPs ou ative a opção de usar o banco");
       return;
     }
 
@@ -275,74 +270,71 @@ export default function AddressMatch() {
     setPhoneResults([]);
 
     try {
-      const totalRows = payersData.length;
-      const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
-      let allResults: Record<string, unknown>[] = [];
+      // 1. Fetch CEP base (once)
+      let cepBase: CepRecord[] = [];
 
-      for (let batch = 0; batch < totalBatches; batch++) {
-        const start = batch * BATCH_SIZE;
-        const chunk = payersData.slice(start, start + BATCH_SIZE);
-        const progress = Math.round(((batch + 1) / totalBatches) * 100);
+      if (cepsData.length > 0) {
+        cepBase = cepsData.map((r) => ({
+          logradouro: String(r.logradouro || r.Logradouro || ""),
+          bairro: String(r.bairro || r.Bairro || ""),
+          cidade: String(r.cidade || r.Cidade || ""),
+          uf: String(r.uf || r.UF || ""),
+          cep: String(r.cep || r.CEP || r.Cep || ""),
+        }));
+      }
 
-        toast.loading(`Processando lote ${batch + 1}/${totalBatches} (${progress}%)...`, {
-          id: "match-progress",
-        });
-
-        const requestBody = {
-          payers_csv: chunk,
-          config,
-          endereco_column: enderecoCol,
-          ceps_csv: cepsData.length > 0 ? cepsData : undefined,
-          use_db_ceps: useDbCeps,
-        };
-
-        console.log(`[AddressMatch] Batch ${batch + 1}: sending ${chunk.length} rows, keys:`, Object.keys(requestBody));
-
-        const { data, error } = await supabase.functions.invoke("address-match", {
-          body: JSON.stringify(requestBody),
-          headers: { "Content-Type": "application/json" },
-        });
-
-        if (error) throw error;
-        if (data?.error) throw new Error(data.error);
-
-
-        if (data?.results) {
-          allResults.push(...data.results);
+      if (useDbCeps) {
+        toast.loading("Carregando base de CEPs...", { id: "match-progress" });
+        let page = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from("ceps")
+            .select("logradouro, bairro, cidade, uf, cep")
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          if (error) throw error;
+          if (data && data.length > 0) {
+            cepBase.push(...data.map((r) => ({
+              logradouro: r.logradouro || "",
+              bairro: r.bairro || "",
+              cidade: r.cidade || "",
+              uf: r.uf || "",
+              cep: r.cep || "",
+            })));
+          }
+          hasMore = (data?.length || 0) === pageSize;
+          page++;
         }
       }
 
-      // Phone match pass (separate call if contacts exist)
-      let phoneSummary: { updated?: number } | undefined;
+      if (cepBase.length === 0) {
+        toast.error("Nenhuma base de CEPs disponível");
+        return;
+      }
+
+      // 2. Run matching client-side (no edge function needed!)
+      const startTime = Date.now();
+      const allResults = await processAllRows(
+        payersData,
+        cepBase,
+        enderecoCol,
+        config as EngineMatchConfig,
+        (processed, total) => {
+          const pct = Math.round((processed / total) * 100);
+          toast.loading(`Processando ${processed}/${total} (${pct}%)...`, { id: "match-progress" });
+        },
+      );
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+      // 3. Phone match (client-side)
       if (waContacts.length > 0) {
         toast.loading("Aplicando match de telefones...", { id: "match-progress" });
-
-        const { data: phoneData, error: phoneErr } = await supabase.functions.invoke(
-          "address-match",
-          {
-            body: JSON.stringify({
-              payers_csv: allResults,
-              is_phone_only: true,
-              contacts_json: waContacts,
-              phone_match_config: {
-                name_column: nameCol,
-                phone_column: phoneCol,
-                threshold: 0.86,
-                overwrite: false,
-              },
-              config,
-            }),
-            headers: { "Content-Type": "application/json" },
-          }
-        );
-
-        if (!phoneErr && phoneData?.results) {
-          allResults = phoneData.results;
-          phoneSummary = phoneData.phone_summary;
-        }
+        const pr = runPhoneMatch();
+        setPhoneResults(pr);
       }
 
-      // Build summary & diagnostics client-side
+      // 4. Build summary & diagnostics
       const total = allResults.length;
       const matched = allResults.filter((r) => r.match_ok === true).length;
       const review = allResults.filter((r) => r.review_status === "REVIEW").length;
@@ -376,23 +368,14 @@ export default function AddressMatch() {
         summary: { total, matched, review, failed },
         diagnostics: { topBairros, failures },
         config,
-        cep_base_size: 0,
+        cep_base_size: cepBase.length,
         bairro_index_size: 0,
-        phone_summary: phoneSummary as MatchResponse["phone_summary"],
+        phone_summary: undefined,
       };
 
       setResponse(matchResponse);
       toast.dismiss("match-progress");
-
-      if (waContacts.length > 0) {
-        const pr = runPhoneMatch();
-        setPhoneResults(pr);
-        toast.success(
-          `Concluído: ${matched} endereços + ${phoneSummary?.updated || 0} telefones atualizados`
-        );
-      } else {
-        toast.success(`Processamento concluído: ${matched} matches de ${total}`);
-      }
+      toast.success(`Processamento concluído em ${elapsed}s: ${matched} matches de ${total}`);
     } catch (err: unknown) {
       toast.dismiss("match-progress");
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
