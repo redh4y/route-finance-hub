@@ -190,6 +190,7 @@ export default function FinancialExpenses() {
   const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setPage(1);
