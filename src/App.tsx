@@ -41,6 +41,7 @@ import WhatsappPage from "./pages/Whatsapp";
 import BoletoLinksPage from "./pages/BoletoLinks";
 import PublicBoletoLinksPage from "./pages/PublicBoletoLinks";
 import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
+import AddressMatch from "./pages/AddressMatch";
 
 const queryClient = new QueryClient();
 
