@@ -139,9 +139,14 @@ export default function AddressMatch() {
   const [docCol, setDocCol] = useState("Identif");
   const [useDbCeps, setUseDbCeps] = useState(true);
 
-  // WhatsApp contacts
-  const [waContacts, setWaContacts] = useState<WhatsAppContact[]>([]);
+  // WhatsApp contacts (raw + grouped)
+  const [waRawContacts, setWaRawContacts] = useState<RawWaContact[]>([]);
+  const [waGrouped, setWaGrouped] = useState<GroupedContact[]>([]);
   const [waFileName, setWaFileName] = useState("");
+
+  // Phone match config
+  const [phoneThreshold, setPhoneThreshold] = useState(0.55);
+  const [phoneOverwrite, setPhoneOverwrite] = useState(false);
 
   // Config
   const [config, setConfig] = useState<MatchConfig>({ ...DEFAULT_CONFIG });
@@ -149,7 +154,8 @@ export default function AddressMatch() {
   // State
   const [isProcessing, setIsProcessing] = useState(false);
   const [response, setResponse] = useState<MatchResponse | null>(null);
-  const [phoneResults, setPhoneResults] = useState<PhoneMatchResult[]>([]);
+  const [phoneMatchRows, setPhoneMatchRows] = useState<PhoneMatchRow[]>([]);
+  const [phoneDisplayRows, setPhoneDisplayRows] = useState<PhoneDisplayRow[]>([]);
   const [isSavingContacts, setIsSavingContacts] = useState(false);
   const [isUpdatingPayers, setIsUpdatingPayers] = useState(false);
   const [updatePayersResult, setUpdatePayersResult] = useState<{ updated: number; created: number; errors: number } | null>(null);
@@ -164,22 +170,24 @@ export default function AddressMatch() {
 
   // Phone match summary
   const phoneSummary = useMemo(() => {
-    const total = phoneResults.length;
-    const found = phoneResults.filter((r) => r.wa_found).length;
-    return { total, found, notFound: total - found };
-  }, [phoneResults]);
+    const total = phoneMatchRows.length;
+    const updated = phoneMatchRows.filter((r) => r.phone_match_status === "ATUALIZADO" || r.phone_match_status === "ATUALIZADO_DUPLICADO").length;
+    const secondary = phoneMatchRows.filter((r) => r.phone_match_status === "TELEFONE_SECUNDARIO").length;
+    const below = phoneMatchRows.filter((r) => r.phone_match_status === "ABAIXO_THRESHOLD").length;
+    const alreadyHad = phoneMatchRows.filter((r) => r.phone_match_status === "JA_TINHA_TELEFONE").length;
+    const found = updated + secondary + alreadyHad;
+    return { total, found, updated, secondary, below, alreadyHad, notFound: total - found };
+  }, [phoneMatchRows]);
 
-  // Phone results indexed by payer name for quick lookup in results table
-  const phoneResultsMap = useMemo(() => {
-    const map = new Map<string, PhoneMatchResult>();
-    for (const pr of phoneResults) {
-      // Index by normalized phone digits and by payer name
-      if (pr.payer_phone_digits) map.set(pr.payer_phone_digits, pr);
-      if (pr.payer_name) map.set(pr.payer_name.toLowerCase(), pr);
+  // Phone results indexed by row index for quick lookup in results table
+  const phoneResultsByName = useMemo(() => {
+    const map = new Map<string, PhoneMatchRow>();
+    for (let i = 0; i < payersData.length && i < phoneMatchRows.length; i++) {
+      const name = String(payersData[i][nameCol] || "").toLowerCase();
+      if (name) map.set(name, phoneMatchRows[i]);
     }
     return map;
-  }, [phoneResults]);
-
+  }, [phoneMatchRows, payersData, nameCol]);
 
   const handleFile = useCallback(
     (file: File, setter: (d: Record<string, unknown>[]) => void, fileSetter: (f: File) => void) => {
@@ -205,9 +213,11 @@ export default function AddressMatch() {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        const contacts = Array.isArray(data) ? data : [];
-        setWaContacts(contacts as WhatsAppContact[]);
-        toast.success(`${file.name}: ${contacts.length} contatos carregados`);
+        const raw = Array.isArray(data) ? data : (data?.contacts || [data]);
+        setWaRawContacts(raw as RawWaContact[]);
+        const grouped = readJsonContacts(raw);
+        setWaGrouped(grouped);
+        toast.success(`${file.name}: ${raw.length} contatos → ${grouped.length} agrupados`);
       } catch {
         toast.error("Erro ao ler JSON de contatos");
       }
@@ -215,110 +225,49 @@ export default function AddressMatch() {
     reader.readAsText(file, "UTF-8");
   }, []);
 
-  // ── Phone matching (client-side) — primary: nome, fallback: telefone ──
-  const runPhoneMatch = useCallback(() => {
-    if (payersData.length === 0 || waContacts.length === 0) return [];
+  // ── Run phone match using scored engine ──
+  const runPhoneMatchEngine = useCallback(() => {
+    if (payersData.length === 0 || waGrouped.length === 0) return;
 
-    // Normalize helper for name comparison
-    const normName = (s: string) =>
-      s
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9 ]/g, "")
-        .toLowerCase()
-        .trim();
+    toast.loading("Aplicando match de telefones (scored)...", { id: "phone-match" });
 
-    // Build phone index: last 8 digits → contact
-    const waPhoneIndex = new Map<string, WhatsAppContact>();
-    for (const c of waContacts) {
-      const norm = normalizePhone(c.phone_number);
-      if (norm.length >= 8) {
-        waPhoneIndex.set(norm.slice(-8), c);
-        waPhoneIndex.set(norm, c);
-      }
-    }
+    const pmConfig: PhoneMatchConfig = {
+      threshold: phoneThreshold,
+      overwrite: phoneOverwrite,
+    };
 
-    // Build name index: normalized saved_name → contact[]
-    const waNameIndex = new Map<string, WhatsAppContact[]>();
-    for (const c of waContacts) {
-      const name = normName(c.saved_name || "");
-      if (name.length < 3) continue;
-      const existing = waNameIndex.get(name) || [];
-      existing.push(c);
-      waNameIndex.set(name, existing);
-    }
-
-    const buildResult = (
-      payer: Record<string, unknown>,
-      payerNameRaw: string,
-      rawPhone: string,
-      norm: string,
-      match: WhatsAppContact | undefined,
-      matchType: "nome" | "telefone" | ""
-    ): PhoneMatchResult => ({
-      payer_name: payerNameRaw,
-      payer_phone: rawPhone,
-      payer_phone_digits: norm,
-      wa_found: !!match,
-      wa_saved_name: match?.saved_name || "",
-      wa_public_name: match?.public_name || "",
-      wa_phone: match?.phone_number || "",
-      wa_labels: (match?.labels || []).join(", "),
-      wa_is_business: match?.is_business || false,
-      match_type: matchType,
-    });
-
-    const results: PhoneMatchResult[] = [];
-    for (const payer of payersData) {
-      const rawPhone = String(payer[phoneCol] || "");
-      const payerNameRaw = String(payer[nameCol] || "");
-      if (!rawPhone || rawPhone === "undefined") continue;
-
-      const norm = normalizePhone(rawPhone);
-      const payerNorm = normName(payerNameRaw);
-
-      // 1) Primary: match by name
-      // Try exact normalized name match, also try removing trailing numbers (e.g. "Wagner Goncalves Ribeiro 26")
-      let nameMatch: WhatsAppContact | undefined;
-      if (payerNorm.length >= 3) {
-        // Check each wa contact name: does the payer name appear as a substring or vice versa?
-        const exactList = waNameIndex.get(payerNorm);
-        if (exactList && exactList.length === 1) {
-          nameMatch = exactList[0];
-        } else if (!exactList) {
-          // Try partial: payer name contained in saved_name or vice versa
-          for (const [wName, contacts] of waNameIndex) {
-            if (contacts.length !== 1) continue;
-            if (
-              (payerNorm.length >= 5 && wName.includes(payerNorm)) ||
-              (wName.length >= 5 && payerNorm.includes(wName))
-            ) {
-              nameMatch = contacts[0];
-              break;
-            }
-          }
+    const results = applyPhoneMatch(
+      payersData,
+      waGrouped,
+      nameCol,
+      phoneCol,
+      pmConfig,
+      (processed, total) => {
+        if (processed % 200 === 0) {
+          const pct = Math.round((processed / total) * 100);
+          toast.loading(`Match telefones: ${processed}/${total} (${pct}%)...`, { id: "phone-match" });
         }
-      }
+      },
+    );
 
-      if (nameMatch) {
-        results.push(buildResult(payer, payerNameRaw, rawPhone, norm, nameMatch, "nome"));
-        continue;
-      }
+    setPhoneMatchRows(results);
 
-      // 2) Fallback: match by phone
-      if (norm.length < 8) {
-        results.push(buildResult(payer, payerNameRaw, rawPhone, norm, undefined, ""));
-        continue;
-      }
-
-      const phoneMatch = waPhoneIndex.get(norm) || waPhoneIndex.get(norm.slice(-8));
-      results.push(
-        buildResult(payer, payerNameRaw, rawPhone, norm, phoneMatch, phoneMatch ? "telefone" : "")
-      );
+    // Build display rows
+    const display: PhoneDisplayRow[] = [];
+    for (let i = 0; i < payersData.length && i < results.length; i++) {
+      display.push({
+        payer_name: String(payersData[i][nameCol] || ""),
+        payer_phone: String(payersData[i][phoneCol] || ""),
+        match: results[i],
+      });
     }
+    setPhoneDisplayRows(display);
 
-    return results;
-  }, [payersData, waContacts, phoneCol, nameCol]);
+    toast.dismiss("phone-match");
+    const updated = results.filter((r) => r.phone_match_status === "ATUALIZADO" || r.phone_match_status === "ATUALIZADO_DUPLICADO").length;
+    const secondary = results.filter((r) => r.phone_match_status === "TELEFONE_SECUNDARIO").length;
+    toast.success(`Match telefones: ${updated} atualizados, ${secondary} secundários de ${results.length}`);
+  }, [payersData, waGrouped, nameCol, phoneCol, phoneThreshold, phoneOverwrite]);
 
   // ── Run match (chunked) ──
   const runMatch = async () => {
@@ -329,7 +278,8 @@ export default function AddressMatch() {
 
     setIsProcessing(true);
     setResponse(null);
-    setPhoneResults([]);
+    setPhoneMatchRows([]);
+    setPhoneDisplayRows([]);
 
     try {
       // 1. Fetch CEP base (once)
@@ -375,7 +325,7 @@ export default function AddressMatch() {
         return;
       }
 
-      // 2. Run matching client-side (no edge function needed!)
+      // 2. Run matching client-side
       const startTime = Date.now();
       const allResults = await processAllRows(
         payersData,
@@ -389,15 +339,29 @@ export default function AddressMatch() {
       );
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-      // 3. Phone match (client-side)
-      let phoneMatchCount = 0;
-      let phoneMatchTotal = 0;
-      if (waContacts.length > 0) {
+      // 3. Phone match (scored engine)
+      let phoneInfo = "";
+      if (waGrouped.length > 0) {
         toast.loading("Aplicando match de telefones...", { id: "match-progress" });
-        const pr = runPhoneMatch();
-        setPhoneResults(pr);
-        phoneMatchTotal = pr.length;
-        phoneMatchCount = pr.filter((r) => r.wa_found).length;
+        const pmConfig: PhoneMatchConfig = { threshold: phoneThreshold, overwrite: phoneOverwrite };
+        const pmResults = applyPhoneMatch(payersData, waGrouped, nameCol, phoneCol, pmConfig);
+        setPhoneMatchRows(pmResults);
+
+        const display: PhoneDisplayRow[] = [];
+        for (let i = 0; i < payersData.length && i < pmResults.length; i++) {
+          display.push({
+            payer_name: String(payersData[i][nameCol] || ""),
+            payer_phone: String(payersData[i][phoneCol] || ""),
+            match: pmResults[i],
+          });
+        }
+        setPhoneDisplayRows(display);
+
+        const updated = pmResults.filter((r) => r.phone_match_status === "ATUALIZADO" || r.phone_match_status === "ATUALIZADO_DUPLICADO").length;
+        const secondary = pmResults.filter((r) => r.phone_match_status === "TELEFONE_SECUNDARIO").length;
+        phoneInfo = ` | Tel: ${updated} atualizados, ${secondary} secundários`;
+      } else {
+        phoneInfo = " | ⚠️ JSON de contatos não carregado";
       }
 
       // 4. Build summary & diagnostics
@@ -436,13 +400,11 @@ export default function AddressMatch() {
         config,
         cep_base_size: cepBase.length,
         bairro_index_size: 0,
-        phone_summary: undefined,
       };
 
       setResponse(matchResponse);
       toast.dismiss("match-progress");
-      const phonePart = phoneMatchTotal > 0 ? ` | Telefones: ${phoneMatchCount}/${phoneMatchTotal}` : waContacts.length === 0 ? " | ⚠️ JSON de contatos não carregado" : "";
-      toast.success(`Processamento concluído em ${elapsed}s: ${matched} matches de ${total}${phonePart}`);
+      toast.success(`Processamento concluído em ${elapsed}s: ${matched} matches de ${total}${phoneInfo}`);
     } catch (err: unknown) {
       toast.dismiss("match-progress");
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
@@ -454,14 +416,11 @@ export default function AddressMatch() {
 
   // Run only phone match (without address)
   const runPhoneOnly = () => {
-    if (payersData.length === 0 || waContacts.length === 0) {
+    if (payersData.length === 0 || waGrouped.length === 0) {
       toast.error("Carregue o CSV de pagadores e o JSON de contatos");
       return;
     }
-    const pr = runPhoneMatch();
-    setPhoneResults(pr);
-    const found = pr.filter((r) => r.wa_found).length;
-    toast.success(`Match de telefones: ${found}/${pr.length} encontrados`);
+    runPhoneMatchEngine();
   };
 
   // ── Import contacts to DB ──
