@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { processAllRows, type CepRecord, type MatchConfig as EngineMatchConfig } from "@/lib/address-match-engine";
@@ -443,10 +444,8 @@ export default function AddressMatch() {
   };
 
   // ── CSV download ──
-  const downloadCsv = () => {
-    if (!response?.results) return;
-
-    // Enrich results with phone data if available
+  const getEnrichedResults = () => {
+    if (!response?.results) return [];
     let enriched = response.results;
     if (phoneResults.length > 0) {
       const phoneMap = new Map<string, PhoneMatchResult>();
@@ -468,13 +467,19 @@ export default function AddressMatch() {
         };
       });
     }
+    return enriched;
+  };
 
-    const csv = Papa.unparse(enriched);
+  const downloadCsv = (delimiter: "," | ";") => {
+    const enriched = getEnrichedResults();
+    if (!enriched.length) return;
+    const csv = Papa.unparse(enriched, { delimiter });
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `match_enderecos_${new Date().toISOString().slice(0, 10)}.csv`;
+    const suffix = delimiter === ";" ? "_ponto_virgula" : "";
+    a.download = `match_enderecos_${new Date().toISOString().slice(0, 10)}${suffix}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -499,10 +504,22 @@ export default function AddressMatch() {
             </div>
             <div className="flex gap-2 self-start">
               {response && (
-                <Button onClick={downloadCsv} className="gap-2">
-                  <Download className="h-4 w-4" />
-                  Exportar CSV
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button className="gap-2">
+                      <Download className="h-4 w-4" />
+                      Exportar CSV
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => downloadCsv(",")}>
+                      Separado por vírgula (,)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => downloadCsv(";")}>
+                      Separado por ponto e vírgula (;)
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
           </div>
