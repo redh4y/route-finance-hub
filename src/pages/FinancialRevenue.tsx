@@ -555,11 +555,11 @@ export default function FinancialRevenue() {
                       <Skeleton key={i} className="h-12" />
                     ))}
                   </div>
-                ) : filteredBillings && filteredBillings.length > 0 ? (
-                  <div className="max-h-[400px] overflow-auto">
+                ) : billings.length > 0 ? (
+                  <div>
                     {/* Mobile: Card list */}
                     <div className="lg:hidden space-y-2 p-1">
-                      {filteredBillings.slice(0, 20).map(billing => (
+                      {billings.map(billing => (
                         <div key={billing.id} className="p-3 rounded-lg border bg-card flex items-center justify-between">
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">{billing.payers?.name || billing.payer_id}</p>
@@ -589,7 +589,7 @@ export default function FinancialRevenue() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {filteredBillings.slice(0, 20).map(billing => (
+                          {billings.map(billing => (
                             <TableRow key={billing.id}>
                               <TableCell>
                                 <div className="flex items-center gap-2">
@@ -609,10 +609,31 @@ export default function FinancialRevenue() {
                         </TableBody>
                       </Table>
                     </div>
-                    {filteredBillings.length > 20 && (
-                      <p className="text-sm text-muted-foreground text-center py-2">
-                        ... e mais {filteredBillings.length - 20} boletos
-                      </p>
+                    {/* Pagination */}
+                    {totalBillingsPages > 1 && (
+                      <div className="flex items-center justify-between pt-4 border-t mt-4">
+                        <p className="text-sm text-muted-foreground">
+                          {totalBillings} boleto{totalBillings !== 1 ? 's' : ''} · Página {billingsPage} de {totalBillingsPages}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={billingsPage <= 1}
+                            onClick={() => setBillingsPage(p => p - 1)}
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={billingsPage >= totalBillingsPages}
+                            onClick={() => setBillingsPage(p => p + 1)}
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 ) : (
