@@ -188,8 +188,8 @@ export default function Cards() {
     <MainLayout>
       <PageTransition>
       <div className="page-header">
-        <h1 className="page-title">Cart?es</h1>
-        <p className="page-subtitle">Cadastre os cart?es para importa??o de faturas</p>
+        <h1 className="page-title">Cartões</h1>
+        <p className="page-subtitle">Cadastre os cartões para importação de faturas</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
