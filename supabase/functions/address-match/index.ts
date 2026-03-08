@@ -209,14 +209,18 @@ function seqRatio(a: string, b: string): number {
   if (!s1 || !s2) return 0;
   const m = s1.length;
   const n = s2.length;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  const lenRatio = m > n ? n / m : m / n;
+  if (lenRatio < 0.3) return lenRatio;
+  const prev = new Array(n + 1).fill(0);
+  const curr = new Array(n + 1).fill(0);
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      if (s1[i - 1] === s2[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
-      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      if (s1[i - 1] === s2[j - 1]) curr[j] = prev[j - 1] + 1;
+      else curr[j] = prev[j] > curr[j - 1] ? prev[j] : curr[j - 1];
     }
+    for (let j = 0; j <= n; j++) { prev[j] = curr[j]; curr[j] = 0; }
   }
-  return (2 * dp[m][n]) / (m + n);
+  return (2 * prev[n]) / (m + n);
 }
 
 interface ScoreResult {
