@@ -282,9 +282,9 @@ export default function Audit() {
               <Input
                 placeholder="Buscar por tabela, registro, usuário ou campo..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
-              <Select value={tableFilter} onValueChange={setTableFilter}>
+              <Select value={tableFilter} onValueChange={handleTableFilterChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Tabela" />
                 </SelectTrigger>
