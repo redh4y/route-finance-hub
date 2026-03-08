@@ -196,31 +196,35 @@ export default function Payers() {
           </div>
 
           {/* ── Stats row (scrollable on mobile) ── */}
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
+          <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-1">
             {QUICK_FILTERS.map((filter) => {
               const isSelected = quickFilter === filter.key;
               const count = filterCount(filter.key);
+              const iconColorClasses =
+                filter.key === "all"
+                  ? "text-sky-600"
+                  : filter.key === "active"
+                    ? "text-emerald-600"
+                    : filter.key === "inactive"
+                      ? "text-red-600"
+                      : filter.key === "review"
+                        ? "text-violet-600"
+                        : filter.key === "uncatalogued"
+                          ? "text-amber-600"
+                          : "text-foreground";
+
               return (
-                <button
+                <Button
                   key={filter.key}
+                  variant={isSelected ? "secondary" : "ghost"}
+                  size="sm"
                   onClick={() => setQuickFilter(filter.key)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all shrink-0",
-                    "border",
-                    isSelected
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : "bg-card text-muted-foreground border-border hover:border-foreground/20 hover:text-foreground"
-                  )}
+                  className={cn("gap-1.5 text-xs shrink-0 whitespace-nowrap", isSelected && "shadow-sm")}
                 >
-                  <filter.icon className="h-3.5 w-3.5" />
+                  <filter.icon className={cn("h-3.5 w-3.5", iconColorClasses)} />
                   {filter.label}
-                  <span className={cn(
-                    "ml-0.5 tabular-nums",
-                    isSelected ? "text-primary-foreground/80" : "text-muted-foreground/60"
-                  )}>
-                    {count}
-                  </span>
-                </button>
+                  <span className="ml-0.5 tabular-nums text-muted-foreground/60">{count}</span>
+                </Button>
               );
             })}
           </div>
