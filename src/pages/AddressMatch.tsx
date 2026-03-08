@@ -981,7 +981,7 @@ export default function AddressMatch() {
                       </>
                     )}
                   </Button>
-                  {waContacts.length > 0 && payersData.length > 0 && (
+                  {waGrouped.length > 0 && payersData.length > 0 && (
                     <Button
                       onClick={runPhoneOnly}
                       variant="outline"
