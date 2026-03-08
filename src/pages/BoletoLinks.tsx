@@ -963,6 +963,8 @@ export default function BoletoLinksPage() {
               </ScrollArea>
             </CardContent>
           </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </PageTransition>
     </MainLayout>
