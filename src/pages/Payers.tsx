@@ -298,7 +298,9 @@ export default function Payers() {
                         ? "text-violet-600"
                         : filter.key === "uncatalogued"
                           ? "text-amber-600"
-                          : "text-foreground";
+                          : filter.key === "invalidCpf"
+                            ? "text-rose-600"
+                            : "text-foreground";
 
               return (
                 <Button
