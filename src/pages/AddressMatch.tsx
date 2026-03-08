@@ -480,9 +480,10 @@ export default function AddressMatch() {
     setPayerChangesPreview([]);
 
     try {
-      const phoneMap = new Map<string, PhoneMatchResult>();
-      for (const pr of phoneResults) {
-        if (pr.payer_phone_digits) phoneMap.set(pr.payer_phone_digits, pr);
+      // Build phone map from phoneMatchRows (index by row position)
+      const phoneByIdx = new Map<number, PhoneMatchRow>();
+      for (let i = 0; i < phoneMatchRows.length; i++) {
+        phoneByIdx.set(i, phoneMatchRows[i]);
       }
 
       const fieldLabels: Record<string, string> = {
