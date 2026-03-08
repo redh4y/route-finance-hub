@@ -404,6 +404,21 @@ export default function FinancialRevenue() {
           </Card>
         </div>
 
+        {/* Collection rate */}
+        <Card className="mb-6">
+          <CardContent className="pt-6 pb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-muted-foreground">
+                Taxa de Arrecadação
+              </span>
+              <span className={`text-sm font-bold ${collectionRate >= 80 ? 'text-success' : collectionRate >= 50 ? 'text-warning' : 'text-destructive'}`}>
+                {collectionRate}%
+              </span>
+            </div>
+            <Progress value={Math.min(collectionRate, 100)} className="h-2" />
+          </CardContent>
+        </Card>
+
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Form */}
           <Card className="lg:col-span-1">
