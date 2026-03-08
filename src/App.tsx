@@ -281,6 +281,14 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/match-enderecos"
+                element={
+                  <ProtectedRoute>
+                    <AddressMatch />
+                  </ProtectedRoute>
+                }
+              />
               {/* Public routes - no auth required */}
               <Route path="/site" element={<LandingPage />} />
               <Route path="/public/excursoes" element={<PublicExcursions />} />
