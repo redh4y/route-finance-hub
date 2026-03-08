@@ -218,7 +218,7 @@ export default function Payers() {
         name,
         document: newPayer.document.trim() || null,
         document_digits: documentDigits || null,
-        document_valid: documentDigits.length === 11 ? true : null,
+        document_valid: validateCPF(documentDigits),
         phone: phoneDigits || null,
         neighborhood: newPayer.neighborhood.trim() || null,
         billing_mode: newPayer.billingMode,
