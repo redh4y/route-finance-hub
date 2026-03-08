@@ -769,6 +769,15 @@ export function useOptimizedImportBillings() {
         await deactivatePayersNotInImport(result.referenceMonth, payerIdsInImport);
       }
 
+      // Build diff summary
+      const diffSummary = {
+        new_billings: newBillings.length,
+        updated_billings: updateBillings.length,
+        new_payers: payersToCreate.length,
+        payer_updates: payerUpdates.size,
+        errors: result.errors,
+      };
+
       // Update import log
       const { data: importLog } = await logPromise;
       if (importLog?.id) {
@@ -781,6 +790,7 @@ export function useOptimizedImportBillings() {
             error_rows: result.errors,
             errors: result.errorDetails.slice(0, 100),
             completed_at: new Date().toISOString(),
+            diff_summary: diffSummary,
           })
           .eq("id", importLog.id);
       }
@@ -792,14 +802,15 @@ export function useOptimizedImportBillings() {
       queryClient.invalidateQueries({ queryKey: ["billings"] });
       queryClient.invalidateQueries({ queryKey: ["payers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
 
       const payerSummary =
         typeof result.payerUpdatesChanged === "number" && typeof result.payerUpdatesUnchanged === "number"
-          ? ` Pagadores alterados: ${result.payerUpdatesChanged}. Sem mudanca: ${result.payerUpdatesUnchanged}.`
+          ? ` Pagadores alterados: ${result.payerUpdatesChanged}. Sem mudança: ${result.payerUpdatesUnchanged}.`
           : "";
 
       if (result.errors > 0) {
-        toast.warning(`Importacao: ${result.success} OK, ${result.errors} erros.${payerSummary}`);
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros.${payerSummary}`);
       } else {
         toast.success(`${result.success} boletos importados!${payerSummary}`);
       }
