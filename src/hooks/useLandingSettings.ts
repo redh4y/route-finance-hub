@@ -30,6 +30,7 @@ export function usePublicExcursions() {
         .eq("public_enabled", true)
         .not("public_token", "is", null)
         .in("status", ["EM_VENDA", "LOTADA", "ABERTA", "PUBLICADA"])
+        .gte("departure_at", new Date().toISOString())
         .order("departure_at", { ascending: true });
       if (error) throw error;
 
