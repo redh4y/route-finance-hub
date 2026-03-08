@@ -1,4 +1,4 @@
-import { Bus, Steering } from "lucide-react";
+import { Bus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Seat {
