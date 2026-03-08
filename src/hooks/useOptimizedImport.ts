@@ -140,6 +140,7 @@ export function useOptimizedImportPayers() {
   const mutation = useMutation({
     mutationFn: async (file: File): Promise<ImportResult> => {
       const rows = await parseCSV<PayerCSVRow>(file);
+      const runId = crypto.randomUUID();
       const result: ImportResult = {
         total: rows.length,
         success: 0,
@@ -147,7 +148,7 @@ export function useOptimizedImportPayers() {
         errorDetails: [],
       };
 
-      // Create import log (fire and forget)
+      // Create import log with run_id
       const logPromise = supabase
         .from("import_logs")
         .insert({
@@ -155,6 +156,7 @@ export function useOptimizedImportPayers() {
           type: "PAYERS",
           total_rows: rows.length,
           status: "PROCESSING",
+          run_id: runId,
         })
         .select("id")
         .single();
