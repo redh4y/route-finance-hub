@@ -320,7 +320,7 @@ export default function AddressMatch() {
         const { data: phoneData, error: phoneErr } = await supabase.functions.invoke(
           "address-match",
           {
-            body: {
+            body: JSON.stringify({
               payers_csv: allResults,
               is_phone_only: true,
               contacts_json: waContacts,
@@ -331,7 +331,8 @@ export default function AddressMatch() {
                 overwrite: false,
               },
               config,
-            },
+            }),
+            headers: { "Content-Type": "application/json" },
           }
         );
 
