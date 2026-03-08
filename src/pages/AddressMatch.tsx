@@ -82,7 +82,6 @@ interface MatchResponse {
   config: MatchConfig;
   cep_base_size: number;
   bairro_index_size: number;
-  phone_summary?: { total: number; updated: number; secondary: number; below: number };
 }
 
 interface RawWaContact {
