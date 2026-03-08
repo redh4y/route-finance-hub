@@ -122,6 +122,7 @@ export function usePayersStats() {
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("status", "INATIVO"),
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("needs_review", true),
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("review_reason", "IMPORT_BILLING_SEM_CADASTRO"),
+        supabase.from("payers").select("id", { count: "exact", head: true }).eq("document_valid", false),
       ]);
 
       return {
@@ -130,6 +131,7 @@ export function usePayersStats() {
         inactive: inactive || 0,
         review: review || 0,
         uncatalogued: uncatalogued || 0,
+        invalidCpf: invalidCpf || 0,
       };
     },
   });
