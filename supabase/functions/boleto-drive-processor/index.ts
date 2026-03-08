@@ -7,7 +7,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-/* ─── Google Drive helpers ─── */
+/* ═══════════════════════════════════════════════════════════
+   Google Drive helpers
+   ═══════════════════════════════════════════════════════════ */
 
 async function driveGet(token: string, url: string, init?: RequestInit) {
   const res = await fetch(url, {
@@ -28,10 +30,18 @@ async function listPdfFiles(token: string, folderId: string) {
   const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,webViewLink,webContentLink)&pageSize=1000&orderBy=name`;
   const res = await driveGet(token, url);
   const data = await res.json();
-  return (data.files || []) as Array<{ id: string; name: string; webViewLink?: string; webContentLink?: string }>;
+  return (data.files || []) as Array<{
+    id: string;
+    name: string;
+    webViewLink?: string;
+    webContentLink?: string;
+  }>;
 }
 
-async function getFolderName(token: string, folderId: string): Promise<string> {
+async function getFolderName(
+  token: string,
+  folderId: string
+): Promise<string> {
   try {
     const res = await driveGet(
       token,
@@ -46,12 +56,14 @@ async function getFolderName(token: string, folderId: string): Promise<string> {
 
 /**
  * Extrai texto de um PDF usando Google Drive OCR:
- * 1. Copia o PDF como Google Doc (isso dispara OCR)
+ * 1. Copia o PDF como Google Doc (dispara OCR interno)
  * 2. Exporta o Doc como texto puro
  * 3. Deleta o Doc temporário
  */
-async function extractTextViaDriveOcr(token: string, fileId: string): Promise<string> {
-  // 1. Copy as Google Doc
+async function extractTextViaDriveOcr(
+  token: string,
+  fileId: string
+): Promise<string> {
   const copyRes = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}/copy`,
     {
@@ -66,15 +78,12 @@ async function extractTextViaDriveOcr(token: string, fileId: string): Promise<st
       }),
     }
   );
-
   if (!copyRes.ok) {
     const err = await copyRes.text();
     throw new Error(`OCR copy failed: ${err}`);
   }
   const copy = await copyRes.json();
-
   try {
-    // 2. Export as plain text
     const textRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${copy.id}/export?mimeType=text/plain`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -82,7 +91,6 @@ async function extractTextViaDriveOcr(token: string, fileId: string): Promise<st
     if (!textRes.ok) throw new Error("Export as text failed");
     return await textRes.text();
   } finally {
-    // 3. Delete temp doc
     await fetch(`https://www.googleapis.com/drive/v3/files/${copy.id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
@@ -90,106 +98,399 @@ async function extractTextViaDriveOcr(token: string, fileId: string): Promise<st
   }
 }
 
-/* ─── Boleto field parsing ─── */
+/* ═══════════════════════════════════════════════════════════
+   Boleto parsing — ported from boleto_drive_processor.py
+   ═══════════════════════════════════════════════════════════ */
 
-function parseBoletoFields(text: string) {
-  const result = {
-    payer_name: "",
-    payer_cpf: "",
-    our_number: "",
-    digitable_line: "",
-    amount: "",
-    due_date: "",
-  };
+function normalizeSpaces(text: string): string {
+  return (text || "").replace(/\s+/g, " ").trim();
+}
 
-  // Pagador / Sacado
-  const payerPatterns = [
-    /(?:pagador|sacado|nome\s*(?:do\s*)?(?:pagador|sacado))[:\s]+([A-ZÀ-Ú][A-ZÀ-Úa-zà-ú\s]{3,60})/i,
-    /(?:pagador|sacado)[:\s]*\n?\s*([A-ZÀ-Ú][A-ZÀ-Úa-zà-ú\s]{3,60})/i,
+function stripAccents(text: string): string {
+  return (text || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeForSearch(text: string): string {
+  let t = stripAccents(text).toUpperCase();
+  t = t.replace(/\xa0/g, " ");
+  t = t.replace(/[\t\r]+/g, " ");
+  t = t.replace(/\s+/g, " ");
+  return t;
+}
+
+function toMoneyFloat(v: string): number {
+  const raw = (v || "").trim().replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(raw);
+  return isNaN(n) ? -1 : n;
+}
+
+function formatCpf(cpfRaw: string): string {
+  const digits = (cpfRaw || "").replace(/\D/g, "");
+  return digits.length === 11 ? digits : "";
+}
+
+function cleanNomePagador(nome: string): string {
+  let n = normalizeSpaces(nome);
+  if (!n) return "";
+  n = n.replace(
+    /^(PAGADOR|SACADO|NOME\s+DO\s+PAGADOR)\s*[:\-]?\s*/i,
+    ""
+  );
+  n = n.replace(/\s*-\s*(CPF|CNPJ)\s*[:\-]?\s*\d.*$/i, "");
+  n = n.replace(/\b(CPF|CNPJ)\b\s*[:\-]?\s*\d.*$/i, "");
+  return normalizeSpaces(n);
+}
+
+const NOISE_TERMS = [
+  "CORTE NA LINHA ABAIXO",
+  "CORTE AQUI",
+  "RECIBO DO PAGADOR",
+  "FICHA DE COMPENSACAO",
+  "DESCONT",
+  "ABATIMENT",
+  "QUANTIDADE",
+  "MOEDA",
+  "ESPECIE",
+  "CARTEIRA",
+  "NOSSO NUMERO",
+  "NUMERO DOCUMENTO",
+  "USO DO BANCO",
+  "AGENCIA",
+  "CODIGO BENEFICIARIO",
+  "BENEFICIARIO",
+  "CEDENTE",
+  "SACADOR",
+  "AUTENTICACAO",
+  "LOCAL DE PAGAMENTO",
+  "DATA DOCUMENTO",
+  "PROCESSAMENTO",
+  "PARCELA",
+  "INSTRUCOES",
+  "PAGAVEL",
+  "BANCO",
+  "VALOR DOCUMENTO",
+  "VALOR COBRADO",
+  "JUROS",
+  "MULTA",
+  "VALOR",
+  "DOCUMENTO",
+  "PAGAMENTO",
+  "LINHA DIGITAVEL",
+];
+
+function nomeLooksLikeNoise(nome: string): boolean {
+  const n = normalizeForSearch(nome);
+  if (!n || n.length < 6) return true;
+  return NOISE_TERMS.some((t) => n.includes(t));
+}
+
+function sanitizeFilename(name: string): string {
+  let n = (name || "").replace(/[\\/*?:"<>|]/g, "");
+  n = normalizeSpaces(n);
+  return n.slice(0, 180);
+}
+
+/* ─── Field extraction (mirrors Python logic) ─── */
+
+function findLinhaDigitavel(texto: string): string {
+  const text = normalizeSpaces(texto);
+  const patterns = [
+    /\d{5}\.\d{5}\s+\d{5}\.\d{6}\s+\d{5}\.\d{6}\s+\d\s+\d{14}/,
+    /\b\d{47}\b/,
+    /\b\d{48}\b/,
   ];
-  for (const pat of payerPatterns) {
-    const m = text.match(pat);
-    if (m) {
-      result.payer_name = m[1].trim().replace(/\s{2,}/g, " ");
-      break;
-    }
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) return m[0].replace(/\D/g, "");
+  }
+  return "";
+}
+
+function findNossoNumero(texto: string): string {
+  const t = normalizeForSearch(texto);
+  const m = t.match(
+    /NOSSO\s+NUMERO\s*[:\-]?\s*([0-9]{2,}[0-9/\-]{3,})/i
+  );
+  if (m) return normalizeSpaces(m[1]);
+
+  const m2 = texto.match(/\b\d{2}\/\d{5,8}-\d\b/);
+  return m2 ? m2[0] : "";
+}
+
+function findValor(texto: string): string {
+  const tNorm = normalizeForSearch(texto);
+
+  // Labeled patterns (highest priority)
+  const labeledPatterns = [
+    /VALOR\s+(?:DO\s+)?DOCUMENTO\s*[:=\-]?\s*R?\$?\s*([\d.]{1,12},\d{2})/i,
+    /VALOR\s+COBRADO\s*[:=\-]?\s*R?\$?\s*([\d.]{1,12},\d{2})/i,
+    /\(=\)\s*VALOR\s+(?:DO\s+)?DOCUMENTO\s*[:=\-]?\s*R?\$?\s*([\d.]{1,12},\d{2})/i,
+  ];
+  const candidates: string[] = [];
+  for (const p of labeledPatterns) {
+    const matches = tNorm.matchAll(new RegExp(p.source, p.flags + "g"));
+    for (const m of matches) candidates.push(m[1]);
+  }
+  if (candidates.length) {
+    candidates.sort((a, b) => toMoneyFloat(b) - toMoneyFloat(a));
+    return candidates[0];
   }
 
-  // CPF (11 dígitos)
-  const cpfPatterns = [
-    /(?:cpf|cnpj|cpf\/cnpj)[:\s]*(\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[\-\.\s]?\d{2})/i,
-    /(\d{3}\.\d{3}\.\d{3}-\d{2})/,
-  ];
-  for (const pat of cpfPatterns) {
-    const m = text.match(pat);
-    if (m) {
-      result.payer_cpf = m[1].replace(/\D/g, "");
-      break;
-    }
-  }
-
-  // Nosso Número
-  const nnPatterns = [
-    /nosso\s*n[uú]mero[:\s]*([0-9\/\-\.]+[\d])/i,
-    /nosso\s*n[uú]mero\s*\n?\s*([0-9\/\-\.]+[\d])/i,
-  ];
-  for (const pat of nnPatterns) {
-    const m = text.match(pat);
-    if (m) {
-      result.our_number = m[1].trim();
-      break;
-    }
-  }
-
-  // Linha Digitável — padrões comuns de boleto bancário
-  const ldPatterns = [
-    // Padrão segmentado: 5.5 5.5 5.6 1 14
-    /(\d{5}\.?\d{5}\s*\d{5}\.?\d{6}\s*\d{5}\.?\d{6}\s*\d\s*\d{14})/,
-    // Sequência longa de dígitos (44-48 chars)
-    /(\d[\d\.\s]{42,58}\d)/,
-  ];
-  for (const pat of ldPatterns) {
-    const m = text.match(pat);
-    if (m) {
-      const cleaned = m[1].replace(/[\s\.]/g, "");
-      if (cleaned.length >= 44 && cleaned.length <= 48) {
-        result.digitable_line = cleaned;
-        break;
+  // Lines containing VALOR + DOCUMENTO
+  for (const linha of texto.split("\n")) {
+    const ln = normalizeForSearch(linha);
+    if (ln.includes("VALOR") && ln.includes("DOCUMENTO")) {
+      const vals = [...linha.matchAll(/([\d.]{1,12},\d{2})/g)].map(
+        (m) => m[1]
+      );
+      if (vals.length) {
+        vals.sort((a, b) => toMoneyFloat(b) - toMoneyFloat(a));
+        return vals[0];
       }
     }
   }
 
-  // Valor
-  const valPatterns = [
-    /(?:valor\s*(?:do\s*)?(?:documento|cobrado|total))[:\s]*R?\$?\s*([\d.,]+)/i,
-    /(?:valor)[:\s]*R?\$?\s*([\d.,]+)/i,
-    /R\$\s*([\d.,]+)/,
-  ];
-  for (const pat of valPatterns) {
-    const m = text.match(pat);
-    if (m) {
-      result.amount = m[1].trim();
-      break;
-    }
+  // Fallback: largest monetary value
+  const allVals = [...texto.matchAll(/\b([\d.]{1,12},\d{2})\b/g)].map(
+    (m) => m[1]
+  );
+  if (allVals.length) {
+    allVals.sort((a, b) => toMoneyFloat(b) - toMoneyFloat(a));
+    return allVals[0];
   }
-
-  // Vencimento
-  const datePatterns = [
-    /(?:vencimento|venc\.?|data\s*(?:de\s*)?vencimento)[:\s]*(\d{2}\/\d{2}\/\d{4})/i,
-    /(\d{2}\/\d{2}\/\d{4})/,
-  ];
-  for (const pat of datePatterns) {
-    const m = text.match(pat);
-    if (m) {
-      result.due_date = m[1];
-      break;
-    }
-  }
-
-  return result;
+  return "";
 }
 
-async function renameFile(token: string, fileId: string, newName: string) {
+function findVencimento(texto: string): string {
+  const t = normalizeForSearch(texto);
+  const labeled = [
+    /VENCIMENTO\s*[:\-]?\s*(\d{2}\/\d{2}\/\d{4})/,
+    /DATA\s+DE\s+VENCIMENTO\s*[:\-]?\s*(\d{2}\/\d{2}\/\d{4})/,
+  ];
+  for (const p of labeled) {
+    const m = t.match(p);
+    if (m) return m[1];
+  }
+  const m2 = t.match(/\b(\d{2}\/\d{2}\/\d{4})\b/);
+  return m2 ? m2[1] : "";
+}
+
+/* ─── Name + CPF extraction (multi-strategy, mirrors Python) ─── */
+
+function findNameNearCpf(
+  linhas: string[]
+): { nome: string; cpf: string } {
+  const cpfPat = /\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/;
+  const labelPat = /\b(PAGADOR|SACADO|NOME DO PAGADOR)\b/i;
+
+  for (let i = 0; i < linhas.length; i++) {
+    const cpfM = linhas[i].match(cpfPat);
+    if (!cpfM) continue;
+    const cpf = formatCpf(cpfM[1]);
+    if (!cpf) continue;
+
+    for (
+      let j = Math.max(0, i - 3);
+      j < Math.min(linhas.length, i + 4);
+      j++
+    ) {
+      let cand = linhas[j];
+      if (labelPat.test(cand)) {
+        cand = cand.replace(
+          /^.*\b(PAGADOR|SACADO|NOME\s+DO\s+PAGADOR)\b\s*[:\-]?\s*/i,
+          ""
+        );
+      }
+      cand = cand.replace(
+        /\b(CPF|CNPJ)\b\s*[:\-]?\s*\d.*$/i,
+        ""
+      );
+      cand = cand.replace(
+        /\s*-\s*(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11}).*$/,
+        ""
+      );
+      cand = cleanNomePagador(cand);
+      if (cand.split(/\s+/).length >= 2 && !nomeLooksLikeNoise(cand)) {
+        return { nome: cand, cpf };
+      }
+    }
+  }
+  return { nome: "", cpf: "" };
+}
+
+function extractNameCpfFromFilename(
+  fileName: string
+): { nome: string; cpf: string } {
+  const base = (fileName || "")
+    .replace(/\.pdf$/i, "")
+    .trim();
+  const m = base.match(/(.+?)\s*-\s*(\d{11})$/);
+  if (!m) return { nome: "", cpf: "" };
+  const nome = cleanNomePagador(m[1]);
+  const cpf = formatCpf(m[2]);
+  if (!nome || nomeLooksLikeNoise(nome)) return { nome: "", cpf };
+  return { nome, cpf };
+}
+
+function findNomeCpf(texto: string): { nome: string; cpf: string } {
+  const linhas = texto
+    .split("\n")
+    .map((l) => normalizeSpaces(l))
+    .filter(Boolean);
+
+  // Strategy 1: "NOME - CPF" on same line
+  for (const linha of linhas) {
+    // With CPF/CNPJ label
+    const mLabel = linha.match(
+      /([A-ZÀ-Ý][A-ZÀ-Ý\s]{6,})\s*-\s*(?:CPF|CNPJ)\s*[:\-]?\s*(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/i
+    );
+    if (mLabel) {
+      const nome = cleanNomePagador(mLabel[1]);
+      const cpf = formatCpf(mLabel[2]);
+      if (nome && cpf && !nomeLooksLikeNoise(nome)) return { nome, cpf };
+    }
+
+    // Without label
+    const m = linha.match(
+      /([A-ZÀ-Ý][A-ZÀ-Ý\s]{6,})\s*-\s*(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/i
+    );
+    if (m) {
+      const nome = cleanNomePagador(m[1]);
+      const cpf = formatCpf(m[2]);
+      if (nome && cpf && !nomeLooksLikeNoise(nome)) return { nome, cpf };
+    }
+  }
+
+  // Strategy 2: Proximity to PAGADOR/SACADO labels
+  const labels = new Set(["PAGADOR", "SACADO", "NOME DO PAGADOR"]);
+  for (let i = 0; i < linhas.length; i++) {
+    const ln = normalizeForSearch(linhas[i]);
+    if (![...labels].some((lbl) => ln.includes(lbl))) continue;
+
+    const janela = linhas.slice(Math.max(0, i - 2), i + 6);
+    const joined = janela.join(" | ");
+
+    const cpfMatch = joined.match(
+      /(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/
+    );
+    const cpf = cpfMatch ? formatCpf(cpfMatch[1]) : "";
+
+    let nome = "";
+    for (const cand of janela) {
+      // If line contains the label, extract what comes after
+      if (/\b(PAGADOR|SACADO)\b/i.test(cand)) {
+        let candAfter = cand.replace(
+          /^.*\b(PAGADOR|SACADO)\b\s*[:\-]?\s*/i,
+          ""
+        );
+        candAfter = candAfter
+          .replace(
+            /\s*-\s*(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11}).*$/,
+            ""
+          )
+          .trim();
+        candAfter = cleanNomePagador(candAfter);
+        if (
+          candAfter.split(/\s+/).length >= 2 &&
+          !nomeLooksLikeNoise(candAfter)
+        ) {
+          nome = candAfter;
+          break;
+        }
+      }
+
+      const candNorm = normalizeForSearch(cand);
+      if ([...labels].some((lbl) => candNorm.includes(lbl))) continue;
+
+      let cleaned = cand;
+      if (/\d{11}|\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(cleaned)) {
+        cleaned = cleaned
+          .replace(
+            /\s*-?\s*(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11}).*/,
+            ""
+          )
+          .replace(/[\s\-]+$/, "");
+      }
+      cleaned = cleanNomePagador(cleaned);
+      if (
+        cleaned.split(/\s+/).length >= 2 &&
+        !/VENCIMENTO|VALOR|AGENCIA|DOCUMENTO/.test(
+          normalizeForSearch(cleaned)
+        ) &&
+        !nomeLooksLikeNoise(cleaned)
+      ) {
+        nome = normalizeSpaces(cleaned);
+        break;
+      }
+    }
+
+    if (nome || cpf) return { nome, cpf };
+  }
+
+  // Strategy 3: CPF detected → find name nearby
+  const ctx = findNameNearCpf(linhas);
+  if (ctx.nome || ctx.cpf) return ctx;
+
+  // Strategy 4: Explicit PAGADOR ... CPF/CNPJ pattern
+  const flat = normalizeSpaces(texto);
+  const explicitPatterns = [
+    /PAGADOR\s*[:\-]?\s*([A-ZÀ-Ý][A-ZÀ-Ý\s]{6,}?)\s+(?:CPF|CNPJ)\s*[:\-]?\s*(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/i,
+    /SACADO\s*[:\-]?\s*([A-ZÀ-Ý][A-ZÀ-Ý\s]{6,}?)\s+(?:CPF|CNPJ)\s*[:\-]?\s*(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/i,
+  ];
+  for (const p of explicitPatterns) {
+    const m = flat.match(p);
+    if (m) {
+      const nome = cleanNomePagador(m[1]);
+      const cpf = formatCpf(m[2]);
+      if (nome && !nomeLooksLikeNoise(nome)) return { nome, cpf };
+    }
+  }
+
+  return { nome: "", cpf: "" };
+}
+
+/** Full boleto field extraction combining all strategies */
+function parseBoletoFields(
+  text: string,
+  fileName: string
+): {
+  payer_name: string;
+  payer_cpf: string;
+  our_number: string;
+  digitable_line: string;
+  amount: string;
+  due_date: string;
+} {
+  const { nome, cpf } = findNomeCpf(text);
+  let payerName = cleanNomePagador(nome);
+  let payerCpf = cpf;
+
+  // Fallback: extract from filename pattern "NOME - 12345678901.pdf"
+  if (!payerName || nomeLooksLikeNoise(payerName)) {
+    const fromFile = extractNameCpfFromFilename(fileName);
+    if (fromFile.nome) payerName = fromFile.nome;
+    if (!payerCpf && fromFile.cpf) payerCpf = fromFile.cpf;
+  }
+
+  return {
+    payer_name: payerName,
+    payer_cpf: payerCpf,
+    our_number: findNossoNumero(text),
+    digitable_line: findLinhaDigitavel(text),
+    amount: findValor(text),
+    due_date: findVencimento(text),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Drive file operations
+   ═══════════════════════════════════════════════════════════ */
+
+async function renameFile(
+  token: string,
+  fileId: string,
+  newName: string
+) {
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}`,
     {
@@ -227,7 +528,6 @@ async function uploadJsonToDrive(
       .trim() || "pasta_sem_nome";
   const fileName = `00_boletos_${safeName}.json`;
 
-  // Check if file exists
   const q = encodeURIComponent(
     `'${folderId}' in parents and trashed=false and name='${fileName.replace(/'/g, "\\'")}'`
   );
@@ -286,7 +586,9 @@ async function uploadJsonToDrive(
   return created.id;
 }
 
-/* ─── Main handler ─── */
+/* ═══════════════════════════════════════════════════════════
+   Main handler
+   ═══════════════════════════════════════════════════════════ */
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -309,7 +611,10 @@ serve(async (req: Request) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
     if (userError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -373,9 +678,22 @@ serve(async (req: Request) => {
         }
 
         let text = "";
-        let readSource = "google_ocr";
+        const readSource = "google_ocr";
+        const debugLog: string[] = [];
+
         try {
+          if (flags?.debug_mode) {
+            debugLog.push(`[DEBUG][FILE] id=${file.id}`);
+            debugLog.push(`[DEBUG][FILE] nome_original=${file.name}`);
+          }
+
           text = await extractTextViaDriveOcr(access_token, file.id);
+
+          if (flags?.debug_mode) {
+            debugLog.push(
+              `[DEBUG][LEITURA] tamanho_texto=${text.trim().length}`
+            );
+          }
         } catch (e) {
           result = {
             read_source: "error",
@@ -396,7 +714,24 @@ serve(async (req: Request) => {
           break;
         }
 
-        const parsed = parseBoletoFields(text);
+        const parsed = parseBoletoFields(text, file.name);
+
+        if (flags?.debug_mode) {
+          debugLog.push(
+            `[DEBUG][CAMPOS] nosso_numero=${parsed.our_number}`
+          );
+          debugLog.push(
+            `[DEBUG][CAMPOS] linha_digitavel=${parsed.digitable_line}`
+          );
+          debugLog.push(`[DEBUG][CAMPOS] valor=${parsed.amount}`);
+          debugLog.push(`[DEBUG][CAMPOS] vencimento=${parsed.due_date}`);
+          debugLog.push(
+            `[DEBUG][NOME_CPF] nome=${JSON.stringify(parsed.payer_name)}`
+          );
+          debugLog.push(
+            `[DEBUG][NOME_CPF] cpf=${JSON.stringify(parsed.payer_cpf)}`
+          );
+        }
 
         let finalName = file.name;
         if (
@@ -404,17 +739,25 @@ serve(async (req: Request) => {
           parsed.payer_name &&
           parsed.payer_cpf
         ) {
-          const safeName = parsed.payer_name
-            .toUpperCase()
-            .replace(/\s{2,}/g, " ")
-            .slice(0, 60)
-            .trim();
-          finalName = `${safeName} - ${parsed.payer_cpf}.pdf`;
-          try {
-            await renameFile(access_token, file.id, finalName);
-          } catch {
-            finalName = file.name; // keep original if rename fails
+          const safeName = sanitizeFilename(
+            `${parsed.payer_name.toUpperCase()} - ${parsed.payer_cpf}.pdf`
+          );
+          if (safeName && safeName !== file.name) {
+            try {
+              await renameFile(access_token, file.id, safeName);
+              finalName = safeName;
+              if (flags?.debug_mode)
+                debugLog.push("[DEBUG][RENOMEAR] aplicado=true");
+            } catch {
+              finalName = file.name;
+              if (flags?.debug_mode)
+                debugLog.push("[DEBUG][RENOMEAR] aplicado=false erro=true");
+            }
           }
+        } else if (flags?.debug_mode) {
+          debugLog.push(
+            "[DEBUG][RENOMEAR] aplicado=false motivo='nome/cpf insuficientes ou desabilitado'"
+          );
         }
 
         result = {
@@ -432,7 +775,9 @@ serve(async (req: Request) => {
           view_link: `https://drive.google.com/file/d/${file.id}/view`,
           success: true,
           error: null,
-          ...(flags?.debug_mode ? { debug_full_text: text } : {}),
+          ...(flags?.debug_mode
+            ? { debug_full_text: text, debug_log: debugLog }
+            : {}),
         };
         break;
       }
