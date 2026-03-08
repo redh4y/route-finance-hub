@@ -503,10 +503,22 @@ export default function AddressMatch() {
             </div>
             <div className="flex gap-2 self-start">
               {response && (
-                <Button onClick={downloadCsv} className="gap-2">
-                  <Download className="h-4 w-4" />
-                  Exportar CSV
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button className="gap-2">
+                      <Download className="h-4 w-4" />
+                      Exportar CSV
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => downloadCsv(",")}>
+                      Separado por vírgula (,)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => downloadCsv(";")}>
+                      Separado por ponto e vírgula (;)
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
           </div>
