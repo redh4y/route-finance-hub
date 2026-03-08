@@ -52,6 +52,7 @@ import {
   ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
+  ShieldAlert,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ const QUICK_FILTERS = [
   { key: "inactive", label: "Inativos", icon: UserX },
   { key: "review", label: "Revisão", icon: AlertTriangle },
   { key: "uncatalogued", label: "Sem cadastro", icon: AlertCircle },
+  { key: "invalidCpf", label: "CPF inválido", icon: ShieldAlert },
 ] as const;
 
 type QuickFilterKey = (typeof QUICK_FILTERS)[number]["key"];
@@ -180,6 +182,7 @@ export default function Payers() {
       case "inactive": return { status: "INATIVO" };
       case "review": return { needsReview: true };
       case "uncatalogued": return { reviewReason: IMPORT_MISSING_PAYER_REASON };
+      case "invalidCpf": return { documentValid: false };
       default: return {};
     }
   }, [quickFilter]);
@@ -197,7 +200,7 @@ export default function Payers() {
   const totalCount = payersResult?.count || 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const { data: stats = { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0 } } = usePayersStats();
+  const { data: stats = { total: 0, active: 0, inactive: 0, review: 0, uncatalogued: 0, invalidCpf: 0 } } = usePayersStats();
 
   const clearSearch = () => setSearchTerm("");
 
@@ -245,6 +248,7 @@ export default function Payers() {
       case "inactive": return stats.inactive;
       case "review": return stats.review;
       case "uncatalogued": return stats.uncatalogued;
+      case "invalidCpf": return stats.invalidCpf;
     }
   };
 
@@ -294,7 +298,9 @@ export default function Payers() {
                         ? "text-violet-600"
                         : filter.key === "uncatalogued"
                           ? "text-amber-600"
-                          : "text-foreground";
+                          : filter.key === "invalidCpf"
+                            ? "text-rose-600"
+                            : "text-foreground";
 
               return (
                 <Button
@@ -607,9 +613,12 @@ function PayerCardMobile({
 
       {/* Row 2: CPF + Phone + Billing mode */}
       <div className="flex items-center gap-1.5 mt-0.5 ml-[44px] text-xs text-muted-foreground">
-        <span className="font-mono truncate">
+        <span className={cn("font-mono truncate", payer.document_valid === false && "text-rose-500")}>
           {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "—"}
         </span>
+        {payer.document_valid === false && (
+          <ShieldAlert className="h-3 w-3 text-rose-500 shrink-0" />
+        )}
         {payer.phone && (
           <>
             <span className="opacity-40">·</span>
@@ -672,9 +681,12 @@ function PayerRow({
               )}
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-              <span className="font-mono">
+              <span className={cn("font-mono", payer.document_valid === false && "text-rose-500")}>
                 {payer.document_digits ? formatCPF(payer.document_digits) : payer.payer_code || "-"}
               </span>
+              {payer.document_valid === false && (
+                <ShieldAlert className="h-3 w-3 text-rose-500 shrink-0" />
+              )}
               {payer.phone && (
                 <>
                   <span className="text-muted-foreground/50">•</span>

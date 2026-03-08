@@ -49,6 +49,7 @@ export interface PayersFilters {
   route?: string;
   needsReview?: boolean;
   reviewReason?: string;
+  documentValid?: boolean;
   search?: string;
   page?: number;
   pageSize?: number;
@@ -87,6 +88,9 @@ export function usePayers(filters: PayersFilters = {}) {
       if (filters.reviewReason) {
         query = query.eq("review_reason", filters.reviewReason);
       }
+      if (filters.documentValid !== undefined) {
+        query = query.eq("document_valid", filters.documentValid);
+      }
       if (filters.search) {
         query = query.ilike("name_lower", `%${filters.search.toLowerCase()}%`);
       }
@@ -112,12 +116,14 @@ export function usePayersStats() {
         { count: inactive },
         { count: review },
         { count: uncatalogued },
+        { count: invalidCpf },
       ] = await Promise.all([
         supabase.from("payers").select("id", { count: "exact", head: true }),
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("status", "ATIVO"),
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("status", "INATIVO"),
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("needs_review", true),
         supabase.from("payers").select("id", { count: "exact", head: true }).eq("review_reason", "IMPORT_BILLING_SEM_CADASTRO"),
+        supabase.from("payers").select("id", { count: "exact", head: true }).eq("document_valid", false),
       ]);
 
       return {
@@ -126,6 +132,7 @@ export function usePayersStats() {
         inactive: inactive || 0,
         review: review || 0,
         uncatalogued: uncatalogued || 0,
+        invalidCpf: invalidCpf || 0,
       };
     },
   });
