@@ -21,8 +21,20 @@ export default function LandingPage() {
   const { data: excursions, isLoading: excLoading } = usePublicExcursions();
 
   const contact = settings?.contact?.content || {};
-  const whatsappDigits = String(contact.whatsapp || TAVARES_WHATSAPP_E164).replace(/\D/g, "");
-  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : TAVARES_WHATSAPP_URL;
+  const rawWhatsApp = String(
+    contact.whatsappUrl ||
+      contact.whatsapp_url ||
+      contact.whatsapp ||
+      TAVARES_WHATSAPP_URL,
+  ).trim();
+
+  const whatsappUrl = /^https?:\/\/(wa\.me|api\.whatsapp\.com)\//i.test(rawWhatsApp)
+    ? rawWhatsApp
+    : (() => {
+        const digits = rawWhatsApp.replace(/\D/g, "") || TAVARES_WHATSAPP_E164;
+        return `https://wa.me/${digits}`;
+      })();
+
   const budgetUrl = `${whatsappUrl}?text=${encodeURIComponent(TAVARES_BUDGET_TEXT)}`;
 
   // SEO meta tags

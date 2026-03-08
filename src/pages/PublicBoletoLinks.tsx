@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from "react";
+﻿import { Fragment, useMemo, useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,25 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { AlertTriangle, CheckCircle2, Copy, Download, Eye, Loader2, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Copy,
+  Download,
+  Eye,
+  Loader2,
+  XCircle,
+} from "lucide-react";
 
 type PublicBoletoItem = {
   reference_month: string;
@@ -96,7 +112,7 @@ function getPublicStatusBadge(status: string | null | undefined) {
   }
 
   if (normalized === "REVISAO") {
-    return { label: "Revisao", className: "badge-review", Icon: AlertTriangle };
+    return { label: "Revis?o", className: "badge-review", Icon: AlertTriangle };
   }
 
   return { label: "Sem status", className: "badge-open", Icon: AlertTriangle };
@@ -173,21 +189,21 @@ export default function PublicBoletoLinksPage() {
   const handleCopyDigitableLine = async (line: string | null | undefined) => {
     const value = String(line || "").trim();
     if (!value) {
-      toast.error("Codigo de barras indisponivel para este boleto.");
+      toast.error("Código de barras indisponível para este boleto.");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(value);
-      toast.success("Codigo de barras copiado.");
+      toast.success("Código de barras copiado.");
     } catch {
-      toast.error("Nao foi possivel copiar o codigo de barras.");
+      toast.error("Não foi possível copiar o código de barras.");
     }
   };
 
   const handleSearchBills = async () => {
     if (!canSearch) {
-      toast.error("Informe um CPF valido.");
+      toast.error("Informe um CPF v?lido.");
       return;
     }
 
@@ -224,7 +240,7 @@ export default function PublicBoletoLinksPage() {
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="rounded-2xl border bg-white/90 backdrop-blur-sm shadow-sm p-6 md:p-8 text-center space-y-2">
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">
-            2a via de boletos
+            2ª via de boletos
           </h1>
           <p className="text-sm md:text-base text-slate-600">
             Consulte seus boletos rapidamente com o seu CPF.
@@ -278,7 +294,7 @@ export default function PublicBoletoLinksPage() {
           <CardContent className="pt-6">
             <p className="text-sm text-amber-900">
               Antes de pagar, confira atentamente os dados do boleto para evitar
-              equivocos: <strong>nome do pagador</strong>, <strong>CPF</strong>,{" "}
+              equívocos: <strong>nome do pagador</strong>, <strong>CPF</strong>,{" "}
               <strong>data de vencimento</strong> e <strong>valor</strong>.
             </p>
           </CardContent>
@@ -286,7 +302,7 @@ export default function PublicBoletoLinksPage() {
 
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle>Boletos disponiveis</CardTitle>
+            <CardTitle>Boletos disponíveis</CardTitle>
             <Badge variant="secondary">{items.length}</Badge>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -321,109 +337,264 @@ export default function PublicBoletoLinksPage() {
                 Nenhum boleto para exibir.
               </p>
             ) : (
-              items.map((item, idx) => (
-                <div
-                  key={`${item.reference_month}-${item.our_number || idx}`}
-                  className="rounded-xl border bg-white p-3 md:p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between hover:shadow-sm transition-shadow"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-base">
-                        {formatMonth(item.reference_month)}
-                      </p>
-                      {(() => {
-                        const statusBadge = getPublicStatusBadge(item.public_status);
+              <>
+                <div className="hidden md:block rounded-xl border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Competência</TableHead>
+                        <TableHead>Vencimento</TableHead>
+                        <TableHead className="text-center">Valor</TableHead>
+                        <TableHead className="text-center">A??es</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((item, idx) => {
+                        const statusBadge = getPublicStatusBadge(
+                          item.public_status,
+                        );
                         const StatusIcon = statusBadge.Icon;
                         return (
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium gap-1",
-                              statusBadge.className,
-                            )}
+                          <Fragment
+                            key={`${item.reference_month}-${item.our_number || idx}`}
                           >
-                            <StatusIcon className="h-3 w-3" />
-                            {statusBadge.label}
-                          </span>
+                            <TableRow className="border-b-0">
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">
+                                    {formatMonth(item.reference_month)}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium gap-1",
+                                      statusBadge.className,
+                                    )}
+                                  >
+                                    <StatusIcon className="h-3 w-3" />
+                                    {statusBadge.label}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {formatDateBR(item.due_date)}
+                              </TableCell>
+                              <TableCell className="font-semibold text-center">
+                                {formatCurrency(item.amount_cents)}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <div className="inline-flex items-center justify-center gap-2">
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    onClick={() => {
+                                      const preview = getDrivePreviewUrl(
+                                        item.drive_url,
+                                      );
+                                      if (!preview) {
+                                        toast.error(
+                                          "Link do Google Drive inv?lido para pr?-visualiza??o.",
+                                        );
+                                        return;
+                                      }
+                                      setPreviewUrl(preview);
+                                      setPreviewDownloadUrl(item.drive_url);
+                                      setPreviewReferenceMonth(
+                                        item.reference_month,
+                                      );
+                                      setPreviewStudentName(
+                                        item.student_name || "Aluno",
+                                      );
+                                    }}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <a
+                                    href={item.drive_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={(e) =>
+                                      handleDownloadClick(e, {
+                                        driveUrl: item.drive_url,
+                                        referenceMonth: item.reference_month,
+                                        studentName:
+                                          item.student_name || "Aluno",
+                                      })
+                                    }
+                                  >
+                                    <Button size="icon">
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                  </a>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                            <TableRow className="bg-slate-50/60">
+                              <TableCell colSpan={4} className="pt-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {canShowDigitableLine(item.public_status) ? (
+                                    <>
+                                      <span
+                                        className="text-[11px] font-mono rounded-md border bg-white px-2 py-1 text-slate-700 break-all cursor-copy"
+                                        onClick={() =>
+                                          handleCopyDigitableLine(
+                                            item.digitable_line,
+                                          )
+                                        }
+                                        title="Clique para copiar"
+                                      >
+                                        {item.digitable_line ||
+                                          "Código de barras indispon?vel"}
+                                      </span>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="gap-1.5"
+                                        onClick={() =>
+                                          handleCopyDigitableLine(
+                                            item.digitable_line,
+                                          )
+                                        }
+                                      >
+                                        <Copy className="h-3.5 w-3.5" />
+                                        Copiar código de barras
+                                      </Button>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          </Fragment>
                         );
-                      })()}
-                    </div>
-                    <div className="mt-1 space-y-1.5">
-                      <div className="flex items-center gap-2 flex-wrap text-xs">
-                        <span className="text-muted-foreground">
-                          Vencimento: {formatDateBR(item.due_date)}
-                        </span>
-                        <span className="font-semibold text-slate-700">
-                          Valor: {formatCurrency(item.amount_cents)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {canShowDigitableLine(item.public_status) ? (
-                          <>
-                            <span className="text-[11px] font-mono rounded-md border bg-slate-50 px-2 py-1 text-slate-700 break-all">
-                              {item.digitable_line ||
-                                "Codigo de barras indisponivel"}
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="md:hidden space-y-3">
+                  {items.map((item, idx) => {
+                    const statusBadge = getPublicStatusBadge(
+                      item.public_status,
+                    );
+                    const StatusIcon = statusBadge.Icon;
+                    return (
+                      <div
+                        key={`${item.reference_month}-${item.our_number || idx}`}
+                        className="rounded-xl border bg-white p-3 space-y-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-lg">
+                              {formatMonth(item.reference_month)}
+                            </p>
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium gap-1",
+                                statusBadge.className,
+                              )}
+                            >
+                              <StatusIcon className="h-3 w-3" />
+                              {statusBadge.label}
                             </span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              Vencimento
+                            </p>
+                            <p className="font-medium">
+                              {formatDateBR(item.due_date)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              Valor
+                            </p>
+                            <p className="font-semibold">
+                              {formatCurrency(item.amount_cents)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="pt-1 space-y-2.5">
+                          {canShowDigitableLine(item.public_status) ? (
+                            <>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Código de barras
+                              </p>
+                              <span
+                                className="text-[11px] font-mono rounded-md border bg-slate-50 px-2 py-2 text-slate-700 break-all block cursor-copy"
+                                onClick={() =>
+                                  handleCopyDigitableLine(item.digitable_line)
+                                }
+                                title="Clique para copiar"
+                              >
+                                {item.digitable_line ||
+                                  "C?digo de barras indispon?vel"}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1.5 w-full h-11"
+                                onClick={() =>
+                                  handleCopyDigitableLine(item.digitable_line)
+                                }
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                Copiar código de barras
+                              </Button>
+                            </>
+                          ) : null}
+
+                          <div className="grid grid-cols-2 gap-2">
                             <Button
                               size="sm"
                               variant="outline"
-                              className="gap-1.5"
-                              onClick={() =>
-                                handleCopyDigitableLine(item.digitable_line)
+                              className="gap-1.5 h-11"
+                              onClick={() => {
+                                const preview = getDrivePreviewUrl(
+                                  item.drive_url,
+                                );
+                                if (!preview) {
+                                  toast.error(
+                                    "Link do Google Drive inv?lido para pr?-visualiza??o.",
+                                  );
+                                  return;
+                                }
+                                setPreviewUrl(preview);
+                                setPreviewDownloadUrl(item.drive_url);
+                                setPreviewReferenceMonth(item.reference_month);
+                                setPreviewStudentName(
+                                  item.student_name || "Aluno",
+                                );
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                              Visualizar
+                            </Button>
+                            <a
+                              href={item.drive_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) =>
+                                handleDownloadClick(e, {
+                                  driveUrl: item.drive_url,
+                                  referenceMonth: item.reference_month,
+                                  studentName: item.student_name || "Aluno",
+                                })
                               }
                             >
-                              <Copy className="h-3.5 w-3.5" /> Copiar codigo de
-                              barras
-                            </Button>
-                          </>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            Codigo de barras oculto para boleto pago/cancelado.
-                          </span>
-                        )}
+                              <Button size="sm" className="gap-1.5 w-full h-11">
+                                <Download className="h-4 w-4" />
+                                Baixar boleto
+                              </Button>
+                            </a>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 w-full sm:w-auto"
-                      onClick={() => {
-                        const preview = getDrivePreviewUrl(item.drive_url);
-                        if (!preview) {
-                          toast.error(
-                            "Link do Google Drive invalido para pre-visualizacao.",
-                          );
-                          return;
-                        }
-                        setPreviewUrl(preview);
-                        setPreviewDownloadUrl(item.drive_url);
-                        setPreviewReferenceMonth(item.reference_month);
-                        setPreviewStudentName(item.student_name || "Aluno");
-                      }}
-                    >
-                      <Eye className="h-4 w-4" /> Visualizar
-                    </Button>
-                    <a
-                      href={item.drive_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) =>
-                        handleDownloadClick(e, {
-                          driveUrl: item.drive_url,
-                          referenceMonth: item.reference_month,
-                          studentName: item.student_name || "Aluno",
-                        })
-                      }
-                    >
-                      <Button size="sm" className="gap-1.5 w-full sm:w-auto">
-                        <Download className="h-4 w-4" /> Baixar
-                      </Button>
-                    </a>
-                  </div>
+                    );
+                  })}
                 </div>
-              ))
+              </>
             )}
           </CardContent>
         </Card>
@@ -431,7 +602,7 @@ export default function PublicBoletoLinksPage() {
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="pt-6">
             <p className="text-sm text-slate-700">
-              Solicitacoes de alteracao de boleto e outras questoes, contatar
+              Solicitações de alteração de boleto e outras questões, contatar
               aqui:{" "}
               <a
                 href="https://wa.me/5517981606721"
@@ -439,7 +610,7 @@ export default function PublicBoletoLinksPage() {
                 rel="noreferrer"
                 className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100"
               >
-                WhatsApp (17) 98160-6721
+                WhatsApp
               </a>
             </p>
           </CardContent>
@@ -459,7 +630,7 @@ export default function PublicBoletoLinksPage() {
           <DialogContent className="w-[96vw] max-w-6xl h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-2">
             <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
               <DialogTitle className="m-0">
-                Pre-visualizacao do boleto
+                Pr?-visualiza??o do boleto
               </DialogTitle>
               {previewDownloadUrl && (
                 <a
@@ -486,7 +657,7 @@ export default function PublicBoletoLinksPage() {
                 <iframe
                   src={previewUrl}
                   className="w-full h-full border-0"
-                  title="Pre-visualizacao do boleto"
+                  title="Pr?-visualiza??o do boleto"
                 />
               </div>
             )}
