@@ -122,29 +122,9 @@ const DEFAULT_CONFIG: MatchConfig = {
   fallback_global: false,
 };
 
-// Normalize phone: keep only digits, take last 11 or 10
+// Normalize phone: keep only digits, remove +55
 function normalizePhone(raw: string): string {
-  const digits = (raw || "").replace(/\D/g, "");
-  // Brazilian: 55 + DDD(2) + number(8-9) = 12-13 digits
-  // Remove country code if present
-  if (digits.length >= 12 && digits.startsWith("55")) {
-    return digits.slice(2); // DDD + number
-  }
-  return digits;
-}
-
-// Match phones by last 8 digits (handles DDD variations)
-function phonesMatch(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  const na = normalizePhone(a);
-  const nb = normalizePhone(b);
-  if (na.length < 8 || nb.length < 8) return false;
-  // Exact match on normalized
-  if (na === nb) return true;
-  // Last 8-9 digits match (handles 9th digit addition)
-  const lastA = na.slice(-8);
-  const lastB = nb.slice(-8);
-  return lastA === lastB;
+  return normPhoneDigits(raw);
 }
 
 export default function AddressMatch() {
