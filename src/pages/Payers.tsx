@@ -833,10 +833,10 @@ function PayerCard({
                 ? formatCPF(payer.document_digits)
                 : payer.payer_code || "-"}
             </span>
-            {payer.neighborhood && (
+            {payer.phone && (
               <>
                 <span>⬢</span>
-                <span className="truncate">{payer.neighborhood}</span>
+                <span className="truncate">{formatPhone(payer.phone)}</span>
               </>
             )}
           </div>
