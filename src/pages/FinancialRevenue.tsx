@@ -520,7 +520,7 @@ export default function FinancialRevenue() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Receipt className="h-5 w-5" />
-                  Boletos do M?s - {formatMonthRef(selectedMonth)}
+                  Boletos do Mês - {formatMonthRef(selectedMonth)}
                 </CardTitle>
               </CardHeader>
               <CardContent>
