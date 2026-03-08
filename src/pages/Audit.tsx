@@ -316,12 +316,12 @@ export default function Audit() {
           <CardContent className="pt-4">
             {isLoading ? (
               <div className="text-center py-10 text-muted-foreground">Carregando auditoria...</div>
-            ) : filtered.length === 0 ? (
+            ) : data.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">Nenhum evento encontrado</div>
             ) : (
               <>
                 <div className="lg:hidden space-y-2">
-                  {filtered.map((row) => {
+                  {data.map((row) => {
                     const expanded = expandedRowId === row.id;
                     return (
                       <div key={row.id} className="p-3 rounded-lg border bg-card space-y-2">
