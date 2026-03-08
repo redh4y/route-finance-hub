@@ -143,6 +143,7 @@ export default function AddressMatch() {
   const [enderecoCol, setEnderecoCol] = useState("Endereco");
   const [phoneCol, setPhoneCol] = useState("Telefone");
   const [nameCol, setNameCol] = useState("Nome");
+  const [docCol, setDocCol] = useState("Identif");
   const [useDbCeps, setUseDbCeps] = useState(true);
 
   // WhatsApp contacts
