@@ -1159,7 +1159,7 @@ export default function AddressMatch() {
                   </TabsTrigger>
                   <TabsTrigger value="phones" className="gap-1">
                     <Phone className="h-3.5 w-3.5" />
-                    Telefones {phoneResults.length > 0 ? `(${phoneSummary.found}/${phoneSummary.total})` : ""}
+                    Telefones {phoneMatchRows.length > 0 ? `(${phoneSummary.updated}/${phoneSummary.total})` : ""}
                   </TabsTrigger>
                   <TabsTrigger value="bairros" className="gap-1">
                     <MapPin className="h-3.5 w-3.5" />
