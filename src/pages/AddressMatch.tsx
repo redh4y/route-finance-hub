@@ -278,7 +278,6 @@ export default function AddressMatch() {
       const totalRows = payersData.length;
       const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
       let allResults: Record<string, unknown>[] = [];
-      let cachedCepBase: unknown[] | undefined = undefined;
 
       for (let batch = 0; batch < totalBatches; batch++) {
         const start = batch * BATCH_SIZE;
@@ -293,16 +292,9 @@ export default function AddressMatch() {
           payers_csv: chunk,
           config,
           endereco_column: enderecoCol,
+          ceps_csv: cepsData.length > 0 ? cepsData : undefined,
+          use_db_ceps: useDbCeps,
         };
-
-        // First batch: fetch CEP base from DB/CSV; subsequent: reuse cached
-        if (batch === 0) {
-          requestBody.ceps_csv = cepsData.length > 0 ? cepsData : undefined;
-          requestBody.use_db_ceps = useDbCeps;
-        } else {
-          requestBody.cep_base_prefetched = cachedCepBase;
-          requestBody.use_db_ceps = false;
-        }
 
         const { data, error } = await supabase.functions.invoke("address-match", {
           body: requestBody,
