@@ -1200,12 +1200,10 @@ export default function AddressMatch() {
                     <BarChart3 className="h-3.5 w-3.5" />
                     Resultados
                   </TabsTrigger>
-                  {phoneResults.length > 0 && (
-                    <TabsTrigger value="phones" className="gap-1">
-                      <Phone className="h-3.5 w-3.5" />
-                      Telefones ({phoneSummary.found}/{phoneSummary.total})
-                    </TabsTrigger>
-                  )}
+                  <TabsTrigger value="phones" className="gap-1">
+                    <Phone className="h-3.5 w-3.5" />
+                    Telefones {phoneResults.length > 0 ? `(${phoneSummary.found}/${phoneSummary.total})` : ""}
+                  </TabsTrigger>
                   <TabsTrigger value="bairros" className="gap-1">
                     <MapPin className="h-3.5 w-3.5" />
                     Bairros
