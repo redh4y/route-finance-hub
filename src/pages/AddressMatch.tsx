@@ -695,24 +695,21 @@ export default function AddressMatch() {
   const getEnrichedResults = () => {
     if (!response?.results) return [];
     let enriched = response.results;
-    if (phoneResults.length > 0) {
-      const phoneMap = new Map<string, PhoneMatchResult>();
-      for (const pr of phoneResults) {
-        if (pr.payer_phone_digits) phoneMap.set(pr.payer_phone_digits, pr);
-      }
-      enriched = response.results.map((r) => {
-        const rawPhone = String(r[phoneCol] || "");
-        const norm = normalizePhone(rawPhone);
-        const pm = norm.length >= 8 ? (phoneMap.get(norm) || phoneMap.get(norm.slice(-8))) : undefined;
+    if (phoneMatchRows.length > 0) {
+      enriched = response.results.map((r, idx) => {
+        const pm = idx < phoneMatchRows.length ? phoneMatchRows[idx] : undefined;
+        const isMatched = pm && pm.phone_match_status !== "SEM_NOME" && pm.phone_match_status !== "SEM_MATCH" && pm.phone_match_status !== "ABAIXO_THRESHOLD";
         return {
           ...r,
-          wa_encontrado: pm?.wa_found ? "SIM" : "NÃO",
-          wa_match_via: pm?.match_type || "",
-          wa_nome_salvo: pm?.wa_saved_name || "",
-          wa_nome_publico: pm?.wa_public_name || "",
-          wa_telefone: pm?.wa_phone || "",
-          wa_labels: pm?.wa_labels || "",
-          wa_empresarial: pm?.wa_is_business ? "SIM" : "NÃO",
+          phone_match_score: pm?.phone_match_score || "",
+          phone_match_name: pm?.phone_match_name || "",
+          phone_match_phone: pm?.phone_match_phone || "",
+          phone_match_status: pm?.phone_match_status || "",
+          phone_match_dup_count: pm?.phone_match_dup_count || "",
+          phone_match_dup_phones: pm?.phone_match_dup_phones || "",
+          telefone_secundario: pm?.telefone_secundario || "",
+          wa_telefone: pm?.phone_final || "",
+          wa_encontrado: isMatched ? "SIM" : "NÃO",
         };
       });
     }
