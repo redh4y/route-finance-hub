@@ -257,14 +257,16 @@ function _simNorm(a: string, b: string): number {
   if (!na || !nb) return 0;
   const m = na.length;
   const n = nb.length;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  const prev = new Array(n + 1).fill(0);
+  const curr = new Array(n + 1).fill(0);
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      if (na[i - 1] === nb[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
-      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      if (na[i - 1] === nb[j - 1]) curr[j] = prev[j - 1] + 1;
+      else curr[j] = prev[j] > curr[j - 1] ? prev[j] : curr[j - 1];
     }
+    for (let j = 0; j <= n; j++) { prev[j] = curr[j]; curr[j] = 0; }
   }
-  return (2 * dp[m][n]) / (m + n);
+  return (2 * prev[n]) / (m + n);
 }
 
 function _titleCaseKeepRoman(s: string): string {
