@@ -204,27 +204,51 @@ function AuditDetails({ row }: { row: AuditRow }) {
   );
 }
 
+const PAGE_SIZE = 50;
+
 export default function Audit() {
   const [tableFilter, setTableFilter] = useState<string>("all");
   const [operationFilter, setOperationFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["audit-logs"],
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+
+  const { data: result, isLoading } = useQuery({
+    queryKey: ["audit-logs", tableFilter, operationFilter, search, page],
     queryFn: async () => {
       const sb = supabase as any;
-      const { data: rows, error } = await sb
+      let query = sb
         .from("audit_logs")
         .select(
           "id, table_name, record_id, operation, changed_fields, actor_user_id, actor_email, old_data, new_data, created_at",
+          { count: "exact" }
         )
-        .order("created_at", { ascending: false })
-        .limit(1000);
+        .order("created_at", { ascending: false });
+
+      if (tableFilter !== "all") {
+        query = query.eq("table_name", tableFilter);
+      }
+      if (operationFilter !== "all") {
+        query = query.eq("operation", operationFilter);
+      }
+      if (search.trim()) {
+        query = query.or(
+          `table_name.ilike.%${search}%,record_id.ilike.%${search}%,actor_email.ilike.%${search}%`
+        );
+      }
+
+      const { data: rows, error, count } = await query.range(from, to);
       if (error) throw error;
-      return (rows || []) as AuditRow[];
+      return { rows: (rows || []) as AuditRow[], count: count || 0 };
     },
   });
+
+  const data = result?.rows || [];
+  const total = result?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const tableOptions = useMemo(() => {
     const fromLogs = (data || []).map((r) => r.table_name);
