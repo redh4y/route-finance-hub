@@ -503,17 +503,33 @@ export function isQuickCancellation(dueDate: string | null, liquidationAt: strin
 }
 
 // Transform CEP CSV row to database format
+// Supports: Localidade = "Guaíra / SP" → cidade + uf
 export function transformCEPRow(row: CEPCSVRow) {
-  const cep = row.CEP?.replace(/\D/g, "");
+  const cep = (row.CEP || row.cep || "")?.replace(/\D/g, "");
   if (!cep || cep.length !== 8) {
     return null;
+  }
+
+  let cidade = row.Cidade?.trim() || null;
+  let uf = row.UF?.trim()?.toUpperCase() || null;
+
+  // Parse combined Localidade column (e.g. "Guaíra / SP")
+  const localidade = row.Localidade?.trim();
+  if (localidade && (!cidade || !uf)) {
+    const parts = localidade.split(/\s*[\/\-]\s*/);
+    if (parts.length >= 2) {
+      cidade = cidade || parts[0].trim();
+      uf = uf || parts[parts.length - 1].trim().toUpperCase();
+    } else if (!cidade) {
+      cidade = localidade;
+    }
   }
 
   return {
     cep,
     logradouro: row.Logradouro?.trim() || null,
     bairro: row.Bairro?.trim() || null,
-    cidade: row.Cidade?.trim() || null,
-    uf: row.UF?.trim()?.toUpperCase() || null,
+    cidade,
+    uf,
   };
 }

@@ -1494,8 +1494,8 @@ function ImportCEPsCard() {
       <FieldsCard
         title="Campos Esperados"
         description="O arquivo CSV deve conter os seguintes campos"
-        fields={["CEP", "Logradouro", "Bairro", "Cidade", "UF"]}
-        note="CEPs duplicados sero atualizados com os novos dados."
+        fields={["CEP", "Logradouro", "Bairro", "Cidade + UF (ou Localidade ex: Guaíra / SP)"]}
+        note="CEPs duplicados serão atualizados com os novos dados. O campo Localidade será separado automaticamente em Cidade e UF."
       />
     </div>
   );
