@@ -85,7 +85,7 @@ interface MatchResponse {
   phone_summary?: { total: number; updated: number; secondary: number; below: number };
 }
 
-interface WhatsAppContact {
+interface RawWaContact {
   phone_number: string;
   formatted_phone?: string;
   saved_name?: string;
@@ -96,17 +96,11 @@ interface WhatsAppContact {
   country_code?: string;
 }
 
-interface PhoneMatchResult {
+/** Row-level phone match result for display */
+interface PhoneDisplayRow {
   payer_name: string;
   payer_phone: string;
-  payer_phone_digits: string;
-  wa_found: boolean;
-  wa_saved_name: string;
-  wa_public_name: string;
-  wa_phone: string;
-  wa_labels: string;
-  wa_is_business: boolean;
-  match_type: "nome" | "telefone" | "";
+  match: PhoneMatchRow;
 }
 
 interface PayerChangePreview {
