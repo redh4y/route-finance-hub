@@ -393,6 +393,10 @@ export default function Import() {
               <MapPin className="h-4 w-4" />
               CEPs
             </TabsTrigger>
+            <TabsTrigger value="historico" className="gap-2">
+              <History className="h-4 w-4" />
+              Histórico
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pagadores">
@@ -409,6 +413,10 @@ export default function Import() {
 
           <TabsContent value="ceps">
             <ImportCEPsCard />
+          </TabsContent>
+
+          <TabsContent value="historico">
+            <ImportHistoryCard />
           </TabsContent>
         </Tabs>
       </PageTransition>
