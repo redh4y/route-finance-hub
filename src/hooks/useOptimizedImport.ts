@@ -234,7 +234,7 @@ export function useOptimizedImportPayers() {
           }
 
           const targetId = docId || codeId || item.payer.id;
-          return { ...item, payer: { ...item.payer, id: targetId } };
+          return { ...item, payer: { ...item.payer, id: targetId, run_id: runId } };
         })
         .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
 
