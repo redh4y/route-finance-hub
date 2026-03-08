@@ -7,332 +7,201 @@ const corsHeaders = {
 };
 
 // ══════════════════════════════════════════════════
-//  BAIRRO NORMALIZATION RULES (Phase 1)
+//  CONSTANTS (mirroring Python)
 // ══════════════════════════════════════════════════
 
-const BAIRRO_MAP: Record<string, string> = {
-  "COAB 1": "Doutor Fábio Talarico",
-  "COHAB 1": "Doutor Fábio Talarico",
-  "CHOAB 1": "Doutor Fábio Talarico",
-  "COAB 2": "Mario Garcia da Costa",
-  "COHAB 2": "Mario Garcia da Costa",
-  "CHOAB 2": "Mario Garcia da Costa",
-  "MUTIRAO 1": "Conjunto Habitacional Padre Mário Lano",
-  "MUTIRAO 3": "Etelvina Santana da Silva",
-  "CECAP": "Conjunto Habitacional Geralda Geltrudes da Silva",
-  "ELIZIO": "Campos Elíseos",
-  "CAMPOS ELIZIO": "Campos Elíseos",
-  "CAMPOS ELISA": "Campos Elíseos",
-  "CAMPOS ELISEOS": "Campos Elíseos",
-  "ELIZA": "Jardim Eliza",
-  "ELISA": "Jardim Eliza",
-  "JD ELIZA": "Jardim Eliza",
-  "JARDIM ELIZA": "Jardim Eliza",
-  "JD ELISA": "Jardim Eliza",
-  "JARDIM ELISA": "Jardim Eliza",
-  "JOAO VACARO": "João Vaccaro",
-  "JOAO VACCARO": "João Vaccaro",
-  "JOSE PUGLIESI": "Conjunto Habitacional Prefeito José Pugliesi",
-  "JOSE PUGLIESE": "Conjunto Habitacional Prefeito José Pugliesi",
-  "REINALDO STEIN": "Residencial Reynaldo Stein",
-  "REYNALDO STEIN": "Residencial Reynaldo Stein",
-  "REINALDO STEM": "Residencial Reynaldo Stein",
-  "REYNALDO STEM": "Residencial Reynaldo Stein",
-  "VILLE": "Residencial Nobre Ville",
-  "NOBRE VILLE": "Residencial Nobre Ville",
-  "BOM JESUS": "Vila São Bom Jesus Lapa",
-  "NADIA": "Residencial Nadia",
-  "NADIA 3": "Residencial Nadia",
-  "NADIA 4": "Residencial Nadia 4",
-  "SANTA ISABEL": "Desmembramento Recreio Santa Isabel",
-  "VIVENDAS": "Vivendas do Bom Jardim",
-  "VIVENDAS DO BOM JARDIM": "Vivendas do Bom Jardim",
-  "TONICO GARCIA": "Conjunto Residencial Antonio Garcia",
-  "GUAIRA E": "Conjunto Habitacional Gabriel Garcia de Carvalho",
-  "BAIRRO GUAIRA E": "Conjunto Habitacional Gabriel Garcia de Carvalho",
-  "PORTAL DO LAGO": "Portal do Lago",
-  "PORTAL LAGO": "Portal do Lago",
-  "PORTAL DO": "Portal do Lago",
-  "MURAISHI": "Residencial Muraishi",
-  "MURAISHI 1": "Residencial Muraishi",
-  "MURAISHI 2": "Residencial Muraishi II",
-  "BANESPINHA": "Residencial Antonio Nery Lopes",
-};
+const STOPWORDS = new Set(["DE", "DA", "DO", "DAS", "DOS", "E"]);
 
-interface BairroResult {
-  bairro_classificacao: string;
-  bairro_normalizado: string;
-  bairro_complemento: string;
-}
-
-function normStr(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeBairroRules(bairroRaw: string): BairroResult {
-  const raw = (bairroRaw || "").trim();
-  if (!raw) return { bairro_classificacao: "REVISAR", bairro_normalizado: "", bairro_complemento: "" };
-
-  const upper = normStr(raw);
-
-  // JARDIM sozinho or JE => RUIDO
-  if (upper === "JARDIM" || upper === "JE" || upper === "JD") {
-    return { bairro_classificacao: "RUIDO", bairro_normalizado: "", bairro_complemento: raw };
-  }
-
-  // CENTRO special
-  if (upper.startsWith("CENTRO")) {
-    const rest = raw.substring(6).trim().replace(/^[\-,]+/, "").trim();
-    return {
-      bairro_classificacao: rest ? "COMPLEMENTO" : "OK",
-      bairro_normalizado: "Centro",
-      bairro_complemento: rest,
-    };
-  }
-
-  // "ENTRE", "3X1", number-only patterns => COMPLEMENTO
-  if (/^ENTRE\b/.test(upper) || /^\d+X\d+/.test(upper) || /^\d+$/.test(upper)) {
-    return { bairro_classificacao: "COMPLEMENTO", bairro_normalizado: "", bairro_complemento: raw };
-  }
-
-  // Direct map lookup (try longest match first)
-  const keys = Object.keys(BAIRRO_MAP).sort((a, b) => b.length - a.length);
-  for (const key of keys) {
-    const normKey = normStr(key);
-    if (upper === normKey || upper.startsWith(normKey + " ")) {
-      const rest = raw.substring(key.length).trim().replace(/^[\-,]+/, "").trim();
-      // Portal do Lago complement handling
-      const portal = BAIRRO_MAP[key];
-      if (portal === "Portal do Lago" && rest) {
-        return {
-          bairro_classificacao: "COMPLEMENTO",
-          bairro_normalizado: portal + " " + rest.toUpperCase(),
-          bairro_complemento: rest,
-        };
-      }
-      return {
-        bairro_classificacao: rest ? "COMPLEMENTO" : "OK",
-        bairro_normalizado: BAIRRO_MAP[key],
-        bairro_complemento: rest,
-      };
-    }
-  }
-
-  // No rule matched - keep as-is
-  return { bairro_classificacao: "OK", bairro_normalizado: raw, bairro_complemento: "" };
-}
-
-// ══════════════════════════════════════════════════
-//  ADDRESS PARSER (replicates Python parse_endereco_parts)
-// ══════════════════════════════════════════════════
-
-interface ParsedAddress {
-  logradouro: string;
-  numero: string;
-  bairro: string;
-}
-
-const VIA_TYPES = new Set([
-  "RUA", "AVENIDA", "TRAVESSA", "ALAMEDA", "PRACA", "RODOVIA",
-  "ESTRADA", "VIELA", "BECO", "LARGO",
+const NOISE_TOKENS = new Set([
+  "JE", "JD", "JARD", "AP", "APT", "APTO", "BL", "BLOCO", "CS", "CASA", "LT", "LOTE",
+  "QD", "QUADRA", "KM", "CEP", "FUNDOS", "FTE", "FRENTE",
 ]);
 
-const VIA_ABBREVS: Record<string, string> = {
-  "R": "RUA", "AV": "AVENIDA", "TV": "TRAVESSA", "TRAV": "TRAVESSA",
-  "AL": "ALAMEDA", "PC": "PRACA", "PCA": "PRACA", "ROD": "RODOVIA",
-  "EST": "ESTRADA",
-};
+const TITLE_TOKENS = new Set(["DOUTOR", "DR", "DRA", "ENG", "PROF", "PROFA"]);
+
+const STREET_TYPES = new Set([
+  "RUA", "AVENIDA", "PRACA", "ALAMEDA", "TRAVESSA",
+  "RODOVIA", "ESTRADA", "VIA", "LARGO", "PASSAGEM",
+]);
+
+const BAIRRO_ANCHORS = new Set([
+  "JARDIM", "JD", "CENTRO", "VILA", "RESIDENCIAL", "PORTAL", "COAB", "COHAB",
+  "MUTIRAO", "CECAP", "BOM", "SAO",
+]);
 
 const NUM_MARKERS = new Set(["N", "NO", "NR", "NUM", "NUMERO"]);
 
-const BAIRRO_ANCHORS = new Set([
-  "JARDIM", "JD", "VILA", "VL", "RESIDENCIAL", "RES", "RESD",
-  "CONJUNTO", "CONJ", "CJ", "PARQUE", "PQ", "PORTAL",
-  "CENTRO", "COHAB", "COAB", "CHOAB", "MUTIRAO", "CECAP",
-  "CAMPOS", "DESMEMBRAMENTO", "VIVENDAS", "BANESPINHA",
-  "MURAISHI", "NOBRE", "NADIA", "TONICO",
-  // Known full bairro names from BAIRRO_MAP keys (normalized)
-  ...Object.keys(BAIRRO_MAP).map(k => normStr(k).split(/\s+/)[0]),
-]);
+const WEIGHT_JACCARD = 0.45;
+const WEIGHT_SEQ = 0.55;
+
+// ══════════════════════════════════════════════════
+//  TEXT NORMALIZATION (mirroring Python)
+// ══════════════════════════════════════════════════
+
+function stripAccents(s: string): string {
+  return (s || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function _normalizeNumMarkers(s: string): string {
+  // "Nº123" → "Nº 123", "N:123" → "N 123", etc.
+  s = s.replace(/\b(NUMERO|NUM|NO|N)\s*([:\\-]?)\s*(\d)/g, "$1 $3");
+  s = s.replace(/\b(NUMERO|NUM|NO|N)(\d)/g, "$1 $2");
+  return s;
+}
+
+function normText(s: string): string {
+  s = stripAccents(s).toUpperCase();
+  s = s.replace(/\xa0/g, " ");
+  s = s.replace(/[.,;:/\\\-]+/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+
+  s = s.replace(/\bAV\.\b/g, "AVENIDA");
+  s = s.replace(/\bAV\b/g, "AVENIDA");
+  s = s.replace(/\bR\b/g, "RUA");
+  s = s.replace(/\bPCA\b/g, "PRACA");
+
+  s = _normalizeNumMarkers(s);
+
+  // Join number + single letter suffix: "15 B" → "15B" (but not N/O which could be markers)
+  s = s.replace(/\b(\d+)\s+([A-MO-Z])\b/g, "$1$2");
+
+  // Expand concatenated forms: "AV3" → "AVENIDA 3", "R5" → "RUA 5"
+  s = s.replace(/\bAV(\d+[A-Z]?)\b/g, "AVENIDA $1");
+  s = s.replace(/\bR(\d+[A-Z]?)\b/g, "RUA $1");
+  s = s.replace(/\bAVENIDA(\d+[A-Z]?)\b/g, "AVENIDA $1");
+  s = s.replace(/\bRUA(\d+[A-Z]?)\b/g, "RUA $1");
+
+  return s;
+}
 
 function normTextKeepNumbers(s: string): string {
-  let t = s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[°º]/g, "")
-    .replace(/[^A-Z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  s = stripAccents(s).toUpperCase();
+  s = s.replace(/\xa0/g, " ");
+  s = s.replace(/[.,;:/\\\-]+/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
 
-  // Expand abbreviations at start
-  const parts = t.split(/\s+/);
-  if (parts.length > 0 && VIA_ABBREVS[parts[0]]) {
-    parts[0] = VIA_ABBREVS[parts[0]];
-    t = parts.join(" ");
-  }
+  s = s.replace(/\bAV\.\b/g, "AVENIDA");
+  s = s.replace(/\bAV\b/g, "AVENIDA");
+  s = s.replace(/\bR\b/g, "RUA");
+  s = s.replace(/\bPCA\b/g, "PRACA");
 
-  // Normalize number markers: "N:", "N.", "Nº" etc already handled by removing °º and punct
-  // Normalize "N89" → "N 89" when N is followed immediately by digit
-  t = t.replace(/\bN(\d)/g, "N $1");
+  s = _normalizeNumMarkers(s);
 
-  return t;
+  // Join number + single letter suffix
+  s = s.replace(/\b(\d+)\s+([A-MO-Z])\b/g, "$1$2");
+
+  // Expand concatenated forms
+  s = s.replace(/\bAV(\d+[A-Z]?)\b/g, "AVENIDA $1");
+  s = s.replace(/\bR(\d+[A-Z]?)\b/g, "RUA $1");
+  s = s.replace(/\bAVENIDA(\d+[A-Z]?)\b/g, "AVENIDA $1");
+  s = s.replace(/\bRUA(\d+[A-Z]?)\b/g, "RUA $1");
+
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
 }
 
-function parseEndereco(endereco: string): ParsedAddress {
-  const raw = (endereco || "").trim();
-  if (!raw) return { logradouro: "", numero: "", bairro: "" };
+function preprocessForMatch(s: string): string {
+  s = normText(s);
+  // Remove number markers + number
+  s = s.replace(/\b(?:N|NO|NR|NUM|NUMERO)\s*\d+[A-Z]?\b/g, " ");
 
-  const normalized = normTextKeepNumbers(raw);
-  const toks = normalized.split(/\s+/).filter(Boolean);
-  if (toks.length === 0) return { logradouro: "", numero: "", bairro: "" };
+  const toks = s.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  let prev = "";
 
-  // ── Step 1: find real start (skip tokens before first via type) ──
-  let startIdx = 0;
-  if (!VIA_TYPES.has(toks[0])) {
-    for (let i = 0; i < toks.length; i++) {
-      if (VIA_TYPES.has(toks[i])) {
-        startIdx = i;
-        break;
+  for (const t of toks) {
+    const isNum = /^\d+[A-Z]?$/.test(t);
+    if (isNum) {
+      // Keep only if previous token is a street type (e.g., "RUA 36")
+      if (STREET_TYPES.has(prev)) {
+        out.push(t);
       }
-    }
-  }
-  const workToks = toks.slice(startIdx);
-  if (workToks.length === 0) return { logradouro: "", numero: "", bairro: "" };
-
-  // ── Step 2: extract numero via NUM_MARKERS ──
-  let numero = "";
-  let idxMarker = -1;
-
-  for (let i = 0; i < workToks.length; i++) {
-    if (NUM_MARKERS.has(workToks[i]) && i + 1 < workToks.length && /^\d+[A-Z]?$/.test(workToks[i + 1])) {
-      numero = workToks[i + 1];
-      idxMarker = i;
-      break;
-    }
-  }
-
-  // Fallback: find standalone number token (not first token, not via-like)
-  let idxNumToken = -1;
-  if (!numero) {
-    for (let i = 1; i < workToks.length; i++) {
-      if (/^\d+[A-Z]?$/.test(workToks[i]) && !VIA_TYPES.has(workToks[i])) {
-        // Skip if it looks like a numbered street name (e.g., "RUA 36")
-        if (i === 1 && VIA_TYPES.has(workToks[0])) continue;
-        numero = workToks[i];
-        idxNumToken = i;
-        break;
-      }
-    }
-  }
-
-  // ── Step 3: separate logradouro / bairro ──
-  let logToks: string[] = [];
-  let bairroToks: string[] = [];
-
-  if (idxMarker >= 0) {
-    // Marker found: logradouro = tokens before marker, bairro = tokens after marker+number
-    logToks = workToks.slice(0, idxMarker);
-    bairroToks = workToks.slice(idxMarker + 2);
-  } else if (idxNumToken >= 0) {
-    // Number without marker: logradouro = before number, bairro = after number
-    logToks = workToks.slice(0, idxNumToken);
-    bairroToks = workToks.slice(idxNumToken + 1);
-  } else {
-    // No number found: special cases
-    if (
-      workToks.length >= 3 &&
-      VIA_TYPES.has(workToks[0]) &&
-      /^\d+$/.test(workToks[1]) &&
-      !(/^\d+$/.test(workToks[2]))
-    ) {
-      // "AVENIDA 3 CENTRO" → logradouro=AVENIDA 3, bairro=CENTRO...
-      logToks = workToks.slice(0, 2);
-      bairroToks = workToks.slice(2);
     } else {
-      // Fallback: try to find bairro anchor
-      let anchorIdx = -1;
-      // Skip first 2 tokens (likely street name)
-      for (let i = 2; i < workToks.length; i++) {
-        if (BAIRRO_ANCHORS.has(workToks[i])) {
-          anchorIdx = i;
-          break;
-        }
-      }
-      if (anchorIdx >= 0) {
-        logToks = workToks.slice(0, anchorIdx);
-        bairroToks = workToks.slice(anchorIdx);
-      } else {
-        // Last resort: first 3 tokens = logradouro, rest = bairro
-        logToks = workToks.slice(0, Math.min(3, workToks.length));
-        bairroToks = workToks.slice(Math.min(3, workToks.length));
-      }
+      out.push(t);
     }
+    prev = t;
   }
 
-  // ── Step 4: handle explicit BAIRRO keyword within bairroToks ──
-  const bairroKeyIdx = bairroToks.indexOf("BAIRRO");
-  if (bairroKeyIdx >= 0 && bairroKeyIdx + 1 < bairroToks.length) {
-    bairroToks = bairroToks.slice(bairroKeyIdx + 1);
-  } else if (bairroKeyIdx >= 0) {
-    bairroToks = [];
-  }
-
-  // ── Step 5: if no bairro from splitting, try anchor detection in remaining tokens ──
-  if (bairroToks.length === 0 && logToks.length > 2) {
-    for (let i = 2; i < logToks.length; i++) {
-      if (BAIRRO_ANCHORS.has(logToks[i])) {
-        bairroToks = logToks.slice(i);
-        logToks = logToks.slice(0, i);
-        break;
-      }
-    }
-  }
-
-  const logradouro = logToks.join(" ").replace(/\s*[-,]\s*$/, "").trim();
-  const bairro = bairroToks.join(" ").trim();
-
-  return { logradouro, numero, bairro };
+  return out.join(" ").replace(/\s+/g, " ").trim();
 }
 
 // ══════════════════════════════════════════════════
-//  FUZZY MATCHING UTILITIES
+//  TOKENIZATION / SIMILARITY (mirroring Python)
 // ══════════════════════════════════════════════════
 
-function tokenize(s: string): Set<string> {
-  return new Set(
-    normStr(s)
-      .split(/\s+/)
-      .filter((t) => t.length > 1)
-  );
+function _normalizeBairroTokens(toks: string[]): string[] {
+  const mapping: Record<string, string> = { "JD": "JARDIM", "JARD": "JARDIM" };
+  return toks.map(t => mapping[t] || t);
 }
 
-function softJaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1;
-  if (a.size === 0 || b.size === 0) return 0;
-  let inter = 0;
-  for (const t of a) {
-    if (b.has(t)) inter++;
+function tokenList(s: string, aggressive: boolean, mode: string): string[] {
+  s = preprocessForMatch(s);
+  const toks: string[] = [];
+  for (const t of s.split(/\s+/)) {
+    if (!t || STOPWORDS.has(t)) continue;
+    const isStreetNumToken = /^\d+[A-Z]?$/.test(t);
+    if (aggressive) {
+      if (t.length <= 2 && !isStreetNumToken) continue;
+      if (NOISE_TOKENS.has(t)) continue;
+      if (TITLE_TOKENS.has(t)) continue;
+    }
+    toks.push(t);
   }
-  return inter / (a.size + b.size - inter);
+  if (mode === "bairro") return _normalizeBairroTokens(toks);
+  return toks;
+}
+
+function tokenSim(a: string, b: string): number {
+  // SequenceMatcher-like ratio between two tokens
+  if (a === b) return 1;
+  if (!a || !b) return 0;
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return (2 * dp[m][n]) / (m + n);
+}
+
+function softJaccard(qTokens: string[], refTokens: string[], tokenThreshold: number): number {
+  if (!qTokens.length && !refTokens.length) return 1;
+  if (!qTokens.length || !refTokens.length) return 0;
+
+  const refUsed = new Set<number>();
+  let matches = 0;
+
+  for (const qt of qTokens) {
+    let bestI = -1;
+    let bestS = 0;
+    for (let i = 0; i < refTokens.length; i++) {
+      if (refUsed.has(i)) continue;
+      const s = tokenSim(qt, refTokens[i]);
+      if (s > bestS) {
+        bestS = s;
+        bestI = i;
+      }
+    }
+    if (bestS >= tokenThreshold && bestI >= 0) {
+      matches++;
+      refUsed.add(bestI);
+    }
+  }
+
+  const union = new Set(qTokens).size + new Set(refTokens).size - matches;
+  return union ? matches / union : 0;
 }
 
 function seqRatio(a: string, b: string): number {
-  const s1 = normStr(a);
-  const s2 = normStr(b);
+  const s1 = preprocessForMatch(a);
+  const s2 = preprocessForMatch(b);
   if (s1 === s2) return 1;
   if (!s1 || !s2) return 0;
-
-  const len = s1.length + s2.length;
-  if (len === 0) return 1;
-
-  // Simple LCS-based ratio (SequenceMatcher-like)
   const m = s1.length;
   const n = s2.length;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -342,28 +211,399 @@ function seqRatio(a: string, b: string): number {
       else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
   }
-  return (2 * dp[m][n]) / len;
+  return (2 * dp[m][n]) / (m + n);
 }
 
-function calcScore(
-  candidate: string,
-  reference: string,
-  tokenWeight: number,
-  seqWeight: number
-): { token_score: number; seq_ratio: number; score_final: number } {
-  const tA = tokenize(candidate);
-  const tB = tokenize(reference);
-  const token_score = softJaccard(tA, tB);
-  const seq = seqRatio(candidate, reference);
+interface ScoreResult {
+  score_final: number;
+  token_score: number;
+  seq_ratio: number;
+  q_tokens: string;
+  r_tokens: string;
+}
+
+function scoreComponents(query: string, ref: string, tokenThreshold: number, mode: string): ScoreResult {
+  const qToks = tokenList(query, true, mode);
+  const rToks = tokenList(ref, false, mode);
+  const sJ = softJaccard(qToks, rToks, tokenThreshold);
+  const sR = seqRatio(query, ref);
+  const sFinal = WEIGHT_JACCARD * sJ + WEIGHT_SEQ * sR;
   return {
-    token_score: Math.round(token_score * 10000) / 10000,
-    seq_ratio: Math.round(seq * 10000) / 10000,
-    score_final: Math.round((tokenWeight * token_score + seqWeight * seq) * 10000) / 10000,
+    score_final: sFinal,
+    token_score: sJ,
+    seq_ratio: sR,
+    q_tokens: qToks.join(" "),
+    r_tokens: rToks.join(" "),
   };
 }
 
 // ══════════════════════════════════════════════════
-//  MAIN MATCHING PIPELINE
+//  BAIRRO NORMALIZATION RULES (mirroring Python)
+// ══════════════════════════════════════════════════
+
+function _simNorm(a: string, b: string): number {
+  const na = normText(a);
+  const nb = normText(b);
+  if (na === nb) return 1;
+  if (!na || !nb) return 0;
+  const m = na.length;
+  const n = nb.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (na[i - 1] === nb[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return (2 * dp[m][n]) / (m + n);
+}
+
+function _titleCaseKeepRoman(s: string): string {
+  const romans = new Set(["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]);
+  return s.split(/\s+/).map(w => romans.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+
+function _hasComplementPattern(raw: string): boolean {
+  if (raw.includes("ENTRE")) return true;
+  if (/\b\d+\s*[Xx×]\s*\d+\b/.test(raw)) return true;
+  if (/\b\d+X\d+\b/.test(raw)) return true;
+  return false;
+}
+
+function _splitBairroComplemento(raw: string): [string, string] {
+  const toks = raw.split(/\s+/);
+  if (!toks.length) return ["", ""];
+  for (let i = 0; i < toks.length; i++) {
+    if (toks[i] === "ENTRE") return [toks.slice(0, i).join(" ").trim(), toks.slice(i).join(" ").trim()];
+    if (/\d+X\d+/.test(toks[i])) return [toks.slice(0, i).join(" ").trim(), toks.slice(i).join(" ").trim()];
+    if (toks[i] === "X" || toks[i] === "×") return [toks.slice(0, i).join(" ").trim(), toks.slice(i).join(" ").trim()];
+  }
+  return [raw, ""];
+}
+
+function _mergeComplement(a: string | null, b: string | null): string {
+  const aa = (a || "").trim();
+  const bb = (b || "").trim();
+  if (aa && bb) return `${aa} ${bb}`.trim();
+  return aa || bb || "";
+}
+
+function _mapBairroAlias(rawNorm: string): [string | null, string | null] {
+  // 1) COAB/COHAB
+  if (/\b(COAB|COHAB|CHOAB)\s*I\b/.test(rawNorm)) return ["Doutor Fábio Talarico", null];
+  if (/\b(COAB|COHAB|CHOAB)\s*II\b/.test(rawNorm)) return ["Mario Garcia da Costa", null];
+  if (/\bCOA?H?AB\s*1\b/.test(rawNorm) || /\bCOAB1\b/.test(rawNorm) || /\bCOHAB1\b/.test(rawNorm))
+    return ["Doutor Fábio Talarico", null];
+  if (/\bCOA?H?AB\s*2\b/.test(rawNorm) || /\bCOAB2\b/.test(rawNorm) || /\bCOHAB2\b/.test(rawNorm))
+    return ["Mario Garcia da Costa", null];
+
+  // 2) Mutirao
+  if (/\bMUTIRAO\s*1\b/.test(rawNorm) || /\bMUTIRAO1\b/.test(rawNorm))
+    return ["Conjunto Habitacional Padre Mário Lano", null];
+  if (/\bMUTIRAO\s*3\b/.test(rawNorm) || /\bMUTIRAO3\b/.test(rawNorm))
+    return ["Etelvina Santana da Silva", null];
+
+  // 3) CECAP
+  if (rawNorm === "CECAP") return ["Conjunto Habitacional Geralda Geltrudes da Silva", null];
+
+  // 4) Campos Eliseos
+  if (rawNorm.includes("ELIZIO") || rawNorm.includes("CAMPOS ELIZIO") || rawNorm.includes("CAMPOS ELISA"))
+    return ["Campos Elíseos", null];
+
+  // 5) Jardim Eliza
+  if (/\bJARDIM\s+ELISA\b/.test(rawNorm) || /\bJARDIM\s+ELIZA\b/.test(rawNorm) || /\bJD\s+ELIZA\b/.test(rawNorm))
+    return ["Jardim Eliza", null];
+  if (/\bELIZA\b/.test(rawNorm)) return ["Jardim Eliza", null];
+  if (rawNorm.includes("ELI") && Math.max(_simNorm(rawNorm, "ELIZA"), _simNorm(rawNorm, "ELISA"), _simNorm(rawNorm, "JARDIM ELIZA")) >= 0.80)
+    return ["Jardim Eliza", null];
+
+  // 6) Joao Vaccaro
+  if (rawNorm.includes("JOAO VACARO") || rawNorm.includes("JOAO VACCARO") || rawNorm.includes("BAIRRO JOAO VACARO"))
+    return ["João Vaccaro", null];
+
+  // 7) Jose Pugliesi
+  if (rawNorm.includes("JOSE PUGLIESI") || rawNorm.includes("JOSE PUGLIESE"))
+    return ["Conjunto Habitacional Prefeito José Pugliesi", null];
+
+  // 8) Reynaldo Stein
+  if (rawNorm.includes("REINALDO STEIN") || rawNorm.includes("REYNALDO STEIN") || rawNorm.includes("REINALDO STEM"))
+    return ["Residencial Reynaldo Stein", null];
+
+  // 9) Nobre Ville
+  if (/\bVILLE\b/.test(rawNorm)) return ["Residencial Nobre Ville", null];
+
+  // 10) Bom Jesus
+  if (rawNorm.includes("BOM JESUS")) return ["Vila São Bom Jesus Lapa", null];
+
+  // 11) Nadia
+  if (/\bNADIA\s*4\b/.test(rawNorm)) return ["Residencial Nadia 4", null];
+  if (/\bNADIA\b/.test(rawNorm)) return ["Residencial Nadia", null];
+
+  // 12) Santa Isabel
+  if (rawNorm.includes("SANTA ISABEL")) return ["Desmembramento Recreio Santa Isabel", null];
+
+  // SAO FRANCISCO
+  if (rawNorm.trim() === "SAO FRANCISCO") return ["Jardim São Francisco I", null];
+
+  // 13) Vivendas
+  if (rawNorm.includes("VIVENDAS")) return ["Vivendas do Bom Jardim", null];
+
+  // 14) Tonico Garcia
+  if (rawNorm.includes("TONICO GARCIA")) return ["Conjunto Residencial Antonio Garcia", null];
+
+  // 15) Guaíra E
+  if (rawNorm.includes("GUAIRA E") || rawNorm.includes("BAIRRO GUAIRA E"))
+    return ["Conjunto Habitacional Gabriel Garcia de Carvalho", null];
+
+  // 16) Portal do Lago
+  if (rawNorm.includes("PORTAL") && (rawNorm.includes("LAGO") || rawNorm.startsWith("PORTAL DO"))) {
+    const tokens = rawNorm.split(/\s+/);
+    const hasA = tokens.includes("A");
+    const hasB = tokens.includes("B");
+    let comp: string | null = null;
+    if (hasA && hasB) comp = "A/B";
+    else if (hasA) comp = "A";
+    else if (hasB) comp = "B";
+    return ["Portal do Lago", comp];
+  }
+
+  // 17) Muraishi
+  if (rawNorm.includes("MURAISHI")) {
+    const tokens = rawNorm.split(/\s+/);
+    let idx = -1;
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i] === "MURAISHI") { idx = i; break; }
+    }
+    if (idx >= 0) {
+      let tail = tokens.slice(idx + 1);
+      let normalized = "Residencial Muraishi";
+      if (tail.length > 0) {
+        if (tail[0] === "2" || tail[0] === "II") {
+          normalized = "Residencial Muraishi II";
+          tail = tail.slice(1);
+        } else if (tail[0] === "1" || tail[0] === "I") {
+          tail = tail.slice(1);
+        }
+      }
+      const comp = tail.length > 0 ? tail.join(" ").trim() : null;
+      return [normalized, comp];
+    }
+  }
+
+  // 18) Banespinha
+  if (rawNorm.includes("BANESPINHA")) return ["Residencial Antonio Nery Lopes", null];
+
+  return [null, null];
+}
+
+interface BairroResult {
+  bairro_classificacao: string;
+  bairro_normalizado: string;
+  bairro_complemento: string;
+}
+
+function normalizeBairroRules(bairroRaw: string): BairroResult {
+  let raw = normText(bairroRaw || "");
+  if (!raw) return { bairro_classificacao: "", bairro_normalizado: "", bairro_complemento: "" };
+
+  // Remove leading "BAIRRO" keyword
+  raw = raw.replace(/^\bBAIRRO\b\s+/, "").trim();
+  raw = raw.replace(/\bMURAUSHI\b/g, "MURAISHI");
+
+  // Noise
+  if (raw === "JARDIM" || raw === "JE") {
+    return { bairro_classificacao: "RUIDO", bairro_normalizado: "", bairro_complemento: "" };
+  }
+
+  // Banespinha
+  if (raw.includes("BANESPINHA")) {
+    return { bairro_classificacao: "OK", bairro_normalizado: "Residencial Antonio Nery Lopes", bairro_complemento: "" };
+  }
+
+  // CENTRO
+  if (raw === "CENTRO") {
+    return { bairro_classificacao: "OK", bairro_normalizado: "Centro", bairro_complemento: "" };
+  }
+  if (raw.startsWith("CENTRO ")) {
+    const complemento = raw.replace("CENTRO", "").trim();
+    return { bairro_classificacao: "OK", bairro_normalizado: "Centro", bairro_complemento: complemento };
+  }
+
+  // Complement patterns (ENTRE, X)
+  if (_hasComplementPattern(raw)) {
+    const [bairroPart, complemento] = _splitBairroComplemento(raw);
+    if (!bairroPart) {
+      return { bairro_classificacao: "COMPLEMENTO", bairro_normalizado: "", bairro_complemento: complemento || raw };
+    }
+    const [mapped, comp2] = _mapBairroAlias(bairroPart);
+    const mergedComp = _mergeComplement(complemento, comp2);
+    if (mapped) {
+      return { bairro_classificacao: "OK", bairro_normalizado: mapped, bairro_complemento: mergedComp };
+    }
+    return { bairro_classificacao: "OK", bairro_normalizado: _titleCaseKeepRoman(bairroPart), bairro_complemento: mergedComp };
+  }
+
+  // Direct alias mapping
+  const [mapped, comp] = _mapBairroAlias(raw);
+  if (mapped) {
+    return { bairro_classificacao: "OK", bairro_normalizado: mapped, bairro_complemento: comp || "" };
+  }
+
+  return { bairro_classificacao: "OK", bairro_normalizado: _titleCaseKeepRoman(raw), bairro_complemento: "" };
+}
+
+// ══════════════════════════════════════════════════
+//  BAIRRO HEURISTIC
+// ══════════════════════════════════════════════════
+
+function looksLikeBairroToken(t: string): boolean {
+  const tn = normText(t);
+  if (!tn) return false;
+  if (BAIRRO_ANCHORS.has(tn)) return true;
+  if (/^(COA?H?AB|COAB|COHAB)\d+$/.test(tn)) return true;
+  if (/^(MUTIRAO)\d+$/.test(tn)) return true;
+  if (/^(NADIA)\d+$/.test(tn)) return true;
+  return false;
+}
+
+// ══════════════════════════════════════════════════
+//  NUMBER EXTRACTION (mirroring Python)
+// ══════════════════════════════════════════════════
+
+function extractNumeroEndereco(endereco: string): string {
+  const s = normTextKeepNumbers(endereco || "");
+
+  const m = s.match(/\b(?:N|NO|NR|NUM|NUMERO)\s*(\d+[A-Z]?)\b/);
+  if (m) return m[1].trim();
+
+  const toks = s.split(/\s+/);
+  const candidates: string[] = [];
+  let prev = "";
+  for (const t of toks) {
+    if (/^\d+[A-Z]?$/.test(t)) {
+      if (!STREET_TYPES.has(prev)) {
+        candidates.push(t);
+      }
+    }
+    prev = t;
+  }
+
+  if (!candidates.length) return "";
+
+  const digitsLen = (x: string) => x.replace(/\D/g, "").length;
+  const maxLen = Math.max(...candidates.map(digitsLen));
+  const best = candidates.filter(c => digitsLen(c) === maxLen);
+  return best.length > 0 ? best[best.length - 1].trim() : "";
+}
+
+// ══════════════════════════════════════════════════
+//  ADDRESS PARSER (mirroring Python parse_endereco_parts)
+// ══════════════════════════════════════════════════
+
+interface ParsedAddress {
+  logradouro: string;
+  numero: string;
+  bairro: string;
+}
+
+function parseEndereco(endereco: string): ParsedAddress {
+  const s = normTextKeepNumbers(endereco || "");
+  let toks = s.split(/\s+/).filter(Boolean);
+  if (!toks.length) return { logradouro: "", numero: "", bairro: "" };
+
+  // Find real start: if first token is not a street type, skip to the first one
+  let start = 0;
+  if (!STREET_TYPES.has(toks[0])) {
+    for (let i = 0; i < toks.length; i++) {
+      if (STREET_TYPES.has(toks[i])) {
+        start = i;
+        break;
+      }
+    }
+  }
+  toks = toks.slice(start);
+  if (!toks.length) return { logradouro: "", numero: "", bairro: "" };
+
+  // Extract numero via NUM_MARKERS
+  let numero = "";
+  let idxMarker: number | null = null;
+  for (let i = 0; i < toks.length; i++) {
+    if (NUM_MARKERS.has(toks[i]) && i + 1 < toks.length && /^\d+[A-Z]?$/.test(toks[i + 1])) {
+      numero = toks[i + 1];
+      idxMarker = i;
+      break;
+    }
+  }
+
+  // Fallback: extractNumeroEndereco
+  let idxNumToken: number | null = null;
+  if (!numero) {
+    numero = extractNumeroEndereco(s);
+    if (numero) {
+      for (let i = 0; i < toks.length; i++) {
+        if (toks[i] === numero) {
+          idxNumToken = i;
+          break;
+        }
+      }
+    }
+  }
+
+  // Separate logradouro / bairro tokens
+  let logTokens: string[];
+  let afterNumTokens: string[];
+
+  if (idxMarker !== null) {
+    logTokens = toks.slice(0, idxMarker);
+    afterNumTokens = (idxMarker + 2 <= toks.length) ? toks.slice(idxMarker + 2) : [];
+  } else if (idxNumToken !== null) {
+    logTokens = toks.slice(0, idxNumToken);
+    afterNumTokens = toks.slice(idxNumToken + 1);
+  } else {
+    // No number found
+    if (
+      toks.length >= 3 &&
+      STREET_TYPES.has(toks[0]) &&
+      /^\d+[A-Z]?$/.test(toks[1]) &&
+      looksLikeBairroToken(toks[2])
+    ) {
+      // "AVENIDA 3 CENTRO" → logradouro=AVENIDA 3, bairro=CENTRO...
+      logTokens = toks.slice(0, 2);
+      afterNumTokens = toks.slice(2);
+    } else {
+      logTokens = toks.slice(0, Math.min(3, toks.length));
+      afterNumTokens = toks.slice(Math.min(3, toks.length));
+    }
+  }
+
+  const logradouro = logTokens.join(" ").trim();
+
+  // Bairro extraction from afterNumTokens
+  let bairroTokens = [...afterNumTokens];
+  let hasBairroMarker = false;
+
+  const bairroIdx = bairroTokens.indexOf("BAIRRO");
+  if (bairroIdx >= 0) {
+    bairroTokens = bairroTokens.slice(bairroIdx + 1);
+    hasBairroMarker = true;
+  }
+
+  if (!hasBairroMarker) {
+    // Try to find anchor token
+    for (let i = 0; i < bairroTokens.length; i++) {
+      if (BAIRRO_ANCHORS.has(bairroTokens[i]) || looksLikeBairroToken(bairroTokens[i])) {
+        bairroTokens = bairroTokens.slice(i);
+        break;
+      }
+    }
+  }
+
+  const bairro = bairroTokens.join(" ").trim();
+  return { logradouro, numero, bairro };
+}
+
+// ══════════════════════════════════════════════════
+//  CEP REF / BAIRRO INDEX
 // ══════════════════════════════════════════════════
 
 interface CepRecord {
@@ -374,13 +614,245 @@ interface CepRecord {
   cep: string;
 }
 
+function buildBairroIndex(ceps: CepRecord[]): Map<string, CepRecord[]> {
+  const idx = new Map<string, CepRecord[]>();
+  for (const c of ceps) {
+    const key = normText(c.bairro || "");
+    if (!key) continue;
+    if (!idx.has(key)) idx.set(key, []);
+    idx.get(key)!.push(c);
+  }
+  return idx;
+}
+
+function buildKeyToLabel(ceps: CepRecord[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const c of ceps) {
+    const key = normText(c.bairro || "");
+    if (key && !m.has(key)) m.set(key, c.bairro);
+  }
+  return m;
+}
+
+// ══════════════════════════════════════════════════
+//  PHASE 2: BAIRRO RESOLUTION (mirroring Python)
+// ══════════════════════════════════════════════════
+
+interface BairroResolution {
+  bairro_anchor_ok: boolean;
+  bairro_gate: string;
+  bairro_canonico: string;
+  bairro_canonico_key: string;
+  bairro_score: number;
+  bairro_token_score: number;
+  bairro_seq_ratio: number;
+  bairro_tokens_query: string;
+  bairro_tokens_ref: string;
+}
+
+function resolveBairroPagador(
+  bairroCandidato: string,
+  bairroClassificacao: string,
+  bairroIndex: Map<string, CepRecord[]>,
+  keyToLabel: Map<string, string>,
+  tokenThreshold: number,
+  bairroFuzzyThreshold: number,
+): BairroResolution {
+  const empty: BairroResolution = {
+    bairro_anchor_ok: false, bairro_gate: "FAIL", bairro_canonico: "", bairro_canonico_key: "",
+    bairro_score: 0, bairro_token_score: 0, bairro_seq_ratio: 0, bairro_tokens_query: "", bairro_tokens_ref: "",
+  };
+  if (!bairroCandidato) return empty;
+
+  const keyExact = normText(bairroCandidato);
+  if (bairroIndex.has(keyExact)) {
+    const label = keyToLabel.get(keyExact) || "";
+    const anchorOk = bairroClassificacao === "OK";
+    const sc = scoreComponents(bairroCandidato, label, tokenThreshold, "bairro");
+    return {
+      bairro_anchor_ok: anchorOk,
+      bairro_gate: "EXACT",
+      bairro_canonico: label,
+      bairro_canonico_key: keyExact,
+      bairro_score: 1,
+      bairro_token_score: 1,
+      bairro_seq_ratio: 1,
+      bairro_tokens_query: sc.q_tokens,
+      bairro_tokens_ref: sc.r_tokens,
+    };
+  }
+
+  // Fuzzy match
+  let bestKey = "";
+  let bestScore = 0;
+  let bestTokenScore = 0;
+  let bestSeqRatio = 0;
+  let bestQTok = "";
+  let bestRTok = "";
+
+  for (const [bk] of bairroIndex) {
+    const label = keyToLabel.get(bk) || bk;
+    const sc = scoreComponents(bairroCandidato, label, tokenThreshold, "bairro");
+    if (sc.score_final > bestScore) {
+      bestScore = sc.score_final;
+      bestKey = bk;
+      bestTokenScore = sc.token_score;
+      bestSeqRatio = sc.seq_ratio;
+      bestQTok = sc.q_tokens;
+      bestRTok = sc.r_tokens;
+    }
+  }
+
+  const gate = bestScore >= bairroFuzzyThreshold ? "FUZZY" : "FAIL";
+  const anchorOk = gate !== "FAIL" && bairroClassificacao === "OK";
+  const label = bestKey ? (keyToLabel.get(bestKey) || "") : "";
+
+  return {
+    bairro_anchor_ok: anchorOk,
+    bairro_gate: gate,
+    bairro_canonico: label,
+    bairro_canonico_key: bestKey,
+    bairro_score: bestScore,
+    bairro_token_score: bestTokenScore,
+    bairro_seq_ratio: bestSeqRatio,
+    bairro_tokens_query: bestQTok,
+    bairro_tokens_ref: bestRTok,
+  };
+}
+
+// ══════════════════════════════════════════════════
+//  PHASE 3: LOGRADOURO MATCH (mirroring Python)
+// ══════════════════════════════════════════════════
+
+function _extractViaNumLetter(s: string): [string, string] {
+  const norm = normTextKeepNumbers(s || "");
+  const toks = norm.split(/\s+/);
+  for (let i = 0; i < toks.length; i++) {
+    if (STREET_TYPES.has(toks[i]) && i + 1 < toks.length) {
+      const cand = toks[i + 1];
+      if (/^\d+[A-Z]?$/.test(cand)) {
+        const m = cand.match(/^(\d+)([A-Z]?)$/);
+        if (m) return [m[1], m[2] || ""];
+      }
+    }
+  }
+  return ["", ""];
+}
+
+interface LogradouroMatchResult {
+  match_ok: boolean;
+  score: number;
+  token_score: number;
+  seq_ratio: number;
+  q_tokens: string;
+  r_tokens: string;
+  matched: CepRecord | null;
+  top1: number;
+  top2: number;
+  gap: number;
+  review_status: string;
+  review_reason: string;
+}
+
+function matchLogradouroInCandidates(
+  qLogradouro: string,
+  candidates: CepRecord[],
+  minScore: number,
+  tokenThreshold: number,
+  ambiguousGap: number,
+): LogradouroMatchResult {
+  const emptyResult: LogradouroMatchResult = {
+    match_ok: false, score: 0, token_score: 0, seq_ratio: 0, q_tokens: "", r_tokens: "",
+    matched: null, top1: 0, top2: 0, gap: 0,
+    review_status: "REVIEW", review_reason: "SEM_CANDIDATOS",
+  };
+  if (!qLogradouro || !candidates.length) return emptyResult;
+
+  const [qNum, qLetter] = _extractViaNumLetter(qLogradouro);
+
+  const scored: Array<{
+    sFinal: number; sJ: number; sR: number; qTok: string; rTok: string; record: CepRecord;
+  }> = [];
+
+  for (const ref of candidates) {
+    const sc = scoreComponents(qLogradouro, ref.logradouro, tokenThreshold, "logradouro");
+    const [rNum, rLetter] = _extractViaNumLetter(ref.logradouro);
+
+    let adjust = 0;
+    if (qNum && rNum && qNum === rNum) {
+      if (qLetter && rLetter) {
+        adjust = qLetter === rLetter ? 0.03 : -0.05;
+      } else if (qLetter && !rLetter) {
+        adjust = -0.05;
+      } else if (!qLetter && rLetter) {
+        adjust = -0.03;
+      } else {
+        adjust = 0.02;
+      }
+    }
+
+    const finalScore = Math.max(0, Math.min(1, sc.score_final + adjust));
+    scored.push({
+      sFinal: finalScore, sJ: sc.token_score, sR: sc.seq_ratio,
+      qTok: sc.q_tokens, rTok: sc.r_tokens, record: ref,
+    });
+  }
+
+  scored.sort((a, b) => b.sFinal - a.sFinal);
+
+  const top1 = scored[0];
+  const top2 = scored.length > 1 ? scored[1] : null;
+  const top2Score = top2 ? top2.sFinal : 0;
+  const gap = top2 ? top1.sFinal - top2Score : top1.sFinal;
+
+  const ok = top1.sFinal >= minScore;
+
+  let reviewStatus = "";
+  let reviewReason = "";
+
+  if (ok && top2 && gap < ambiguousGap) {
+    reviewStatus = "REVIEW";
+    reviewReason = "AMBIGUO_TOP2_PROXIMO";
+  }
+  if (!ok) {
+    reviewStatus = "REVIEW";
+    reviewReason = "LOGRADOURO_SCORE_BAIXO";
+  }
+
+  return {
+    match_ok: ok,
+    score: top1.sFinal,
+    token_score: top1.sJ,
+    seq_ratio: top1.sR,
+    q_tokens: top1.qTok,
+    r_tokens: top1.rTok,
+    matched: ok || (reviewReason === "AMBIGUO_TOP2_PROXIMO") ? top1.record : null,
+    top1: top1.sFinal,
+    top2: top2Score,
+    gap,
+    review_status: reviewStatus,
+    review_reason: reviewReason,
+  };
+}
+
+// ══════════════════════════════════════════════════
+//  FULL PIPELINE (mirroring Python pipeline_match_endereco)
+// ══════════════════════════════════════════════════
+
+function parseCidadeUf(cidade: string): { cidade: string; uf: string } {
+  if (!cidade) return { cidade: "", uf: "" };
+  const parts = cidade.split(/\s*\/\s*/);
+  if (parts.length >= 2) {
+    return { cidade: parts.slice(0, -1).join(" ").trim(), uf: parts[parts.length - 1].trim() };
+  }
+  return { cidade: cidade.trim(), uf: "" };
+}
+
 interface MatchConfig {
   bairro_fuzzy_threshold: number;
   min_score_logradouro: number;
   token_threshold: number;
   ambiguous_gap: number;
-  token_weight: number;
-  seq_weight: number;
   fallback_global: boolean;
 }
 
@@ -396,6 +868,10 @@ interface MatchResult {
   bairro_gate: string;
   bairro_anchor_ok: boolean;
   bairro_score: number;
+  bairro_token_score: number;
+  bairro_seq_ratio: number;
+  bairro_tokens_query: string;
+  bairro_tokens_ref: string;
   bairro_canonico: string;
   bairro_canonico_key: string;
   logradouro_score: number;
@@ -416,216 +892,123 @@ interface MatchResult {
   review_reason: string;
 }
 
-function buildBairroIndex(ceps: CepRecord[]): Map<string, CepRecord[]> {
-  const idx = new Map<string, CepRecord[]>();
-  for (const c of ceps) {
-    const key = normStr(c.bairro || "");
-    if (!key) continue;
-    if (!idx.has(key)) idx.set(key, []);
-    idx.get(key)!.push(c);
-  }
-  return idx;
-}
-
-function matchBairro(
-  bairroCandidato: string,
-  bairroIndex: Map<string, CepRecord[]>,
-  config: MatchConfig
-): { gate: string; anchor_ok: boolean; score: number; canonico: string; canonico_key: string } {
-  const normCand = normStr(bairroCandidato);
-  if (!normCand) return { gate: "FAIL", anchor_ok: false, score: 0, canonico: "", canonico_key: "" };
-
-  // EXACT match
-  if (bairroIndex.has(normCand)) {
-    const first = bairroIndex.get(normCand)![0];
-    return { gate: "EXACT", anchor_ok: true, score: 1, canonico: first.bairro, canonico_key: normCand };
-  }
-
-  // FUZZY match
-  let bestScore = 0;
-  let bestKey = "";
-  let bestBairro = "";
-  for (const [key, records] of bairroIndex) {
-    const s = calcScore(normCand, key, config.token_weight, config.seq_weight);
-    if (s.score_final > bestScore) {
-      bestScore = s.score_final;
-      bestKey = key;
-      bestBairro = records[0].bairro;
-    }
-  }
-
-  if (bestScore >= config.bairro_fuzzy_threshold) {
-    return {
-      gate: "FUZZY",
-      anchor_ok: true,
-      score: Math.round(bestScore * 10000) / 10000,
-      canonico: bestBairro,
-      canonico_key: bestKey,
-    };
-  }
-
-  return { gate: "FAIL", anchor_ok: false, score: bestScore, canonico: "", canonico_key: "" };
-}
-
-function matchLogradouro(
-  parsed: string,
-  candidatos: CepRecord[],
-  config: MatchConfig
-): {
-  score: number;
-  token_score: number;
-  seq_ratio: number;
-  top1: number;
-  top2: number;
-  gap: number;
-  matched: CepRecord | null;
-  review_status: string;
-  review_reason: string;
-} {
-  if (!parsed || candidatos.length === 0) {
-    return {
-      score: 0, token_score: 0, seq_ratio: 0, top1: 0, top2: 0, gap: 0,
-      matched: null, review_status: "FAIL", review_reason: "SEM_CANDIDATOS",
-    };
-  }
-
-  const scored = candidatos.map((c) => ({
-    record: c,
-    ...calcScore(parsed, c.logradouro || "", config.token_weight, config.seq_weight),
-  }));
-  scored.sort((a, b) => b.score_final - a.score_final);
-
-  const top1 = scored[0]?.score_final || 0;
-  const top2 = scored.length > 1 ? scored[1].score_final : 0;
-  const gap = Math.round((top1 - top2) * 10000) / 10000;
-
-  if (top1 < config.min_score_logradouro) {
-    return {
-      score: top1, token_score: scored[0]?.token_score || 0, seq_ratio: scored[0]?.seq_ratio || 0,
-      top1, top2, gap, matched: null,
-      review_status: "REVIEW", review_reason: "LOGRADOURO_SCORE_BAIXO",
-    };
-  }
-
-  if (gap < config.ambiguous_gap && scored.length > 1) {
-    return {
-      score: top1, token_score: scored[0].token_score, seq_ratio: scored[0].seq_ratio,
-      top1, top2, gap, matched: scored[0].record,
-      review_status: "REVIEW", review_reason: "AMBIGUO_TOP2_PROXIMO",
-    };
-  }
-
-  return {
-    score: top1, token_score: scored[0].token_score, seq_ratio: scored[0].seq_ratio,
-    top1, top2, gap, matched: scored[0].record,
-    review_status: "OK", review_reason: "",
-  };
-}
-
-function parseCidadeUf(cidade: string): { cidade: string; uf: string } {
-  if (!cidade) return { cidade: "", uf: "" };
-  const parts = cidade.split(/\s*[\/\-]\s*/);
-  if (parts.length >= 2) {
-    const uf = parts[parts.length - 1].trim();
-    const cid = parts.slice(0, -1).join(" ").trim();
-    if (uf.length <= 2) return { cidade: cid, uf: uf.toUpperCase() };
-  }
-  return { cidade: cidade.trim(), uf: "" };
-}
-
 function processRow(
   endereco: string,
   cepBase: CepRecord[],
   bairroIndex: Map<string, CepRecord[]>,
-  config: MatchConfig
+  keyToLabel: Map<string, string>,
+  config: MatchConfig,
 ): MatchResult {
-  const parsed = parseEndereco(endereco);
-  const bairroNorm = normalizeBairroRules(parsed.bairro || endereco);
-  const bairroCandidato = bairroNorm.bairro_normalizado || parsed.bairro || "";
+  const parts = parseEndereco(endereco);
+  const numero = parts.numero || extractNumeroEndereco(endereco);
 
-  // Phase 2: Bairro anchor
-  const bairroMatch = matchBairro(bairroCandidato, bairroIndex, config);
+  const binfo = normalizeBairroRules(parts.bairro);
+  const bairroClassificacao = binfo.bairro_classificacao;
+  const bairroNormalizado = binfo.bairro_normalizado;
+  const bairroComplemento = binfo.bairro_complemento;
+  const bairroCandidato = bairroNormalizado || parts.bairro;
 
-  const result: MatchResult = {
-    endereco_usado: endereco,
-    parsed_logradouro: parsed.logradouro,
-    parsed_numero: parsed.numero,
-    parsed_bairro: parsed.bairro,
-    bairro_classificacao: bairroNorm.bairro_classificacao,
-    bairro_normalizado: bairroNorm.bairro_normalizado,
-    bairro_complemento: bairroNorm.bairro_complemento,
-    bairro_candidato: bairroCandidato,
-    bairro_gate: bairroMatch.gate,
-    bairro_anchor_ok: bairroMatch.anchor_ok,
-    bairro_score: bairroMatch.score,
-    bairro_canonico: bairroMatch.canonico,
-    bairro_canonico_key: bairroMatch.canonico_key,
-    logradouro_score: 0,
-    logradouro_token_score: 0,
-    logradouro_seq_ratio: 0,
-    top1_score: 0,
-    top2_score: 0,
-    top1_top2_gap: 0,
-    match_ok: false,
-    matched_logradouro: "",
-    matched_numero: parsed.numero,
-    matched_bairro: "",
-    matched_cep: "",
-    matched_cidade: "",
-    matched_uf: "",
-    matched_endereco_completo: "",
-    review_status: bairroMatch.anchor_ok ? "OK" : "REVIEW",
-    review_reason: bairroMatch.anchor_ok ? "" : "BAIRRO_NAO_ANCORADO",
-  };
+  const qLog = parts.logradouro || preprocessForMatch(endereco);
 
-  // Phase 3: Logradouro match
-  let candidatos: CepRecord[] = [];
-  if (bairroMatch.anchor_ok) {
-    candidatos = bairroIndex.get(bairroMatch.canonico_key) || [];
-  } else if (config.fallback_global) {
-    candidatos = cepBase;
-    result.review_status = "REVIEW";
-    result.review_reason = "FALLBACK_GLOBAL";
+  // Phase 2: Bairro resolution
+  const bairroRes = resolveBairroPagador(
+    bairroCandidato, bairroClassificacao, bairroIndex, keyToLabel,
+    config.token_threshold, config.bairro_fuzzy_threshold,
+  );
+
+  let reviewStatus = "";
+  let reviewReason = "";
+
+  if (bairroClassificacao === "REVISAR") {
+    reviewStatus = "REVIEW";
+    reviewReason = "BAIRRO_REVISAR";
+  } else if (bairroClassificacao === "RUIDO" || bairroClassificacao === "COMPLEMENTO") {
+    reviewStatus = "REVIEW";
+    reviewReason = `BAIRRO_${bairroClassificacao}`;
+  } else if (!parts.bairro.trim()) {
+    reviewStatus = "REVIEW";
+    reviewReason = "BAIRRO_VAZIO";
   }
 
-  if (candidatos.length > 0 && parsed.logradouro) {
-    const logMatch = matchLogradouro(parsed.logradouro, candidatos, config);
-    result.logradouro_score = logMatch.score;
-    result.logradouro_token_score = logMatch.token_score;
-    result.logradouro_seq_ratio = logMatch.seq_ratio;
-    result.top1_score = logMatch.top1;
-    result.top2_score = logMatch.top2;
-    result.top1_top2_gap = logMatch.gap;
+  let logResult: LogradouroMatchResult;
 
-    if (logMatch.matched) {
-      result.match_ok = logMatch.review_status === "OK";
-      result.matched_logradouro = logMatch.matched.logradouro;
-      result.matched_bairro = logMatch.matched.bairro;
-      result.matched_cep = logMatch.matched.cep;
-      const cu = parseCidadeUf(logMatch.matched.cidade);
-      result.matched_cidade = cu.cidade;
-      result.matched_uf = cu.uf || logMatch.matched.uf || "";
-      result.matched_endereco_completo =
-        `${result.matched_logradouro}, ${result.matched_numero} - ${result.matched_bairro}, ${result.matched_cidade}/${result.matched_uf} - ${result.matched_cep}`.replace(
-          /\s+/g,
-          " "
-        );
+  if (bairroRes.bairro_anchor_ok) {
+    const candidates = bairroIndex.get(bairroRes.bairro_canonico_key) || [];
+    logResult = matchLogradouroInCandidates(qLog, candidates, config.min_score_logradouro, config.token_threshold, config.ambiguous_gap);
+  } else {
+    if (!reviewStatus) {
+      reviewStatus = "REVIEW";
+      reviewReason = "BAIRRO_NAO_ANCOROU_NA_BASE";
+    }
 
-      if (logMatch.review_status !== "OK") {
-        result.review_status = logMatch.review_status;
-        result.review_reason = logMatch.review_reason;
-        // match_ok can still be true for AMBIGUO if score is high enough
-        if (logMatch.review_reason === "AMBIGUO_TOP2_PROXIMO" && logMatch.score >= config.min_score_logradouro) {
-          result.match_ok = true;
-        }
-      }
+    if (config.fallback_global) {
+      logResult = matchLogradouroInCandidates(qLog, cepBase, config.min_score_logradouro, config.token_threshold, config.ambiguous_gap);
+      logResult.review_status = "REVIEW";
+      logResult.review_reason = logResult.review_reason
+        ? `${reviewReason} + ${logResult.review_reason}`
+        : reviewReason;
     } else {
-      result.review_status = logMatch.review_status;
-      result.review_reason = logMatch.review_reason;
+      logResult = {
+        match_ok: false, score: 0, token_score: 0, seq_ratio: 0, q_tokens: "", r_tokens: "",
+        matched: null, top1: 0, top2: 0, gap: 0,
+        review_status: reviewStatus, review_reason: reviewReason,
+      };
     }
   }
 
-  return result;
+  // Override review if bairro had issues
+  if (reviewStatus && logResult.review_status !== "REVIEW") {
+    logResult.review_status = reviewStatus;
+    logResult.review_reason = reviewReason;
+  }
+
+  const matchedNumero = logResult.match_ok ? numero : "";
+  let matchedEnderecoCompleto = "";
+  if (logResult.match_ok && logResult.matched) {
+    const partsFull: string[] = [];
+    if (logResult.matched.logradouro) partsFull.push(logResult.matched.logradouro.trim());
+    if (matchedNumero) partsFull.push(matchedNumero);
+    if (logResult.matched.bairro) partsFull.push(logResult.matched.bairro.trim());
+    matchedEnderecoCompleto = partsFull.filter(Boolean).join(" ").trim();
+  }
+
+  const cidadeUf = parseCidadeUf(logResult.matched?.cidade || "");
+
+  return {
+    endereco_usado: endereco || "",
+    parsed_logradouro: parts.logradouro,
+    parsed_numero: numero,
+    parsed_bairro: parts.bairro,
+    bairro_classificacao: bairroClassificacao,
+    bairro_normalizado: bairroNormalizado,
+    bairro_complemento: bairroComplemento,
+    bairro_candidato: bairroCandidato,
+    bairro_gate: bairroRes.bairro_anchor_ok ? bairroRes.bairro_gate : (config.fallback_global && !bairroRes.bairro_anchor_ok ? "GLOBAL_FALLBACK" : bairroRes.bairro_gate),
+    bairro_anchor_ok: bairroRes.bairro_anchor_ok,
+    bairro_score: bairroRes.bairro_score,
+    bairro_token_score: bairroRes.bairro_token_score,
+    bairro_seq_ratio: bairroRes.bairro_seq_ratio,
+    bairro_tokens_query: bairroRes.bairro_tokens_query,
+    bairro_tokens_ref: bairroRes.bairro_tokens_ref,
+    bairro_canonico: bairroRes.bairro_canonico,
+    bairro_canonico_key: bairroRes.bairro_canonico_key,
+    logradouro_score: logResult.score,
+    logradouro_token_score: logResult.token_score,
+    logradouro_seq_ratio: logResult.seq_ratio,
+    top1_score: logResult.top1,
+    top2_score: logResult.top2,
+    top1_top2_gap: logResult.gap,
+    match_ok: logResult.match_ok,
+    matched_logradouro: logResult.matched?.logradouro || "",
+    matched_numero: matchedNumero,
+    matched_bairro: logResult.matched?.bairro || "",
+    matched_cep: logResult.matched?.cep || "",
+    matched_cidade: cidadeUf.cidade,
+    matched_uf: cidadeUf.uf || logResult.matched?.uf || "",
+    matched_endereco_completo: matchedEnderecoCompleto,
+    review_status: logResult.review_status,
+    review_reason: logResult.review_reason,
+  };
 }
 
 // ══════════════════════════════════════════════════
@@ -662,12 +1045,11 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const {
-      payers_csv,       // array of objects from CSV
-      ceps_csv,         // optional: array of objects from CSV override
-      use_db_ceps,      // boolean: use ceps table from DB
+      payers_csv,
+      ceps_csv,
+      use_db_ceps,
       config: userConfig,
-      endereco_column,  // column name in payers CSV containing address
-      cep_column,       // column name for CEP output
+      endereco_column,
     } = body;
 
     if (!payers_csv || !Array.isArray(payers_csv) || payers_csv.length === 0) {
@@ -682,8 +1064,6 @@ Deno.serve(async (req) => {
       min_score_logradouro: userConfig?.min_score_logradouro ?? 0.50,
       token_threshold: userConfig?.token_threshold ?? 0.82,
       ambiguous_gap: userConfig?.ambiguous_gap ?? 0.05,
-      token_weight: userConfig?.token_weight ?? 0.45,
-      seq_weight: userConfig?.seq_weight ?? 0.55,
       fallback_global: userConfig?.fallback_global ?? false,
     };
 
@@ -701,7 +1081,6 @@ Deno.serve(async (req) => {
     }
 
     if (use_db_ceps !== false) {
-      // Fetch all ceps from DB (may be large — paginate)
       let page = 0;
       const pageSize = 1000;
       let hasMore = true;
@@ -736,12 +1115,13 @@ Deno.serve(async (req) => {
     }
 
     const bairroIndex = buildBairroIndex(cepBase);
+    const keyToLabel = buildKeyToLabel(cepBase);
     const endCol = endereco_column || "Endereco";
 
     // Process each payer row
     const results = payers_csv.map((row: Record<string, unknown>) => {
       const endereco = String(row[endCol] || "");
-      const matchResult = processRow(endereco, cepBase, bairroIndex, config);
+      const matchResult = processRow(endereco, cepBase, bairroIndex, keyToLabel, config);
       return { ...row, ...matchResult };
     });
 
