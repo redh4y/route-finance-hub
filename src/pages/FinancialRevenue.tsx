@@ -174,7 +174,9 @@ export default function FinancialRevenue() {
   const totalBillingsPages = Math.max(1, Math.ceil(totalBillings / BILLINGS_PAGE_SIZE))
 
   const billingIds = useMemo(
-    () => (billings || []).map((b) => b.id),
+    () => billings.map((b) => b.id),
+    [billings]
+  )
     [billings]
   )
 
