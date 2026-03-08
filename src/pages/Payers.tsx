@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { usePayers, usePayersStats, usePayerById, Payer } from "@/hooks/usePayers";
@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
 import { PageTransition } from "@/components/ui/page-transition";
 import { formatCPF, formatPhone, formatCurrency } from "@/lib/formatters";
+import { validateCPF } from "@/lib/csv-import";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -82,6 +83,7 @@ export default function Payers() {
   const PAGE_SIZE = 50;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isValidatingCpfs, setIsValidatingCpfs] = useState(false);
   const [newPayer, setNewPayer] = useState({
     name: "",
     document: "",
@@ -90,6 +92,75 @@ export default function Payers() {
     billingMode: "BOLETO",
     status: "ATIVO",
   });
+
+  // ── Bulk CPF validation ──
+  const bulkValidateCpfs = useCallback(async () => {
+    setIsValidatingCpfs(true);
+    try {
+      // Fetch all payers with document_digits in batches
+      const PAGE = 1000;
+      let allPayers: { id: string; document_digits: string | null; document_valid: boolean | null }[] = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("payers")
+          .select("id, document_digits, document_valid")
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (data) allPayers = allPayers.concat(data);
+        hasMore = data?.length === PAGE;
+        from += PAGE;
+      }
+
+      toast.loading(`Validando ${allPayers.length} CPFs...`, { id: "cpf-validate" });
+
+      // Calculate new validity for each
+      let corrected = 0;
+      const BATCH = 50;
+      const toUpdate: { id: string; valid: boolean }[] = [];
+
+      for (const p of allPayers) {
+        const newValid = validateCPF(p.document_digits);
+        if (p.document_valid !== newValid) {
+          toUpdate.push({ id: p.id, valid: newValid });
+        }
+      }
+
+      if (toUpdate.length === 0) {
+        toast.dismiss("cpf-validate");
+        toast.success(`Todos os ${allPayers.length} CPFs já estavam validados corretamente`);
+        setIsValidatingCpfs(false);
+        return;
+      }
+
+      // Update in parallel batches
+      for (let i = 0; i < toUpdate.length; i += BATCH) {
+        const batch = toUpdate.slice(i, i + BATCH);
+        const pct = Math.round(((i + batch.length) / toUpdate.length) * 100);
+        toast.loading(`Atualizando ${i + batch.length}/${toUpdate.length} (${pct}%)...`, { id: "cpf-validate" });
+
+        await Promise.all(
+          batch.map(({ id, valid }) =>
+            supabase.from("payers").update({ document_valid: valid }).eq("id", id)
+          )
+        );
+        corrected += batch.length;
+      }
+
+      toast.dismiss("cpf-validate");
+      toast.success(`Validação concluída: ${corrected} CPFs corrigidos de ${allPayers.length} total`);
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
+    } catch (err: any) {
+      toast.dismiss("cpf-validate");
+      toast.error("Erro ao validar CPFs: " + (err?.message || "falha"));
+      console.error("bulkValidateCpfs error:", err);
+    } finally {
+      setIsValidatingCpfs(false);
+    }
+  }, [queryClient]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -147,7 +218,7 @@ export default function Payers() {
         name,
         document: newPayer.document.trim() || null,
         document_digits: documentDigits || null,
-        document_valid: documentDigits.length === 11 ? true : null,
+        document_valid: validateCPF(documentDigits),
         phone: phoneDigits || null,
         neighborhood: newPayer.neighborhood.trim() || null,
         billing_mode: newPayer.billingMode,
@@ -189,10 +260,22 @@ export default function Payers() {
                 Gerencie alunos, cobranças e cadastros
               </p>
             </div>
-            <Button size="sm" className="gap-1.5 self-start sm:self-auto" onClick={() => setIsCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              <span className="sm:inline">Novo pagador</span>
-            </Button>
+            <div className="flex gap-2 self-start sm:self-auto">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={bulkValidateCpfs}
+                disabled={isValidatingCpfs}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="hidden sm:inline">{isValidatingCpfs ? "Validando..." : "Validar CPFs"}</span>
+              </Button>
+              <Button size="sm" className="gap-1.5" onClick={() => setIsCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                <span className="sm:inline">Novo pagador</span>
+              </Button>
+            </div>
           </div>
 
           {/* ── Stats row (scrollable on mobile) ── */}
