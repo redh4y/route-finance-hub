@@ -1200,12 +1200,10 @@ export default function AddressMatch() {
                     <BarChart3 className="h-3.5 w-3.5" />
                     Resultados
                   </TabsTrigger>
-                  {phoneResults.length > 0 && (
-                    <TabsTrigger value="phones" className="gap-1">
-                      <Phone className="h-3.5 w-3.5" />
-                      Telefones ({phoneSummary.found}/{phoneSummary.total})
-                    </TabsTrigger>
-                  )}
+                  <TabsTrigger value="phones" className="gap-1">
+                    <Phone className="h-3.5 w-3.5" />
+                    Telefones {phoneResults.length > 0 ? `(${phoneSummary.found}/${phoneSummary.total})` : ""}
+                  </TabsTrigger>
                   <TabsTrigger value="bairros" className="gap-1">
                     <MapPin className="h-3.5 w-3.5" />
                     Bairros
@@ -1292,11 +1290,19 @@ export default function AddressMatch() {
                   </Card>
                 </TabsContent>
 
-                {phoneResults.length > 0 && (
-                  <TabsContent value="phones">
+                <TabsContent value="phones">
+                  {phoneResults.length > 0 ? (
                     <PhoneResultsTable results={phoneResults} />
-                  </TabsContent>
-                )}
+                  ) : (
+                    <Card>
+                      <CardContent className="py-8 text-center text-muted-foreground">
+                        <Phone className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                        <p className="text-sm font-medium">Match de telefones não foi executado</p>
+                        <p className="text-xs mt-1">Carregue o JSON de contatos WhatsApp e execute o match para ver os resultados</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
 
                 <TabsContent value="bairros">
                   <Card>
