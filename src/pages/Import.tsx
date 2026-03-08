@@ -47,6 +47,8 @@ import {
   FileWarning,
   History,
   Undo2,
+  Database,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
