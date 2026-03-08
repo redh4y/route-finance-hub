@@ -205,56 +205,106 @@ export default function AddressMatch() {
     reader.readAsText(file, "UTF-8");
   }, []);
 
-  // ── Phone matching (client-side) ──
+  // ── Phone matching (client-side) — primary: nome, fallback: telefone ──
   const runPhoneMatch = useCallback(() => {
     if (payersData.length === 0 || waContacts.length === 0) return [];
 
-    // Build index: last 8 digits → contact
-    const waIndex = new Map<string, WhatsAppContact>();
+    // Normalize helper for name comparison
+    const normName = (s: string) =>
+      s
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9 ]/g, "")
+        .toLowerCase()
+        .trim();
+
+    // Build phone index: last 8 digits → contact
+    const waPhoneIndex = new Map<string, WhatsAppContact>();
     for (const c of waContacts) {
       const norm = normalizePhone(c.phone_number);
       if (norm.length >= 8) {
-        waIndex.set(norm.slice(-8), c);
-        // Also index full normalized
-        waIndex.set(norm, c);
+        waPhoneIndex.set(norm.slice(-8), c);
+        waPhoneIndex.set(norm, c);
       }
     }
+
+    // Build name index: normalized saved_name → contact[]
+    const waNameIndex = new Map<string, WhatsAppContact[]>();
+    for (const c of waContacts) {
+      const name = normName(c.saved_name || "");
+      if (name.length < 3) continue;
+      const existing = waNameIndex.get(name) || [];
+      existing.push(c);
+      waNameIndex.set(name, existing);
+    }
+
+    const buildResult = (
+      payer: Record<string, unknown>,
+      payerNameRaw: string,
+      rawPhone: string,
+      norm: string,
+      match: WhatsAppContact | undefined,
+      matchType: "nome" | "telefone" | ""
+    ): PhoneMatchResult => ({
+      payer_name: payerNameRaw,
+      payer_phone: rawPhone,
+      payer_phone_digits: norm,
+      wa_found: !!match,
+      wa_saved_name: match?.saved_name || "",
+      wa_public_name: match?.public_name || "",
+      wa_phone: match?.phone_number || "",
+      wa_labels: (match?.labels || []).join(", "),
+      wa_is_business: match?.is_business || false,
+      match_type: matchType,
+    });
 
     const results: PhoneMatchResult[] = [];
     for (const payer of payersData) {
       const rawPhone = String(payer[phoneCol] || "");
-      const payerName = String(payer[nameCol] || "");
+      const payerNameRaw = String(payer[nameCol] || "");
       if (!rawPhone || rawPhone === "undefined") continue;
 
       const norm = normalizePhone(rawPhone);
-      if (norm.length < 8) {
-        results.push({
-          payer_name: payerName,
-          payer_phone: rawPhone,
-          payer_phone_digits: norm,
-          wa_found: false,
-          wa_saved_name: "",
-          wa_public_name: "",
-          wa_phone: "",
-          wa_labels: "",
-          wa_is_business: false,
-        });
+      const payerNorm = normName(payerNameRaw);
+
+      // 1) Primary: match by name
+      // Try exact normalized name match, also try removing trailing numbers (e.g. "Wagner Goncalves Ribeiro 26")
+      let nameMatch: WhatsAppContact | undefined;
+      if (payerNorm.length >= 3) {
+        // Check each wa contact name: does the payer name appear as a substring or vice versa?
+        const exactList = waNameIndex.get(payerNorm);
+        if (exactList && exactList.length === 1) {
+          nameMatch = exactList[0];
+        } else if (!exactList) {
+          // Try partial: payer name contained in saved_name or vice versa
+          for (const [wName, contacts] of waNameIndex) {
+            if (contacts.length !== 1) continue;
+            if (
+              (payerNorm.length >= 5 && wName.includes(payerNorm)) ||
+              (wName.length >= 5 && payerNorm.includes(wName))
+            ) {
+              nameMatch = contacts[0];
+              break;
+            }
+          }
+        }
+      }
+
+      if (nameMatch) {
+        results.push(buildResult(payer, payerNameRaw, rawPhone, norm, nameMatch, "nome"));
         continue;
       }
 
-      // Try full match first, then last 8
-      const match = waIndex.get(norm) || waIndex.get(norm.slice(-8));
-      results.push({
-        payer_name: payerName,
-        payer_phone: rawPhone,
-        payer_phone_digits: norm,
-        wa_found: !!match,
-        wa_saved_name: match?.saved_name || "",
-        wa_public_name: match?.public_name || "",
-        wa_phone: match?.phone_number || "",
-        wa_labels: (match?.labels || []).join(", "),
-        wa_is_business: match?.is_business || false,
-      });
+      // 2) Fallback: match by phone
+      if (norm.length < 8) {
+        results.push(buildResult(payer, payerNameRaw, rawPhone, norm, undefined, ""));
+        continue;
+      }
+
+      const phoneMatch = waPhoneIndex.get(norm) || waPhoneIndex.get(norm.slice(-8));
+      results.push(
+        buildResult(payer, payerNameRaw, rawPhone, norm, phoneMatch, phoneMatch ? "telefone" : "")
+      );
     }
 
     return results;
