@@ -124,6 +124,21 @@ export default function Dashboard() {
           <DashboardSkeleton />
         ) : (
           <StaggeredList className="space-y-8">
+            {/* Mobile executive summary */}
+            <StaggeredItem>
+              <MobileExecutiveSummary
+                activePayers={stats?.activePayers || 0}
+                revenueCents={enhanced.financialKPIs.revenueCents}
+                costsCents={enhanced.financialKPIs.costsCents}
+                resultCents={enhanced.financialKPIs.resultCents}
+                openBillings={enhanced.billingKPIs.openCount}
+                openValueCents={enhanced.billingKPIs.openValueCents}
+                overdueCount={enhanced.billingKPIs.overdueCount}
+                overdueValueCents={enhanced.billingKPIs.overdueValueCents}
+                reviewCount={enhanced.billingKPIs.reviewCount}
+              />
+            </StaggeredItem>
+
             {/* Original main stats */}
             <StaggeredItem>
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
