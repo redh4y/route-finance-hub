@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { CheckCircle2, XCircle, AlertTriangle, Users, DollarSign, Inbox } from "lucide-react";
-import { formatCentsToBRL } from "@/lib/formatters";
+import { formatCurrency } from "@/lib/formatters";
 
 type ReviewCategory = "all" | "payers" | "financial";
 
