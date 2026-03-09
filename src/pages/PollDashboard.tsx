@@ -29,7 +29,7 @@ import { ptBR } from "date-fns/locale";
 /* ── Status badge ───────────────────────────────────────────────────── */
 function ConnectionBadge({ connected }: { connected: boolean }) {
   return connected ? (
-    <Badge className="bg-green-600 text-white"><CheckCircle2 className="h-3 w-3 mr-1" />Conectado</Badge>
+    <Badge className="bg-primary text-primary-foreground"><CheckCircle2 className="h-3 w-3 mr-1" />Conectado</Badge>
   ) : (
     <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Desconectado</Badge>
   );
