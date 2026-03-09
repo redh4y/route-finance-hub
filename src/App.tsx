@@ -52,6 +52,7 @@ import StudentHistory from "./pages/attendance/StudentHistory";
 import StudentProfile from "./pages/attendance/StudentProfile";
 import StudentHelp from "./pages/attendance/StudentHelp";
 import AttendanceAdmin from "./pages/attendance/AttendanceAdmin";
+import PollDashboard from "./pages/PollDashboard";
 
 const queryClient = new QueryClient();
 
