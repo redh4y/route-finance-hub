@@ -23,6 +23,7 @@ import {
   Wrench,
   FileText as ClipboardIcon,
   Users as DriversIcon,
+  Vote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -108,6 +109,11 @@ const navItems = [
     label: "WhatsApp",
     path: "/whatsapp",
     icon: MessageCircle,
+  },
+  {
+    label: "Enquetes",
+    path: "/enquetes",
+    icon: Vote,
   },
   {
     label: "Presença",

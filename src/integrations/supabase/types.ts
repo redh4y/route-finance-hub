@@ -1140,6 +1140,39 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_logs: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          level: string
+          message: string
+          module: string
+          payload: Json | null
+          reference_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          level?: string
+          message: string
+          module?: string
+          payload?: Json | null
+          reference_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          level?: string
+          message?: string
+          module?: string
+          payload?: Json | null
+          reference_id?: string | null
+        }
+        Relationships: []
+      }
       landing_settings: {
         Row: {
           content: Json
@@ -1514,6 +1547,270 @@ export type Database = {
         }
         Relationships: []
       }
+      poll_dispatch_jobs: {
+        Row: {
+          active: boolean
+          created_at: string
+          cron_expression: string | null
+          error_message: string | null
+          group_id: string
+          id: string
+          last_run_at: string | null
+          schedule_type: string
+          scheduled_for: string | null
+          status: string
+          template_id: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          cron_expression?: string | null
+          error_message?: string | null
+          group_id: string
+          id?: string
+          last_run_at?: string | null
+          schedule_type?: string
+          scheduled_for?: string | null
+          status?: string
+          template_id: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          cron_expression?: string | null
+          error_message?: string | null
+          group_id?: string
+          id?: string
+          last_run_at?: string | null
+          schedule_type?: string
+          scheduled_for?: string | null
+          status?: string
+          template_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poll_dispatch_jobs_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "poll_dispatch_jobs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "poll_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      poll_templates: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          kind: string
+          name: string
+          options: Json
+          question: string
+          selectable_count: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          kind?: string
+          name: string
+          options?: Json
+          question: string
+          selectable_count?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          kind?: string
+          name?: string
+          options?: Json
+          question?: string
+          selectable_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      poll_vote_history: {
+        Row: {
+          changed_at: string
+          id: string
+          new_option: string
+          poll_vote_id: string
+          previous_option: string | null
+          raw_payload: Json | null
+        }
+        Insert: {
+          changed_at?: string
+          id?: string
+          new_option: string
+          poll_vote_id: string
+          previous_option?: string | null
+          raw_payload?: Json | null
+        }
+        Update: {
+          changed_at?: string
+          id?: string
+          new_option?: string
+          poll_vote_id?: string
+          previous_option?: string | null
+          raw_payload?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poll_vote_history_poll_vote_id_fkey"
+            columns: ["poll_vote_id"]
+            isOneToOne: false
+            referencedRelation: "poll_votes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      poll_votes: {
+        Row: {
+          created_at: string
+          id: string
+          poll_id: string
+          raw_payload: Json | null
+          selected_option: string
+          selected_option_index: number | null
+          student_id: string | null
+          updated_at: string
+          vote_status: string
+          voted_at: string
+          voter_jid: string | null
+          voter_phone: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          poll_id: string
+          raw_payload?: Json | null
+          selected_option: string
+          selected_option_index?: number | null
+          student_id?: string | null
+          updated_at?: string
+          vote_status?: string
+          voted_at?: string
+          voter_jid?: string | null
+          voter_phone?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          poll_id?: string
+          raw_payload?: Json | null
+          selected_option?: string
+          selected_option_index?: number | null
+          student_id?: string | null
+          updated_at?: string
+          vote_status?: string
+          voted_at?: string
+          voter_jid?: string | null
+          voter_phone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poll_votes_poll_id_fkey"
+            columns: ["poll_id"]
+            isOneToOne: false
+            referencedRelation: "polls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "poll_votes_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      polls: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          external_poll_id: string | null
+          group_id: string | null
+          id: string
+          instance_id: string | null
+          options: Json
+          poll_date: string
+          question: string
+          selectable_count: number
+          sent_at: string | null
+          status: string
+          template_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          external_poll_id?: string | null
+          group_id?: string | null
+          id?: string
+          instance_id?: string | null
+          options?: Json
+          poll_date?: string
+          question: string
+          selectable_count?: number
+          sent_at?: string | null
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          external_poll_id?: string | null
+          group_id?: string | null
+          id?: string
+          instance_id?: string | null
+          options?: Json
+          poll_date?: string
+          question?: string
+          selectable_count?: number
+          sent_at?: string | null
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "polls_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "polls_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_providers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "polls_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "poll_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       processing_jobs: {
         Row: {
           created_at: string
@@ -1828,6 +2125,7 @@ export type Database = {
           default_route_id: string | null
           id: string
           name: string
+          phone_e164: string | null
           registration: string
           updated_at: string
         }
@@ -1839,6 +2137,7 @@ export type Database = {
           default_route_id?: string | null
           id?: string
           name: string
+          phone_e164?: string | null
           registration: string
           updated_at?: string
         }
@@ -1850,6 +2149,7 @@ export type Database = {
           default_route_id?: string | null
           id?: string
           name?: string
+          phone_e164?: string | null
           registration?: string
           updated_at?: string
         }
@@ -2171,6 +2471,102 @@ export type Database = {
           wa_number?: string
         }
         Relationships: []
+      }
+      whatsapp_group_students: {
+        Row: {
+          active: boolean
+          created_at: string
+          group_id: string
+          id: string
+          student_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          group_id: string
+          id?: string
+          student_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          group_id?: string
+          id?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_group_students_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_group_students_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_groups: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string | null
+          group_jid: string
+          id: string
+          instance_id: string | null
+          metadata: Json | null
+          name: string
+          route_id: string | null
+          synced_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          group_jid: string
+          id?: string
+          instance_id?: string | null
+          metadata?: Json | null
+          name: string
+          route_id?: string | null
+          synced_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          group_jid?: string
+          id?: string
+          instance_id?: string | null
+          metadata?: Json | null
+          name?: string
+          route_id?: string | null
+          synced_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_groups_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_providers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_groups_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "transport_routes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       whatsapp_messages: {
         Row: {
