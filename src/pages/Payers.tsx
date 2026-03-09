@@ -4,6 +4,8 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { usePayers, usePayersStats, usePayerById, Payer } from "@/hooks/usePayers";
 import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
+import { ExportButton } from "@/components/ExportButton";
+import type { ExportColumn } from "@/lib/export-utils";
 import { PageTransition } from "@/components/ui/page-transition";
 import { formatCPF, formatPhone, formatCurrency } from "@/lib/formatters";
 import { validateCPF } from "@/lib/csv-import";
