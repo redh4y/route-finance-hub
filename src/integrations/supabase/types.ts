@@ -2125,6 +2125,7 @@ export type Database = {
           default_route_id: string | null
           id: string
           name: string
+          payer_id: string | null
           phone_e164: string | null
           registration: string
           updated_at: string
@@ -2137,6 +2138,7 @@ export type Database = {
           default_route_id?: string | null
           id?: string
           name: string
+          payer_id?: string | null
           phone_e164?: string | null
           registration: string
           updated_at?: string
@@ -2149,6 +2151,7 @@ export type Database = {
           default_route_id?: string | null
           id?: string
           name?: string
+          payer_id?: string | null
           phone_e164?: string | null
           registration?: string
           updated_at?: string
@@ -2159,6 +2162,13 @@ export type Database = {
             columns: ["default_route_id"]
             isOneToOne: false
             referencedRelation: "transport_routes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "students_payer_id_fkey"
+            columns: ["payer_id"]
+            isOneToOne: false
+            referencedRelation: "payers"
             referencedColumns: ["id"]
           },
         ]
