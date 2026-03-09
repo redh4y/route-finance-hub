@@ -163,6 +163,138 @@ export type Database = {
         }
         Relationships: []
       }
+      attendance: {
+        Row: {
+          accuracy: number | null
+          bus_id: string
+          check_in_time: string
+          created_at: string
+          date: string
+          evidence: Json | null
+          id: string
+          latitude: number | null
+          longitude: number | null
+          method: string
+          notes: string | null
+          status: string
+          student_id: string
+          trip_id: string
+          trip_type: string
+          updated_at: string
+        }
+        Insert: {
+          accuracy?: number | null
+          bus_id: string
+          check_in_time?: string
+          created_at?: string
+          date: string
+          evidence?: Json | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          method: string
+          notes?: string | null
+          status?: string
+          student_id: string
+          trip_id: string
+          trip_type: string
+          updated_at?: string
+        }
+        Update: {
+          accuracy?: number | null
+          bus_id?: string
+          check_in_time?: string
+          created_at?: string
+          date?: string
+          evidence?: Json | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          method?: string
+          notes?: string | null
+          status?: string
+          student_id?: string
+          trip_id?: string
+          trip_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_bus_id_fkey"
+            columns: ["bus_id"]
+            isOneToOne: false
+            referencedRelation: "transport_buses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_events: {
+        Row: {
+          attendance_id: string
+          created_at: string
+          event_type: string
+          id: string
+          payload: Json | null
+        }
+        Insert: {
+          attendance_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          payload?: Json | null
+        }
+        Update: {
+          attendance_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          payload?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_events_attendance_id_fkey"
+            columns: ["attendance_id"]
+            isOneToOne: false
+            referencedRelation: "attendance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_settings: {
+        Row: {
+          id: string
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          id?: string
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          id?: string
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           actor_email: string | null
@@ -278,6 +410,45 @@ export type Database = {
             columns: ["payer_id"]
             isOneToOne: false
             referencedRelation: "payers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bus_assignments: {
+        Row: {
+          active: boolean
+          bus_id: string
+          created_at: string
+          id: string
+          trip_id: string
+        }
+        Insert: {
+          active?: boolean
+          bus_id: string
+          created_at?: string
+          id?: string
+          trip_id: string
+        }
+        Update: {
+          active?: boolean
+          bus_id?: string
+          created_at?: string
+          id?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bus_assignments_bus_id_fkey"
+            columns: ["bus_id"]
+            isOneToOne: false
+            referencedRelation: "transport_buses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bus_assignments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
         ]
@@ -1648,6 +1819,50 @@ export type Database = {
           },
         ]
       }
+      students: {
+        Row: {
+          active: boolean
+          auth_user_id: string | null
+          course: string | null
+          created_at: string
+          default_route_id: string | null
+          id: string
+          name: string
+          registration: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          auth_user_id?: string | null
+          course?: string | null
+          created_at?: string
+          default_route_id?: string | null
+          id?: string
+          name: string
+          registration: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          auth_user_id?: string | null
+          course?: string | null
+          created_at?: string
+          default_route_id?: string | null
+          id?: string
+          name?: string
+          registration?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "students_default_route_id_fkey"
+            columns: ["default_route_id"]
+            isOneToOne: false
+            referencedRelation: "transport_routes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ticket_sales: {
         Row: {
           amount_cents: number
@@ -1704,6 +1919,136 @@ export type Database = {
             columns: ["passenger_id"]
             isOneToOne: false
             referencedRelation: "passengers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transport_buses: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          identifier_code: string
+          name: string
+          notes: string | null
+          plate: string | null
+          qr_code_value: string
+          updated_at: string
+          vehicle_id: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          identifier_code: string
+          name: string
+          notes?: string | null
+          plate?: string | null
+          qr_code_value?: string
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          identifier_code?: string
+          name?: string
+          notes?: string | null
+          plate?: string | null
+          qr_code_value?: string
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transport_buses_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transport_routes: {
+        Row: {
+          active: boolean
+          boarding_latitude: number | null
+          boarding_location_name: string | null
+          boarding_longitude: number | null
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          radius_meters: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          boarding_latitude?: number | null
+          boarding_location_name?: string | null
+          boarding_longitude?: number | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          radius_meters?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          boarding_latitude?: number | null
+          boarding_location_name?: string | null
+          boarding_longitude?: number | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          radius_meters?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      trips: {
+        Row: {
+          active: boolean
+          boarding_end_time: string
+          boarding_start_time: string
+          created_at: string
+          date: string
+          id: string
+          route_id: string
+          trip_type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          boarding_end_time: string
+          boarding_start_time: string
+          created_at?: string
+          date: string
+          id?: string
+          route_id: string
+          trip_type: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          boarding_end_time?: string
+          boarding_start_time?: string
+          created_at?: string
+          date?: string
+          id?: string
+          route_id?: string
+          trip_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trips_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "transport_routes"
             referencedColumns: ["id"]
           },
         ]

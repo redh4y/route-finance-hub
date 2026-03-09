@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Users,
   Upload,
+  CheckCircle2,
   TrendingUp,
   MapPin,
   FileText,
@@ -107,6 +108,11 @@ const navItems = [
     label: "WhatsApp",
     path: "/whatsapp",
     icon: MessageCircle,
+  },
+  {
+    label: "Presença",
+    path: "/presenca/admin",
+    icon: CheckCircle2,
   },
   {
     label: "Configurações",
