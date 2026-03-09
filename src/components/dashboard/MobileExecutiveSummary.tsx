@@ -106,7 +106,7 @@ export function MobileExecutiveSummary({
         </Card>
 
         <Link to="/revisao">
-          <Card className={`h-full ${reviewCount > 0 ? "border-amber-500/30" : ""}`}>
+          <Card className={`h-full ${reviewCount > 0 ? "border-warning/30" : ""}`}>
             <CardContent className="py-3 px-4 h-full flex flex-col justify-between">
               <div>
               <div className="flex items-center gap-2 mb-1">
