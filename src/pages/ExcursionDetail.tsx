@@ -94,7 +94,8 @@ export default function ExcursionDetail() {
   const [passengerEmail, setPassengerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("DINHEIRO");
   const [installments, setInstallments] = useState("1");
-  const [activeTab, setActiveTab] = useState<"seats" | "sales" | "affiliates" | "orders">("seats");
+  const [activeTab, setActiveTab] = useState<"seats" | "sales" | "affiliates" | "orders" | "manifest" | "checkin" | "funnel">("seats");
+  const [cancelOrder, setCancelOrder] = useState<any>(null);
 
   if (isLoading) {
     return (
