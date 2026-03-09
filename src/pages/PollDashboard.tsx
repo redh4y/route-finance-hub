@@ -190,7 +190,7 @@ export default function PollDashboard() {
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
-                onClick={() => importGroups.mutate()}
+                onClick={() => importGroups.mutate(undefined)}
                 disabled={importGroups.isPending || false}
               >
                 {importGroups.isPending ? (
