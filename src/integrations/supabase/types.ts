@@ -2029,9 +2029,64 @@ export type Database = {
           },
         ]
       }
+      public_leads: {
+        Row: {
+          affiliate_ref: string | null
+          created_at: string
+          id: string
+          interest_type: string | null
+          message: string | null
+          name: string
+          phone: string
+          referrer: string | null
+          source_page: string
+          user_agent: string | null
+          utm_campaign: string | null
+          utm_content: string | null
+          utm_medium: string | null
+          utm_source: string | null
+          utm_term: string | null
+        }
+        Insert: {
+          affiliate_ref?: string | null
+          created_at?: string
+          id?: string
+          interest_type?: string | null
+          message?: string | null
+          name: string
+          phone: string
+          referrer?: string | null
+          source_page?: string
+          user_agent?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          utm_term?: string | null
+        }
+        Update: {
+          affiliate_ref?: string | null
+          created_at?: string
+          id?: string
+          interest_type?: string | null
+          message?: string | null
+          name?: string
+          phone?: string
+          referrer?: string | null
+          source_page?: string
+          user_agent?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          utm_term?: string | null
+        }
+        Relationships: []
+      }
       public_orders: {
         Row: {
           affiliate_id: string | null
+          affiliate_ref: string | null
           amount_paid_cents: number
           amount_pending_cents: number
           amount_total_cents: number
@@ -2052,9 +2107,13 @@ export type Database = {
           seat_numbers: number[]
           status: string
           updated_at: string
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
         }
         Insert: {
           affiliate_id?: string | null
+          affiliate_ref?: string | null
           amount_paid_cents?: number
           amount_pending_cents?: number
           amount_total_cents?: number
@@ -2075,9 +2134,13 @@ export type Database = {
           seat_numbers?: number[]
           status?: string
           updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
         }
         Update: {
           affiliate_id?: string | null
+          affiliate_ref?: string | null
           amount_paid_cents?: number
           amount_pending_cents?: number
           amount_total_cents?: number
@@ -2098,6 +2161,9 @@ export type Database = {
           seat_numbers?: number[]
           status?: string
           updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
         }
         Relationships: [
           {
@@ -2109,6 +2175,68 @@ export type Database = {
           },
           {
             foreignKeyName: "public_orders_excursion_id_fkey"
+            columns: ["excursion_id"]
+            isOneToOne: false
+            referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      public_tracking_events: {
+        Row: {
+          affiliate_ref: string | null
+          created_at: string
+          event_name: string
+          excursion_id: string | null
+          id: string
+          metadata: Json | null
+          public_token: string | null
+          referrer: string | null
+          source_page: string
+          user_agent: string | null
+          utm_campaign: string | null
+          utm_content: string | null
+          utm_medium: string | null
+          utm_source: string | null
+          utm_term: string | null
+        }
+        Insert: {
+          affiliate_ref?: string | null
+          created_at?: string
+          event_name: string
+          excursion_id?: string | null
+          id?: string
+          metadata?: Json | null
+          public_token?: string | null
+          referrer?: string | null
+          source_page?: string
+          user_agent?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          utm_term?: string | null
+        }
+        Update: {
+          affiliate_ref?: string | null
+          created_at?: string
+          event_name?: string
+          excursion_id?: string | null
+          id?: string
+          metadata?: Json | null
+          public_token?: string | null
+          referrer?: string | null
+          source_page?: string
+          user_agent?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          utm_term?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "public_tracking_events_excursion_id_fkey"
             columns: ["excursion_id"]
             isOneToOne: false
             referencedRelation: "excursions"
