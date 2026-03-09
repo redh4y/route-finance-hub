@@ -268,7 +268,7 @@ export default function Payers() {
             </div>
             <div className="flex gap-2 self-start sm:self-auto flex-wrap">
               <ExportButton
-                data={filteredPayers || []}
+                data={payers || []}
                 columns={[
                   { key: "name", label: "Nome" },
                   { key: "document", label: "CPF", format: (v) => v ? formatCPF(v) : "" },
