@@ -13,7 +13,7 @@ export default function StudentLogin() {
   const [tab, setTab] = useState<"login" | "register">("login");
 
   // Login state
-  const [registration, setRegistration] = useState("");
+  const [loginCpf, setLoginCpf] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -26,19 +26,24 @@ export default function StudentLogin() {
   /* ── Login ────────────────────────────────────────────────────────── */
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!registration.trim() || !password.trim()) {
-      toast.error("Preencha matrícula e senha.");
+    const digits = loginCpf.replace(/\D/g, "");
+    if (digits.length < 11) {
+      toast.error("CPF inválido. Digite os 11 dígitos.");
+      return;
+    }
+    if (!password.trim()) {
+      toast.error("Preencha a senha.");
       return;
     }
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("student-auth", {
-        body: { action: "login", registration: registration.trim() },
+        body: { action: "login", cpf: digits },
       });
 
       if (error) throw error;
       if (!data?.ok) {
-        toast.error(data?.error || "Matrícula não encontrada.");
+        toast.error(data?.error || "CPF não encontrado.");
         setLoading(false);
         return;
       }
