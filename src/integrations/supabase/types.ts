@@ -2774,6 +2774,7 @@ export type Database = {
       }
     }
     Functions: {
+      ensure_today_trips: { Args: never; Returns: undefined }
       get_billings_summary: { Args: { p_month: string }; Returns: Json }
       get_dre_summary: { Args: { p_month: string }; Returns: Json }
       release_expired_locks: { Args: never; Returns: number }
