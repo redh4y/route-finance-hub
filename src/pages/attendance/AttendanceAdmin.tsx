@@ -383,28 +383,67 @@ function TripsTab() {
   });
 
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ trip_type: "OUTBOUND", route_id: "", boarding_start_time: "06:00", boarding_end_time: "08:00", bus_ids: [] as string[] });
 
   const save = useMutation({
     mutationFn: async () => {
-      const { data: trip, error } = await supabase.from("trips" as any).insert({
-        date: selectedDate,
-        trip_type: form.trip_type,
-        route_id: form.route_id,
-        boarding_start_time: form.boarding_start_time,
-        boarding_end_time: form.boarding_end_time,
-      } as any).select().single();
-      if (error) throw error;
-      // Assign buses
-      if (form.bus_ids.length > 0 && trip) {
-        await supabase.from("bus_assignments" as any).insert(
-          form.bus_ids.map((bid) => ({ trip_id: (trip as any).id, bus_id: bid })) as any
-        );
+      if (editId) {
+        // Update existing trip
+        const { error } = await supabase.from("trips" as any).update({
+          boarding_start_time: form.boarding_start_time,
+          boarding_end_time: form.boarding_end_time,
+          trip_type: form.trip_type,
+          route_id: form.route_id,
+        } as any).eq("id", editId);
+        if (error) throw error;
+
+        // Sync bus assignments: remove old, add new
+        await supabase.from("bus_assignments" as any).delete().eq("trip_id", editId);
+        if (form.bus_ids.length > 0) {
+          await supabase.from("bus_assignments" as any).insert(
+            form.bus_ids.map((bid) => ({ trip_id: editId, bus_id: bid })) as any
+          );
+        }
+      } else {
+        const { data: trip, error } = await supabase.from("trips" as any).insert({
+          date: selectedDate,
+          trip_type: form.trip_type,
+          route_id: form.route_id,
+          boarding_start_time: form.boarding_start_time,
+          boarding_end_time: form.boarding_end_time,
+        } as any).select().single();
+        if (error) throw error;
+        if (form.bus_ids.length > 0 && trip) {
+          await supabase.from("bus_assignments" as any).insert(
+            form.bus_ids.map((bid) => ({ trip_id: (trip as any).id, bus_id: bid })) as any
+          );
+        }
       }
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["trips-admin"] }); setShowForm(false); toast.success("Viagem criada!"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["trips-admin"] }); setShowForm(false); setEditId(null); toast.success(editId ? "Viagem atualizada!" : "Viagem criada!"); },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const removeTrip = async (id: string) => {
+    if (!confirm("Remover viagem?")) return;
+    await supabase.from("bus_assignments" as any).delete().eq("trip_id", id);
+    await supabase.from("trips" as any).delete().eq("id", id);
+    qc.invalidateQueries({ queryKey: ["trips-admin"] });
+    toast.success("Viagem removida!");
+  };
+
+  const openEdit = (t: any) => {
+    setForm({
+      trip_type: t.trip_type,
+      route_id: t.route_id,
+      boarding_start_time: t.boarding_start_time?.slice(0, 5) || "06:00",
+      boarding_end_time: t.boarding_end_time?.slice(0, 5) || "08:00",
+      bus_ids: t.bus_assignments?.map((ba: any) => ba.bus_id) || [],
+    });
+    setEditId(t.id);
+    setShowForm(true);
+  };
 
   return (
     <div className="space-y-4">
@@ -413,14 +452,14 @@ function TripsTab() {
           <h3 className="font-semibold">Viagens</h3>
           <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-auto" />
         </div>
-        <Button size="sm" onClick={() => { setForm({ trip_type: "OUTBOUND", route_id: routes?.[0]?.id || "", boarding_start_time: "06:00", boarding_end_time: "08:00", bus_ids: [] }); setShowForm(true); }}>
+        <Button size="sm" onClick={() => { setForm({ trip_type: "OUTBOUND", route_id: routes?.[0]?.id || "", boarding_start_time: "06:00", boarding_end_time: "08:00", bus_ids: [] }); setEditId(null); setShowForm(true); }}>
           <Plus className="h-4 w-4 mr-1" /> Nova
         </Button>
       </div>
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
+      <Dialog open={showForm} onOpenChange={(open) => { setShowForm(open); if (!open) setEditId(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Nova Viagem - {selectedDate}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editId ? "Editar" : "Nova"} Viagem - {selectedDate}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
               <Label>Tipo</Label>
@@ -458,7 +497,9 @@ function TripsTab() {
                 ))}
               </div>
             </div>
-            <Button className="w-full" onClick={() => save.mutate()} disabled={save.isPending || !form.route_id}>Criar viagem</Button>
+            <Button className="w-full" onClick={() => save.mutate()} disabled={save.isPending || !form.route_id}>
+              {editId ? "Salvar alterações" : "Criar viagem"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -482,12 +523,16 @@ function TripsTab() {
                       Embarque: {t.boarding_start_time?.slice(0, 5)} - {t.boarding_end_time?.slice(0, 5)}
                     </p>
                   </div>
-                  <div className="flex gap-1">
-                    {t.bus_assignments?.map((ba: any) => (
-                      <Badge key={ba.id} variant="outline" className="text-xs">
-                        <Bus className="h-3 w-3 mr-1" /> {ba.transport_buses?.name}
-                      </Badge>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      {t.bus_assignments?.map((ba: any) => (
+                        <Badge key={ba.id} variant="outline" className="text-xs">
+                          <Bus className="h-3 w-3 mr-1" /> {ba.transport_buses?.name}
+                        </Badge>
+                      ))}
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(t)}><Edit className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => removeTrip(t.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </div>
                 </div>
               </CardContent>
@@ -495,6 +540,106 @@ function TripsTab() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Settings Tab ──────────────────────────────────────────────
+function SettingsTab() {
+  const qc = useQueryClient();
+  const [outboundStart, setOutboundStart] = useState("06:00");
+  const [outboundEnd, setOutboundEnd] = useState("07:00");
+  const [returnStart, setReturnStart] = useState("17:00");
+  const [returnEnd, setReturnEnd] = useState("18:00");
+  const [loaded, setLoaded] = useState(false);
+
+  const { data: settings } = useQuery({
+    queryKey: ["attendance-settings", "default_trip_times"],
+    queryFn: async () => {
+      const { data } = await supabase.from("attendance_settings" as any)
+        .select("*")
+        .eq("key", "default_trip_times")
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  // Load saved settings
+  if (settings && !loaded) {
+    const v = (settings as any).value;
+    if (v) {
+      setOutboundStart(v.outbound_start || "06:00");
+      setOutboundEnd(v.outbound_end || "07:00");
+      setReturnStart(v.return_start || "17:00");
+      setReturnEnd(v.return_end || "18:00");
+    }
+    setLoaded(true);
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const value = {
+        outbound_start: outboundStart,
+        outbound_end: outboundEnd,
+        return_start: returnStart,
+        return_end: returnEnd,
+      };
+      if (settings) {
+        const { error } = await supabase.from("attendance_settings" as any)
+          .update({ value } as any)
+          .eq("key", "default_trip_times");
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("attendance_settings" as any)
+          .insert({ key: "default_trip_times", value } as any);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["attendance-settings"] });
+      toast.success("Horários padrão salvos!");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <h3 className="font-semibold">Configurações de Viagens</h3>
+
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Horários padrão (geração automática)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Estes horários são usados para gerar automaticamente as viagens de ida e volta nos dias úteis.
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium flex items-center gap-2 mb-2">
+                <ArrowRight className="h-4 w-4" /> Viagem de Ida
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label className="text-xs">Início embarque</Label><Input type="time" value={outboundStart} onChange={(e) => setOutboundStart(e.target.value)} /></div>
+                <div><Label className="text-xs">Fim embarque</Label><Input type="time" value={outboundEnd} onChange={(e) => setOutboundEnd(e.target.value)} /></div>
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium flex items-center gap-2 mb-2">
+                <ArrowLeft className="h-4 w-4" /> Viagem de Volta
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label className="text-xs">Início embarque</Label><Input type="time" value={returnStart} onChange={(e) => setReturnStart(e.target.value)} /></div>
+                <div><Label className="text-xs">Fim embarque</Label><Input type="time" value={returnEnd} onChange={(e) => setReturnEnd(e.target.value)} /></div>
+              </div>
+            </div>
+          </div>
+
+          <Button className="w-full" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            <Settings className="h-4 w-4 mr-2" /> Salvar horários padrão
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
