@@ -49,7 +49,7 @@ function parseExtractCSV(rows: Record<string, string>[]): ExtractLine[] {
       date: dateField,
       description: descField,
       amountCents,
-      type: isDebit ? "D" : "C",
+      type: lineType,
       raw: row,
     };
   }).filter((l) => l.amountCents > 0 && l.description);
