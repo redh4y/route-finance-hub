@@ -3,13 +3,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 const today = () => new Date().toISOString().slice(0, 10);
+const fromAny = (table: string) => (supabase.from as any)(table);
 
 export function useTodayTrips(routeId?: string) {
   return useQuery({
     queryKey: ["trips-today", routeId],
     queryFn: async () => {
-      let q = supabase
-        .from("trips")
+      let q = fromAny("trips")
         .select("*, transport_routes(*), bus_assignments(*, transport_buses(*))")
         .eq("date", today())
         .eq("active", true);
@@ -27,8 +27,7 @@ export function useStudentAttendanceToday(studentId?: string) {
     queryKey: ["attendance-today", studentId],
     queryFn: async () => {
       if (!studentId) return [];
-      const { data, error } = await supabase
-        .from("attendance")
+      const { data, error } = await fromAny("attendance")
         .select("*, transport_buses(*)")
         .eq("student_id", studentId)
         .eq("date", today());
@@ -55,7 +54,7 @@ export function useCheckIn() {
       evidence?: Record<string, unknown>;
     }) => {
       // Check duplicate
-      const { data: existing } = await (supabase.from as any)("attendance")
+      const { data: existing } = await fromAny("attendance")
         .select("id")
         .eq("student_id", payload.student_id)
         .eq("date", today())
@@ -63,7 +62,7 @@ export function useCheckIn() {
         .maybeSingle();
       if (existing) throw new Error("Você já confirmou presença nesta viagem hoje.");
 
-      const { data, error } = await (supabase.from as any)("attendance").insert({
+      const { data, error } = await fromAny("attendance").insert({
         student_id: payload.student_id,
         bus_id: payload.bus_id,
         trip_id: payload.trip_id,
@@ -79,7 +78,7 @@ export function useCheckIn() {
       if (error) throw error;
 
       // Audit event
-      await (supabase.from as any)("attendance_events").insert({
+      await fromAny("attendance_events").insert({
         attendance_id: data.id,
         event_type: "CHECK_IN",
         payload: { method: payload.method, timestamp: new Date().toISOString() },
@@ -101,8 +100,7 @@ export function useAttendanceHistory(studentId?: string) {
   return useQuery({
     queryKey: ["attendance-history", studentId],
     queryFn: async () => {
-      let q = supabase
-        .from("attendance")
+      let q = fromAny("attendance")
         .select("*, transport_buses(*), trips(*, transport_routes(*))")
         .order("date", { ascending: false })
         .order("check_in_time", { ascending: false })
@@ -121,8 +119,7 @@ export function useAttendanceMonitor(date?: string) {
   return useQuery({
     queryKey: ["attendance-monitor", d],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("attendance")
+      const { data, error } = await fromAny("attendance")
         .select("*, students(*), transport_buses(*), trips(*, transport_routes(*))")
         .eq("date", d);
       if (error) throw error;
@@ -136,8 +133,7 @@ export function useStudents() {
   return useQuery({
     queryKey: ["students"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("students")
+      const { data, error } = await fromAny("students")
         .select("*, transport_routes(*)")
         .order("name");
       if (error) throw error;
@@ -150,8 +146,7 @@ export function useTransportBuses() {
   return useQuery({
     queryKey: ["transport-buses"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transport_buses")
+      const { data, error } = await fromAny("transport_buses")
         .select("*")
         .order("name");
       if (error) throw error;
@@ -164,8 +159,7 @@ export function useTransportRoutes() {
   return useQuery({
     queryKey: ["transport-routes"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transport_routes")
+      const { data, error } = await fromAny("transport_routes")
         .select("*")
         .order("name");
       if (error) throw error;

@@ -44,6 +44,15 @@ import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
 import AddressMatch from "./pages/AddressMatch";
 import OAuthCallback from "./pages/OAuthCallback";
 
+// Attendance module
+import StudentLogin from "./pages/attendance/StudentLogin";
+import StudentDashboard from "./pages/attendance/StudentDashboard";
+import StudentCheckIn from "./pages/attendance/StudentCheckIn";
+import StudentHistory from "./pages/attendance/StudentHistory";
+import StudentProfile from "./pages/attendance/StudentProfile";
+import StudentHelp from "./pages/attendance/StudentHelp";
+import AttendanceAdmin from "./pages/attendance/AttendanceAdmin";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -290,12 +299,28 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              {/* Attendance admin */}
+              <Route
+                path="/presenca/admin"
+                element={
+                  <ProtectedRoute>
+                    <AttendanceAdmin />
+                  </ProtectedRoute>
+                }
+              />
               {/* Public routes - no auth required */}
               <Route path="/site" element={<LandingPage />} />
               <Route path="/public/excursoes" element={<PublicExcursions />} />
               <Route path="/public/excursoes/:token" element={<PublicExcursion />} />
               <Route path="/2-via-boletos" element={<PublicBoletoLinksPage />} />
               <Route path="/oauth/callback" element={<OAuthCallback />} />
+              {/* Student attendance (public, no admin auth) */}
+              <Route path="/presenca/login" element={<StudentLogin />} />
+              <Route path="/presenca" element={<StudentDashboard />} />
+              <Route path="/presenca/checkin" element={<StudentCheckIn />} />
+              <Route path="/presenca/historico" element={<StudentHistory />} />
+              <Route path="/presenca/perfil" element={<StudentProfile />} />
+              <Route path="/presenca/ajuda" element={<StudentHelp />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
