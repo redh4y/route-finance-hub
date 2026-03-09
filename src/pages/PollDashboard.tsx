@@ -191,7 +191,7 @@ export default function PollDashboard() {
               <Button
                 variant="outline"
                 onClick={() => importGroups.mutate()}
-                disabled={importGroups.isPending}
+                disabled={importGroups.isPending || false}
               >
                 {importGroups.isPending ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importando...</>
