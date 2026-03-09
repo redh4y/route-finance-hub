@@ -53,6 +53,7 @@ import StudentProfile from "./pages/attendance/StudentProfile";
 import StudentHelp from "./pages/attendance/StudentHelp";
 import AttendanceAdmin from "./pages/attendance/AttendanceAdmin";
 import PollDashboard from "./pages/PollDashboard";
+import ReviewInbox from "./pages/ReviewInbox";
 
 const queryClient = new QueryClient();
 
