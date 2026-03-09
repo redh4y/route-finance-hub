@@ -9,6 +9,9 @@ export function useTodayTrips(routeId?: string) {
   return useQuery({
     queryKey: ["trips-today", routeId],
     queryFn: async () => {
+      // Auto-create trips for today (weekdays only)
+      await supabase.rpc("ensure_today_trips");
+
       let q = fromAny("trips")
         .select("*, transport_routes(*), bus_assignments(*, transport_buses(*))")
         .eq("date", today())
