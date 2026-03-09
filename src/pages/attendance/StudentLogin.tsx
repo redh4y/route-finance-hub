@@ -8,10 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bus, Loader2, AlertTriangle, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
-function normalizeCpf(raw: string): string {
-  return raw.replace(/\D/g, "").padStart(11, "0");
-}
-
 export default function StudentLogin() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"login" | "register">("login");
@@ -36,44 +32,20 @@ export default function StudentLogin() {
     }
     setLoading(true);
     try {
-      // Check student exists
-      const { data: student, error: sErr } = await supabase
-        .from("students")
-        .select("id, name, auth_user_id, payer_id, active")
-        .eq("registration", registration.trim())
-        .maybeSingle();
+      const { data, error } = await supabase.functions.invoke("student-auth", {
+        body: { action: "login", registration: registration.trim() },
+      });
 
-      if (sErr || !student) {
-        toast.error("Matrícula não encontrada.");
+      if (error) throw error;
+      if (!data?.ok) {
+        toast.error(data?.error || "Matrícula não encontrada.");
         setLoading(false);
         return;
       }
 
-      // Check if student is inactive
-      if (!student.active) {
-        toast.error("Seu cadastro está inativado. Procure a coordenação.");
-        setLoading(false);
-        return;
-      }
+      const student = data.student;
 
-      // If linked to a payer, check payer is still active
-      if (student.payer_id) {
-        const { data: payer } = await supabase
-          .from("payers")
-          .select("status")
-          .eq("id", student.payer_id)
-          .maybeSingle();
-
-        if (payer && payer.status !== "ATIVO") {
-          toast.error("Seu cadastro foi inativado. Procure a coordenação para regularizar.");
-          // Deactivate student too
-          await supabase.from("students").update({ active: false }).eq("id", student.id);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // Simple password check (stored locally for this lightweight auth)
+      // Simple password check (stored locally)
       const storedPw = localStorage.getItem(`student_pw_${student.id}`);
       if (storedPw && storedPw !== password.trim()) {
         toast.error("Senha incorreta.");
@@ -83,7 +55,7 @@ export default function StudentLogin() {
 
       localStorage.setItem("student_id", student.id);
       localStorage.setItem("student_name", student.name);
-      localStorage.setItem("student_registration", registration.trim());
+      localStorage.setItem("student_registration", student.registration);
       localStorage.setItem(`student_pw_${student.id}`, password.trim());
 
       toast.success(`Bem-vindo, ${student.name}!`);
@@ -100,7 +72,7 @@ export default function StudentLogin() {
     e.preventDefault();
     setRegisterError(null);
 
-    const digits = normalizeCpf(cpf);
+    const digits = cpf.replace(/\D/g, "");
     if (digits.length < 11) {
       setRegisterError("CPF inválido. Digite os 11 dígitos.");
       return;
@@ -112,71 +84,30 @@ export default function StudentLogin() {
 
     setRegistering(true);
     try {
-      // 1. Find payer by CPF digits
-      const { data: payer, error: pErr } = await supabase
-        .from("payers")
-        .select("id, name, status, document_digits, route, default_route")
-        .eq("document_digits", digits)
-        .maybeSingle();
+      const { data, error } = await supabase.functions.invoke("student-auth", {
+        body: { action: "register", cpf: digits },
+      });
 
-      if (pErr || !payer) {
-        setRegisterError("CPF não encontrado na base de dados. Verifique se você está cadastrado no transporte.");
+      if (error) throw error;
+
+      if (!data?.ok) {
+        setRegisterError(data?.error || "Erro ao verificar CPF.");
         setRegistering(false);
         return;
       }
 
-      // 2. Check payer status
-      if (payer.status !== "ATIVO") {
-        setRegisterError("Seu cadastro no transporte está inativado. Procure a coordenação para regularizar sua situação.");
-        setRegistering(false);
-        return;
+      const student = data.student;
+
+      localStorage.setItem("student_id", student.id);
+      localStorage.setItem("student_name", student.name);
+      localStorage.setItem("student_registration", student.registration);
+      localStorage.setItem(`student_pw_${student.id}`, regPassword.trim());
+
+      if (data.already_registered) {
+        toast.success(`Você já está cadastrado! Bem-vindo, ${student.name}.`);
+      } else {
+        toast.success(`Cadastro realizado com sucesso! Bem-vindo, ${student.name}.`);
       }
-
-      // 3. Check if student already exists for this payer
-      const { data: existingStudent } = await (supabase as any)
-        .from("students")
-        .select("id, registration, active")
-        .eq("payer_id", payer.id)
-        .maybeSingle();
-
-      if (existingStudent) {
-        if (!existingStudent.active) {
-          setRegisterError("Seu cadastro de presença está inativado. Procure a coordenação.");
-          setRegistering(false);
-          return;
-        }
-        // Already registered — just log them in
-        localStorage.setItem("student_id", existingStudent.id);
-        localStorage.setItem("student_name", payer.name);
-        localStorage.setItem("student_registration", existingStudent.registration);
-        localStorage.setItem(`student_pw_${existingStudent.id}`, regPassword.trim());
-        toast.success(`Você já está cadastrado! Bem-vindo, ${payer.name}.`);
-        navigate("/presenca");
-        return;
-      }
-
-      // 4. Create student record linked to payer
-      const reg = `CPF-${digits.slice(-6)}`;
-      const { data: newStudent, error: insertErr } = await (supabase as any)
-        .from("students")
-        .insert({
-          name: payer.name,
-          registration: reg,
-          phone_e164: digits,
-          payer_id: payer.id,
-          active: true,
-        })
-        .select("id")
-        .single();
-
-      if (insertErr) throw insertErr;
-
-      localStorage.setItem("student_id", newStudent.id);
-      localStorage.setItem("student_name", payer.name);
-      localStorage.setItem("student_registration", reg);
-      localStorage.setItem(`student_pw_${newStudent.id}`, regPassword.trim());
-
-      toast.success(`Cadastro realizado com sucesso! Bem-vindo, ${payer.name}.`);
       navigate("/presenca");
     } catch (err: any) {
       setRegisterError(err?.message || "Erro ao realizar cadastro.");

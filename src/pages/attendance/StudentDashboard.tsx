@@ -20,38 +20,30 @@ export default function StudentDashboard() {
       return;
     }
 
-    // Check student + payer status
+    // Check student + payer status via edge function
     (async () => {
+      try {
+        const { data } = await supabase.functions.invoke("student-auth", {
+          body: { action: "check_status", studentId },
+        });
+
+        if (!data?.ok && data?.blocked) {
+          setBlocked(true);
+          toast.error("Seu cadastro foi inativado. Procure a coordenação.");
+          return;
+        }
+      } catch {
+        // If edge function fails, don't block — just continue
+      }
+
+      // Get route
       const { data: student } = await (supabase as any)
         .from("students")
-        .select("default_route_id, active, payer_id")
+        .select("default_route_id")
         .eq("id", studentId)
         .single();
 
-      if (!student || !student.active) {
-        toast.error("Seu cadastro está inativado. Procure a coordenação.");
-        handleLogout();
-        return;
-      }
-
-      // Check linked payer
-      if (student.payer_id) {
-        const { data: payer } = await supabase
-          .from("payers")
-          .select("status")
-          .eq("id", student.payer_id)
-          .maybeSingle();
-
-        if (payer && payer.status !== "ATIVO") {
-          // Deactivate student
-          await (supabase as any).from("students").update({ active: false }).eq("id", studentId);
-          setBlocked(true);
-          toast.error("Seu cadastro foi inativado. Procure a coordenação para regularizar.");
-          return;
-        }
-      }
-
-      if (student.default_route_id) setRouteId(student.default_route_id);
+      if (student?.default_route_id) setRouteId(student.default_route_id);
     })();
   }, [studentId, navigate]);
 
@@ -89,7 +81,6 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="bg-primary text-primary-foreground p-4 pb-6">
         <div className="flex justify-between items-start">
           <div>
@@ -103,7 +94,6 @@ export default function StudentDashboard() {
       </header>
 
       <div className="p-4 -mt-3 space-y-4">
-        {/* Today header */}
         <div className="flex items-center gap-2">
           <h2 className="font-semibold text-base">Hoje</h2>
           <span className="text-xs text-muted-foreground">
@@ -111,7 +101,6 @@ export default function StudentDashboard() {
           </span>
         </div>
 
-        {/* Trip cards */}
         <DailyTripCard
           tripType="OUTBOUND"
           attendance={outboundAttendance}
@@ -125,7 +114,6 @@ export default function StudentDashboard() {
           boardingEnd={returnTrip?.boarding_end_time?.slice(0, 5)}
         />
 
-        {/* Check-in button */}
         {(!outboundAttendance || !returnAttendance) && (
           <Button
             className="w-full h-14 text-base font-semibold"
@@ -143,7 +131,6 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* Navigation */}
         <div className="grid grid-cols-3 gap-3 pt-2">
           <Link to="/presenca/historico" className="flex flex-col items-center gap-1 p-3 rounded-lg bg-card border text-center hover:bg-muted transition-colors">
             <History className="h-5 w-5 text-muted-foreground" />
