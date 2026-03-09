@@ -39,18 +39,18 @@ export function MobileExecutiveSummary({
   return (
     <div className="lg:hidden space-y-3">
       {/* Result hero */}
-      <Card className={`border-l-4 ${isPositive ? "border-l-emerald-500" : "border-l-destructive"}`}>
+      <Card className={`border-l-4 ${isPositive ? "border-l-primary" : "border-l-destructive"}`}>
         <CardContent className="py-4 px-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Resultado</p>
-              <p className={`text-2xl font-bold ${isPositive ? "text-emerald-600" : "text-destructive"}`}>
+              <p className={`text-2xl font-bold ${isPositive ? "text-primary" : "text-destructive"}`}>
                 {formatCurrency(resultCents)}
               </p>
             </div>
-            <div className={`p-3 rounded-full ${isPositive ? "bg-emerald-500/10" : "bg-destructive/10"}`}>
+            <div className={`p-3 rounded-full ${isPositive ? "bg-primary/10" : "bg-destructive/10"}`}>
               {isPositive ? (
-                <TrendingUp className="h-6 w-6 text-emerald-600" />
+                <TrendingUp className="h-6 w-6 text-primary" />
               ) : (
                 <TrendingDown className="h-6 w-6 text-destructive" />
               )}
@@ -58,7 +58,7 @@ export function MobileExecutiveSummary({
           </div>
           <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
-              <TrendingUp className="h-3 w-3 text-emerald-500" />
+              <TrendingUp className="h-3 w-3 text-primary" />
               {formatCurrency(revenueCents)}
             </span>
             <span className="flex items-center gap-1">
