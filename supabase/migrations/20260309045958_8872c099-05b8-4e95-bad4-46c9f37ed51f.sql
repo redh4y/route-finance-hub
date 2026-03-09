@@ -1,0 +1,1 @@
+ALTER TABLE public.public_orders ADD COLUMN IF NOT EXISTS checked_in boolean NOT NULL DEFAULT false;

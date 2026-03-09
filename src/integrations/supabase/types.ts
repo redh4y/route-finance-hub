@@ -2090,6 +2090,7 @@ export type Database = {
           amount_paid_cents: number
           amount_pending_cents: number
           amount_total_cents: number
+          checked_in: boolean
           created_at: string
           excursion_id: string
           id: string
@@ -2117,6 +2118,7 @@ export type Database = {
           amount_paid_cents?: number
           amount_pending_cents?: number
           amount_total_cents?: number
+          checked_in?: boolean
           created_at?: string
           excursion_id: string
           id?: string
@@ -2144,6 +2146,7 @@ export type Database = {
           amount_paid_cents?: number
           amount_pending_cents?: number
           amount_total_cents?: number
+          checked_in?: boolean
           created_at?: string
           excursion_id?: string
           id?: string
