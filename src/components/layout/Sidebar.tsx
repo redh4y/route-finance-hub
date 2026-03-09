@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Users,
   Upload,
+  CheckCircle2,
   TrendingUp,
   MapPin,
   FileText,
