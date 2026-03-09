@@ -236,6 +236,9 @@ export default function ExcursionDetail() {
     { key: "sales" as const, label: "Vendas", shortLabel: "Vendas", icon: ShoppingCart, count: sales?.length },
     { key: "affiliates" as const, label: "Afiliados", shortLabel: "Afil.", icon: Users2, count: excursionAffiliates?.length },
     { key: "orders" as const, label: "Pedidos Online", shortLabel: "Online", icon: Globe, count: publicOrders?.length },
+    { key: "manifest" as const, label: "Manifesto", shortLabel: "Manif.", icon: FileText },
+    { key: "checkin" as const, label: "Embarque", shortLabel: "Emb.", icon: CheckCircle2 },
+    { key: "funnel" as const, label: "Funil", shortLabel: "Funil", icon: TrendingUp },
   ];
 
   const depDate = new Date(excursion.departure_at);
