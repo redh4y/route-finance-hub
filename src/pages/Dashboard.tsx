@@ -30,6 +30,7 @@ import { DashboardOperationBlock } from "@/components/dashboard/DashboardOperati
 import { DashboardCommercialBlock } from "@/components/dashboard/DashboardCommercialBlock";
 import { DashboardAlerts } from "@/components/dashboard/DashboardAlerts";
 import { DashboardMaintenanceBlock } from "@/components/dashboard/DashboardMaintenanceBlock";
+import { MobileExecutiveSummary } from "@/components/dashboard/MobileExecutiveSummary";
 
 function DashboardSkeleton() {
   return (
