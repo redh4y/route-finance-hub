@@ -5,26 +5,54 @@ import { DailyTripCard } from "@/components/attendance/DailyTripCard";
 import { useTodayTrips, useStudentAttendanceToday } from "@/hooks/useAttendance";
 import { supabase } from "@/integrations/supabase/client";
 import { Bus, History, User, HelpCircle, LogOut, MapPin } from "lucide-react";
+import { toast } from "sonner";
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const studentId = localStorage.getItem("student_id");
   const studentName = localStorage.getItem("student_name");
   const [routeId, setRouteId] = useState<string | undefined>();
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     if (!studentId) {
       navigate("/presenca/login");
       return;
     }
-    supabase
-      .from("students")
-      .select("default_route_id")
-      .eq("id", studentId)
-      .single()
-      .then(({ data }) => {
-        if (data?.default_route_id) setRouteId(data.default_route_id);
-      });
+
+    // Check student + payer status
+    (async () => {
+      const { data: student } = await (supabase as any)
+        .from("students")
+        .select("default_route_id, active, payer_id")
+        .eq("id", studentId)
+        .single();
+
+      if (!student || !student.active) {
+        toast.error("Seu cadastro está inativado. Procure a coordenação.");
+        handleLogout();
+        return;
+      }
+
+      // Check linked payer
+      if (student.payer_id) {
+        const { data: payer } = await supabase
+          .from("payers")
+          .select("status")
+          .eq("id", student.payer_id)
+          .maybeSingle();
+
+        if (payer && payer.status !== "ATIVO") {
+          // Deactivate student
+          await (supabase as any).from("students").update({ active: false }).eq("id", studentId);
+          setBlocked(true);
+          toast.error("Seu cadastro foi inativado. Procure a coordenação para regularizar.");
+          return;
+        }
+      }
+
+      if (student.default_route_id) setRouteId(student.default_route_id);
+    })();
   }, [studentId, navigate]);
 
   const { data: trips } = useTodayTrips(routeId);
@@ -39,9 +67,25 @@ export default function StudentDashboard() {
     localStorage.removeItem("student_id");
     localStorage.removeItem("student_name");
     localStorage.removeItem("student_registration");
-    localStorage.removeItem("student_password");
     navigate("/presenca/login");
   };
+
+  if (blocked) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="text-center space-y-4 max-w-sm">
+          <div className="mx-auto bg-destructive/10 p-4 rounded-full w-fit">
+            <Bus className="h-10 w-10 text-destructive" />
+          </div>
+          <h1 className="text-lg font-bold">Acesso bloqueado</h1>
+          <p className="text-sm text-muted-foreground">
+            Seu cadastro no transporte foi inativado. Procure a coordenação para regularizar sua situação.
+          </p>
+          <Button variant="outline" onClick={handleLogout}>Voltar ao login</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -94,7 +138,7 @@ export default function StudentDashboard() {
         )}
 
         {outboundAttendance && returnAttendance && (
-          <div className="bg-success/10 text-success p-4 rounded-lg text-center text-sm font-medium">
+          <div className="bg-primary/10 text-primary p-4 rounded-lg text-center text-sm font-medium">
             ✅ Todas as presenças do dia estão confirmadas!
           </div>
         )}
