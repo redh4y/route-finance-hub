@@ -43,6 +43,7 @@ function parseExtractCSV(rows: Record<string, string>[]): ExtractLine[] {
     );
     const amountCents = Math.round(Math.abs(numericValue) * 100);
     const isDebit = typeField === "D" || typeField === "DEBITO" || numericValue < 0;
+    const lineType: "C" | "D" = isDebit ? "D" : "C";
 
     return {
       date: dateField,
