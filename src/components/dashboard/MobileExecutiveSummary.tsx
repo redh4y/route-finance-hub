@@ -84,7 +84,7 @@ export function MobileExecutiveSummary({
         <Card>
           <CardContent className="py-3 px-4">
             <div className="flex items-center gap-2 mb-1">
-              <Clock className="h-4 w-4 text-amber-500" />
+              <Clock className="h-4 w-4 text-warning" />
               <span className="text-xs text-muted-foreground">Em Aberto</span>
             </div>
             <p className="text-xl font-bold text-foreground">{openBillings}</p>
