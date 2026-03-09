@@ -11,6 +11,7 @@ interface QrScannerProps {
 export function QrScanner({ onScan, onClose }: QrScannerProps) {
   const [error, setError] = useState<string | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isRunningRef = useRef(false);
   const containerId = "qr-reader";
 
   useEffect(() => {
@@ -22,17 +23,24 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
+          isRunningRef.current = false;
           scanner.stop().catch(() => {});
           onScan(decodedText);
         },
         () => {}
       )
+      .then(() => {
+        isRunningRef.current = true;
+      })
       .catch(() => {
         setError("Não foi possível acessar a câmera. Verifique as permissões.");
       });
 
     return () => {
-      scanner.stop().catch(() => {});
+      if (isRunningRef.current) {
+        isRunningRef.current = false;
+        scanner.stop().catch(() => {});
+      }
     };
   }, [onScan]);
 
