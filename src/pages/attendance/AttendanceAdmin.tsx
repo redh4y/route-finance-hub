@@ -709,6 +709,7 @@ export default function AttendanceAdmin() {
             <TabsTrigger value="routes" className="flex-1 min-w-fit"><MapPin className="h-4 w-4 mr-1" /> Rotas</TabsTrigger>
             <TabsTrigger value="trips" className="flex-1 min-w-fit"><Calendar className="h-4 w-4 mr-1" /> Viagens</TabsTrigger>
             <TabsTrigger value="monitor" className="flex-1 min-w-fit"><Eye className="h-4 w-4 mr-1" /> Monitor</TabsTrigger>
+            <TabsTrigger value="settings" className="flex-1 min-w-fit"><Settings className="h-4 w-4 mr-1" /> Config</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard"><DashboardTab /></TabsContent>
@@ -717,6 +718,7 @@ export default function AttendanceAdmin() {
           <TabsContent value="routes"><RoutesTab /></TabsContent>
           <TabsContent value="trips"><TripsTab /></TabsContent>
           <TabsContent value="monitor"><MonitorTab /></TabsContent>
+          <TabsContent value="settings"><SettingsTab /></TabsContent>
         </Tabs>
       </div>
     </MainLayout>
