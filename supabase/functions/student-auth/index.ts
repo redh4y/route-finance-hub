@@ -99,37 +99,39 @@ Deno.serve(async (req) => {
       });
     }
 
-    /* ── Login: verify student + payer status ────────────────────── */
+    /* ── Login: verify student by CPF + payer status ───────────────── */
     if (action === "login") {
-      const registration = (body.registration as string || "").trim();
-      if (!registration) return json({ ok: false, error: "Matrícula não informada." }, 400);
+      const cpfDigits = (body.cpf as string || "").replace(/\D/g, "").padStart(11, "0");
+      if (cpfDigits.length < 11) return json({ ok: false, error: "CPF inválido." }, 400);
 
-      const { data: student, error: sErr } = await sb
-        .from("students")
-        .select("id, name, active, payer_id, registration")
-        .eq("registration", registration)
+      // Find payer by CPF
+      const { data: payer } = await sb
+        .from("payers")
+        .select("id, name, status")
+        .eq("document_digits", cpfDigits)
         .maybeSingle();
 
-      if (sErr || !student) {
-        return json({ ok: false, error: "Matrícula não encontrada." });
+      if (!payer) {
+        return json({ ok: false, error: "CPF não encontrado. Verifique se você está cadastrado no transporte." });
+      }
+
+      if (payer.status !== "ATIVO") {
+        return json({ ok: false, error: "Seu cadastro está inativado. Procure a coordenação.", inactive: true });
+      }
+
+      // Find student linked to this payer
+      const { data: student } = await sb
+        .from("students")
+        .select("id, name, active, registration")
+        .eq("payer_id", payer.id)
+        .maybeSingle();
+
+      if (!student) {
+        return json({ ok: false, error: "Você ainda não se cadastrou. Use a aba 'Cadastrar' primeiro." });
       }
 
       if (!student.active) {
         return json({ ok: false, error: "Seu cadastro está inativado. Procure a coordenação.", inactive: true });
-      }
-
-      // Check payer status
-      if (student.payer_id) {
-        const { data: payer } = await sb
-          .from("payers")
-          .select("status")
-          .eq("id", student.payer_id)
-          .maybeSingle();
-
-        if (payer && payer.status !== "ATIVO") {
-          await sb.from("students").update({ active: false }).eq("id", student.id);
-          return json({ ok: false, error: "Seu cadastro foi inativado. Procure a coordenação para regularizar.", inactive: true });
-        }
       }
 
       return json({

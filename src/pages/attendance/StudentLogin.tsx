@@ -142,11 +142,13 @@ export default function StudentLogin() {
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium mb-1 block">Matrícula</label>
+                  <label className="text-sm font-medium mb-1 block">CPF</label>
                   <Input
-                    value={registration}
-                    onChange={(e) => setRegistration(e.target.value)}
-                    placeholder="Digite sua matrícula"
+                    value={loginCpf}
+                    onChange={(e) => setLoginCpf(e.target.value)}
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
+                    maxLength={14}
                     autoComplete="username"
                   />
                 </div>
