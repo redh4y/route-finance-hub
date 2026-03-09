@@ -64,7 +64,7 @@ export function useCheckIn() {
         .maybeSingle();
       if (existing) throw new Error("Você já confirmou presença nesta viagem hoje.");
 
-      const { data, error } = await supabase.from("attendance").insert({
+      const { data, error } = await supabase.from("attendance" as any).insert({
         student_id: payload.student_id,
         bus_id: payload.bus_id,
         trip_id: payload.trip_id,
@@ -76,7 +76,7 @@ export function useCheckIn() {
         accuracy: payload.accuracy,
         status: "confirmed",
         evidence: payload.evidence || {},
-      }).select().single();
+      } as any).select().single();
       if (error) throw error;
 
       // Audit event
