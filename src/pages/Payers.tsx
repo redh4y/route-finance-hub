@@ -4,6 +4,8 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { usePayers, usePayersStats, usePayerById, Payer } from "@/hooks/usePayers";
 import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
+import { ExportButton } from "@/components/ExportButton";
+import type { ExportColumn } from "@/lib/export-utils";
 import { PageTransition } from "@/components/ui/page-transition";
 import { formatCPF, formatPhone, formatCurrency } from "@/lib/formatters";
 import { validateCPF } from "@/lib/csv-import";
@@ -264,7 +266,21 @@ export default function Payers() {
                 Gerencie alunos, cobranças e cadastros
               </p>
             </div>
-            <div className="flex gap-2 self-start sm:self-auto">
+            <div className="flex gap-2 self-start sm:self-auto flex-wrap">
+              <ExportButton
+                data={payers || []}
+                columns={[
+                  { key: "name", label: "Nome" },
+                  { key: "document", label: "CPF", format: (v) => v ? formatCPF(v) : "" },
+                  { key: "phone", label: "Telefone", format: (v) => v ? formatPhone(v) : "" },
+                  { key: "email", label: "E-mail" },
+                  { key: "route", label: "Rota" },
+                  { key: "status", label: "Status" },
+                ] as ExportColumn[]}
+                filename="pagadores"
+                title="Pagadores"
+                disabled={!payers?.length}
+              />
               <Button
                 size="sm"
                 variant="outline"
