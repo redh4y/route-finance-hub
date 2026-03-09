@@ -110,6 +110,11 @@ const navItems = [
     icon: MessageCircle,
   },
   {
+    label: "Presença",
+    path: "/presenca/admin",
+    icon: CheckCircle2,
+  },
+  {
     label: "Configurações",
     path: "/configuracoes",
     icon: Settings2,
