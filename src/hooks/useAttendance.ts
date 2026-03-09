@@ -55,8 +55,7 @@ export function useCheckIn() {
       evidence?: Record<string, unknown>;
     }) => {
       // Check duplicate
-      const { data: existing } = await supabase
-        .from("attendance")
+      const { data: existing } = await (supabase.from as any)("attendance")
         .select("id")
         .eq("student_id", payload.student_id)
         .eq("date", today())
@@ -64,7 +63,7 @@ export function useCheckIn() {
         .maybeSingle();
       if (existing) throw new Error("Você já confirmou presença nesta viagem hoje.");
 
-      const { data, error } = await supabase.from("attendance" as any).insert({
+      const { data, error } = await (supabase.from as any)("attendance").insert({
         student_id: payload.student_id,
         bus_id: payload.bus_id,
         trip_id: payload.trip_id,
@@ -76,11 +75,11 @@ export function useCheckIn() {
         accuracy: payload.accuracy,
         status: "confirmed",
         evidence: payload.evidence || {},
-      } as any).select().single();
+      }).select().single();
       if (error) throw error;
 
       // Audit event
-      await supabase.from("attendance_events").insert({
+      await (supabase.from as any)("attendance_events").insert({
         attendance_id: data.id,
         event_type: "CHECK_IN",
         payload: { method: payload.method, timestamp: new Date().toISOString() },
