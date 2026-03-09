@@ -827,7 +827,36 @@ export default function ExcursionDetail() {
               </Card>
             </motion.div>
           )}
+
+          {/* ── Tab: Manifest ── */}
+          {activeTab === "manifest" && (
+            <motion.div key="manifest" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}>
+              <BoardingManifest excursionId={excursion.id} excursion={excursion} />
+            </motion.div>
+          )}
+
+          {/* ── Tab: Check-in ── */}
+          {activeTab === "checkin" && (
+            <motion.div key="checkin" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}>
+              <ExcursionCheckIn excursionId={excursion.id} />
+            </motion.div>
+          )}
+
+          {/* ── Tab: Funnel ── */}
+          {activeTab === "funnel" && (
+            <motion.div key="funnel" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}>
+              <ConversionFunnel />
+            </motion.div>
+          )}
         </AnimatePresence>
+
+        {/* Cancel Order Dialog */}
+        <CancelOrderDialog
+          open={!!cancelOrder}
+          onOpenChange={(v) => !v && setCancelOrder(null)}
+          order={cancelOrder}
+          excursionId={excursion.id}
+        />
 
         {/* ── Info Card ── */}
         <Card className="mt-5">

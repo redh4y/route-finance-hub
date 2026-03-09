@@ -343,6 +343,7 @@ const App = () => (
               <Route path="/public/excursoes" element={<PublicExcursions />} />
               <Route path="/public/excursoes/:token" element={<PublicExcursion />} />
               <Route path="/2-via-boletos" element={<PublicBoletoLinksPage />} />
+              <Route path="/afiliado/:token" element={<AffiliatePortal />} />
               <Route path="/oauth/callback" element={<OAuthCallback />} />
               {/* Student attendance (public, no admin auth) */}
               <Route path="/presenca/login" element={<StudentLogin />} />
