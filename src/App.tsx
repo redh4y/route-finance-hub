@@ -53,6 +53,7 @@ import StudentProfile from "./pages/attendance/StudentProfile";
 import StudentHelp from "./pages/attendance/StudentHelp";
 import AttendanceAdmin from "./pages/attendance/AttendanceAdmin";
 import PollDashboard from "./pages/PollDashboard";
+import ReviewInbox from "./pages/ReviewInbox";
 
 const queryClient = new QueryClient();
 
@@ -306,6 +307,15 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AttendanceAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Review Inbox */}
+              <Route
+                path="/revisao"
+                element={
+                  <ProtectedRoute>
+                    <ReviewInbox />
                   </ProtectedRoute>
                 }
               />
