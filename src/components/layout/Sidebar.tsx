@@ -111,6 +111,11 @@ const navItems = [
     icon: MessageCircle,
   },
   {
+    label: "Enquetes",
+    path: "/enquetes",
+    icon: Vote,
+  },
+  {
     label: "Presença",
     path: "/presenca/admin",
     icon: CheckCircle2,

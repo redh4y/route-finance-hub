@@ -309,6 +309,15 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              {/* Poll dashboard */}
+              <Route
+                path="/enquetes"
+                element={
+                  <ProtectedRoute>
+                    <PollDashboard />
+                  </ProtectedRoute>
+                }
+              />
               {/* Public routes - no auth required */}
               <Route path="/site" element={<LandingPage />} />
               <Route path="/public/excursoes" element={<PublicExcursions />} />
