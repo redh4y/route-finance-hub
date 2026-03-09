@@ -280,7 +280,7 @@ function PollResultCard({
   poll: ReturnType<typeof usePolls>["data"] extends (infer T)[] ? T : never;
   isSelected: boolean;
   onSelect: () => void;
-  votesByOption: Record<string, Array<{ student_id: string | null; voter_phone: string | null; students: { name: string } | null }>>;
+  votesByOption: Record<string, Array<{ student_id: string | null; voter_phone: string | null; voter_jid?: string | null; students: { name: string } | null }>>;
   totalVotes: number;
   nonRespondents: Array<{ students: { name: string } }>;
   unknownNumbers: Array<{ voter_phone: string | null; voter_jid: string | null }>;
