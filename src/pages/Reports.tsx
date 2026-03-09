@@ -50,6 +50,18 @@ export default function Reports() {
             <FileText className="h-4 w-4" />
             DRE
           </TabsTrigger>
+          <TabsTrigger value="dre-compare" className="gap-2">
+            <Wallet className="h-4 w-4" />
+            DRE Comparativo
+          </TabsTrigger>
+          <TabsTrigger value="aging" className="gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            Aging
+          </TabsTrigger>
+          <TabsTrigger value="cashflow" className="gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Fluxo de Caixa
+          </TabsTrigger>
           <TabsTrigger value="mensal" className="gap-2">
             <BarChart3 className="h-4 w-4" />
             Mensal
@@ -73,6 +85,9 @@ export default function Reports() {
         </TabsList>
 
         <TabsContent value="dre"><DREReport /></TabsContent>
+        <TabsContent value="dre-compare"><DREComparative /></TabsContent>
+        <TabsContent value="aging"><AgingChart /></TabsContent>
+        <TabsContent value="cashflow"><CashFlowProjection /></TabsContent>
         <TabsContent value="mensal"><MonthlyReport /></TabsContent>
         <TabsContent value="excursoes"><ExcursionsReport /></TabsContent>
         <TabsContent value="veiculos"><VehiclesReport /></TabsContent>
