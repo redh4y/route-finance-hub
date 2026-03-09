@@ -44,6 +44,7 @@ import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
 import AddressMatch from "./pages/AddressMatch";
 import OAuthCallback from "./pages/OAuthCallback";
 import Reconciliation from "./pages/Reconciliation";
+import AffiliatePortal from "./pages/AffiliatePortal";
 
 // Attendance module
 import StudentLogin from "./pages/attendance/StudentLogin";
@@ -342,6 +343,7 @@ const App = () => (
               <Route path="/public/excursoes" element={<PublicExcursions />} />
               <Route path="/public/excursoes/:token" element={<PublicExcursion />} />
               <Route path="/2-via-boletos" element={<PublicBoletoLinksPage />} />
+              <Route path="/afiliado/:token" element={<AffiliatePortal />} />
               <Route path="/oauth/callback" element={<OAuthCallback />} />
               {/* Student attendance (public, no admin auth) */}
               <Route path="/presenca/login" element={<StudentLogin />} />

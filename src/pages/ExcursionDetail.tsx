@@ -37,6 +37,10 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { BoardingManifest } from "@/components/excursions/BoardingManifest";
+import { ExcursionCheckIn } from "@/components/excursions/ExcursionCheckIn";
+import { ConversionFunnel } from "@/components/excursions/ConversionFunnel";
+import { CancelOrderDialog } from "@/components/excursions/CancelOrderDialog";
 
 /* ─── Seat Color Tokens ─── */
 const seatColors: Record<string, string> = {
@@ -94,7 +98,8 @@ export default function ExcursionDetail() {
   const [passengerEmail, setPassengerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("DINHEIRO");
   const [installments, setInstallments] = useState("1");
-  const [activeTab, setActiveTab] = useState<"seats" | "sales" | "affiliates" | "orders">("seats");
+  const [activeTab, setActiveTab] = useState<"seats" | "sales" | "affiliates" | "orders" | "manifest" | "checkin" | "funnel">("seats");
+  const [cancelOrder, setCancelOrder] = useState<any>(null);
 
   if (isLoading) {
     return (
@@ -235,6 +240,9 @@ export default function ExcursionDetail() {
     { key: "sales" as const, label: "Vendas", shortLabel: "Vendas", icon: ShoppingCart, count: sales?.length },
     { key: "affiliates" as const, label: "Afiliados", shortLabel: "Afil.", icon: Users2, count: excursionAffiliates?.length },
     { key: "orders" as const, label: "Pedidos Online", shortLabel: "Online", icon: Globe, count: publicOrders?.length },
+    { key: "manifest" as const, label: "Manifesto", shortLabel: "Manif.", icon: FileText },
+    { key: "checkin" as const, label: "Embarque", shortLabel: "Emb.", icon: CheckCircle2 },
+    { key: "funnel" as const, label: "Funil", shortLabel: "Funil", icon: TrendingUp },
   ];
 
   const depDate = new Date(excursion.departure_at);
@@ -819,7 +827,36 @@ export default function ExcursionDetail() {
               </Card>
             </motion.div>
           )}
+
+          {/* ── Tab: Manifest ── */}
+          {activeTab === "manifest" && (
+            <motion.div key="manifest" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}>
+              <BoardingManifest excursionId={excursion.id} excursion={excursion} />
+            </motion.div>
+          )}
+
+          {/* ── Tab: Check-in ── */}
+          {activeTab === "checkin" && (
+            <motion.div key="checkin" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}>
+              <ExcursionCheckIn excursionId={excursion.id} />
+            </motion.div>
+          )}
+
+          {/* ── Tab: Funnel ── */}
+          {activeTab === "funnel" && (
+            <motion.div key="funnel" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}>
+              <ConversionFunnel />
+            </motion.div>
+          )}
         </AnimatePresence>
+
+        {/* Cancel Order Dialog */}
+        <CancelOrderDialog
+          open={!!cancelOrder}
+          onOpenChange={(v) => !v && setCancelOrder(null)}
+          order={cancelOrder}
+          excursionId={excursion.id}
+        />
 
         {/* ── Info Card ── */}
         <Card className="mt-5">
