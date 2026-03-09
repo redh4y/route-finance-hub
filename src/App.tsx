@@ -43,6 +43,7 @@ import PublicBoletoLinksPage from "./pages/PublicBoletoLinks";
 import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
 import AddressMatch from "./pages/AddressMatch";
 import OAuthCallback from "./pages/OAuthCallback";
+import Reconciliation from "./pages/Reconciliation";
 
 // Attendance module
 import StudentLogin from "./pages/attendance/StudentLogin";
