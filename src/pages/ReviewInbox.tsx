@@ -70,7 +70,7 @@ export default function ReviewInbox() {
         id: f.id,
         type: "financial",
         title: f.description,
-        subtitle: `${f.type} · ${formatCentsToBRL(f.amount_cents)}`,
+        subtitle: `${f.type} · ${formatCurrency(f.amount_cents)}`,
         reasons: f.review_reasons || ["Revisão pendente"],
         updatedAt: f.updated_at,
       }));

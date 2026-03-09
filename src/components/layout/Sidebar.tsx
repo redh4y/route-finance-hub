@@ -48,6 +48,11 @@ const navItems = [
     icon: LayoutGrid,
   },
   {
+    label: "Inbox Revisão",
+    path: "/revisao",
+    icon: AlertTriangle,
+  },
+  {
     label: "Gestão de Alunos",
     path: "/pagadores",
     icon: Users,

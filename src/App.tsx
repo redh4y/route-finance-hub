@@ -310,6 +310,15 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              {/* Review Inbox */}
+              <Route
+                path="/revisao"
+                element={
+                  <ProtectedRoute>
+                    <ReviewInbox />
+                  </ProtectedRoute>
+                }
+              />
               {/* Poll dashboard */}
               <Route
                 path="/enquetes"
