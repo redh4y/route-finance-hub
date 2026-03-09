@@ -23,10 +23,13 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency, formatMonthRef, getCurrentMonthRef } from "@/lib/formatters";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
-import { Download, FileText, BarChart3, Bus, Truck, Users2, Wrench } from "lucide-react";
+import { Download, FileText, BarChart3, Bus, Truck, Users2, Wrench, AlertTriangle, TrendingUp, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { format, differenceInHours } from "date-fns";
+import { AgingChart } from "@/components/financial/AgingChart";
+import { DREComparative } from "@/components/financial/DREComparative";
+import { CashFlowProjection } from "@/components/financial/CashFlowProjection";
 
 const COLORS = ["hsl(var(--primary))", "hsl(var(--accent))", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899"];
 
