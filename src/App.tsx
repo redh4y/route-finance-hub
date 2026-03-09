@@ -302,6 +302,14 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/conciliacao"
+                element={
+                  <ProtectedRoute>
+                    <Reconciliation />
+                  </ProtectedRoute>
+                }
+              />
               {/* Attendance admin */}
               <Route
                 path="/presenca/admin"

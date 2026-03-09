@@ -75,6 +75,7 @@ const navItems = [
       { label: "DRE", path: "/financeiro", icon: FileText, exact: true },
       { label: "Entradas", path: "/financeiro/entradas", icon: ArrowUpCircle },
       { label: "Saídas", path: "/financeiro/saidas", icon: ArrowDownCircle },
+      { label: "Conciliação", path: "/conciliacao", icon: CheckCircle2 },
     ],
   },
   {
