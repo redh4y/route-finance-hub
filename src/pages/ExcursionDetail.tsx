@@ -37,6 +37,10 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { BoardingManifest } from "@/components/excursions/BoardingManifest";
+import { ExcursionCheckIn } from "@/components/excursions/ExcursionCheckIn";
+import { ConversionFunnel } from "@/components/excursions/ConversionFunnel";
+import { CancelOrderDialog } from "@/components/excursions/CancelOrderDialog";
 
 /* ─── Seat Color Tokens ─── */
 const seatColors: Record<string, string> = {
