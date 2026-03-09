@@ -111,6 +111,7 @@ const navItems = [
       { label: "Excursões", path: "/excursoes", icon: Bus },
       { label: "Afiliados", path: "/afiliados", icon: Users2 },
       { label: "Leads", path: "/leads", icon: Users },
+      { label: "Funil", path: "/relatorios", icon: TrendingDown },
     ],
   },
   {
