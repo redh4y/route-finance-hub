@@ -279,7 +279,7 @@ export default function Payers() {
                 ] as ExportColumn[]}
                 filename="pagadores"
                 title="Pagadores"
-                disabled={!filteredPayers?.length}
+                disabled={!payers?.length}
               />
               <Button
                 size="sm"
