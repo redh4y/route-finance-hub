@@ -109,8 +109,8 @@ export function MobileExecutiveSummary({
           <Card className={`h-full ${reviewCount > 0 ? "border-amber-500/30" : ""}`}>
             <CardContent className="py-3 px-4 h-full flex flex-col justify-between">
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <DollarSign className="h-4 w-4 text-amber-500" />
+              <div className="flex items-center gap-2 mb-1">
+                  <DollarSign className="h-4 w-4 text-warning" />
                   <span className="text-xs text-muted-foreground">Revisão</span>
                 </div>
                 <p className="text-xl font-bold text-foreground">{reviewCount}</p>
