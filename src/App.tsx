@@ -44,6 +44,7 @@ import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
 import AddressMatch from "./pages/AddressMatch";
 import OAuthCallback from "./pages/OAuthCallback";
 import Reconciliation from "./pages/Reconciliation";
+import AffiliatePortal from "./pages/AffiliatePortal";
 
 // Attendance module
 import StudentLogin from "./pages/attendance/StudentLogin";
