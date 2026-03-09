@@ -266,7 +266,21 @@ export default function Payers() {
                 Gerencie alunos, cobranças e cadastros
               </p>
             </div>
-            <div className="flex gap-2 self-start sm:self-auto">
+            <div className="flex gap-2 self-start sm:self-auto flex-wrap">
+              <ExportButton
+                data={filteredPayers || []}
+                columns={[
+                  { key: "name", label: "Nome" },
+                  { key: "document", label: "CPF", format: (v) => v ? formatCPF(v) : "" },
+                  { key: "phone", label: "Telefone", format: (v) => v ? formatPhone(v) : "" },
+                  { key: "email", label: "E-mail" },
+                  { key: "route", label: "Rota" },
+                  { key: "status", label: "Status" },
+                ] as ExportColumn[]}
+                filename="pagadores"
+                title="Pagadores"
+                disabled={!filteredPayers?.length}
+              />
               <Button
                 size="sm"
                 variant="outline"
