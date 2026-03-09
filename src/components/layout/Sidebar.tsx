@@ -25,6 +25,7 @@ import {
   Users as DriversIcon,
   Vote,
   AlertTriangle,
+  TrendingDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
