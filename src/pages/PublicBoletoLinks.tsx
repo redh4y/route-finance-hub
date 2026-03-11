@@ -576,7 +576,7 @@ export default function PublicBoletoLinksPage() {
           }
         }}
       >
-        <DialogContent className="w-[96vw] max-w-6xl h-[calc(100dvh-8.5rem)] max-h-[calc(100dvh-8.5rem)] top-[calc(50%+2.25rem)] sm:top-[50%] sm:h-[95vh] sm:max-h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-3 sm:[&>button]:top-2">
+        <DialogContent className="w-[96vw] max-w-6xl h-[calc(100dvh-11rem)] max-h-[calc(100dvh-11rem)] top-[calc(50%+3.5rem)] sm:top-[50%] sm:h-[95vh] sm:max-h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-3 sm:[&>button]:top-2">
           <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
             <DialogTitle className="m-0 text-base">
               Pré-visualização do boleto
