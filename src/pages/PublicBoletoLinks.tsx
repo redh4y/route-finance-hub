@@ -140,60 +140,44 @@ export default function PublicBoletoLinksPage() {
     } catch { /* best effort */ }
   };
 
-  const handleDownloadClick = async (item: PublicBoletoItem) => {
+  const handleDownloadClick = (item: PublicBoletoItem) => {
     const itemKey = getItemKey(item);
     setDownloadingKey(itemKey);
 
-    try {
-      const response = await fetch(SUPABASE_FUNCTIONS_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({
-          action: "download_bill",
-          cpf: cpfDigits,
-          driveUrl: item.drive_url,
-          referenceMonth: item.reference_month,
-          studentName: item.student_name || null,
-        }),
-      });
+    // Build direct URL to edge function – browser navigates synchronously
+    // within user gesture, so no popup blocker on mobile.
+    const params = new URLSearchParams({
+      action: "download_bill",
+      cpf: cpfDigits,
+      driveUrl: item.drive_url,
+      referenceMonth: item.reference_month || "",
+      studentName: item.student_name || "",
+    });
 
-      if (!response.ok) {
-        let message = "N?o foi poss?vel baixar o boleto.";
-        try {
-          const payload = await response.json();
-          if (payload?.error) message = payload.error;
-        } catch {
-          const text = await response.text();
-          if (text) message = text;
-        }
-        throw new Error(message);
-      }
+    // Use a hidden iframe to trigger the download without navigating away.
+    // The edge function returns Content-Disposition: attachment so the
+    // browser will download instead of rendering.
+    const iframeSrc = `${SUPABASE_FUNCTIONS_URL}?apikey=${encodeURIComponent(SUPABASE_PUBLISHABLE_KEY)}&${params.toString()}`;
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = getDownloadFileName(item);
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = iframeSrc;
+    document.body.appendChild(iframe);
 
-      toast.success("Download iniciado.");
-    } catch (error: any) {
-      await logDownload({
-        driveUrl: item.drive_url,
-        referenceMonth: item.reference_month,
-        studentName: item.student_name || null,
-      });
-      toast.error(error?.message || "N?o foi poss?vel baixar o boleto.");
-    } finally {
+    // Clean up iframe after a generous timeout and clear loading state
+    setTimeout(() => {
+      iframe.remove();
       setDownloadingKey((current) => (current === itemKey ? null : current));
-    }
+    }, 15_000);
+
+    // Also log the download (best effort)
+    logDownload({
+      driveUrl: item.drive_url,
+      referenceMonth: item.reference_month,
+      studentName: item.student_name || null,
+    });
+
+    toast.success("Download iniciado.");
   };
 
   const handleCopyDigitableLine = async (line: string | null | undefined) => {
