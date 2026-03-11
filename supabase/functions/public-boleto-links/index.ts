@@ -97,11 +97,26 @@ serve(async (req) => {
       return json(500, { ok: false, error: "Ambiente Supabase nao configurado", requestId });
     }
 
+    // Support both POST (JSON body) and GET (query params) for download_bill
     let body: any;
-    try {
-      body = await req.json();
-    } catch {
-      return json(400, { ok: false, error: "Body invalido", requestId });
+    const url = new URL(req.url);
+    const qsAction = url.searchParams.get("action");
+
+    if (req.method === "GET" && qsAction === "download_bill") {
+      // GET request from hidden iframe – read params from query string
+      body = {
+        action: "download_bill",
+        cpf: url.searchParams.get("cpf") || "",
+        driveUrl: url.searchParams.get("driveUrl") || "",
+        referenceMonth: url.searchParams.get("referenceMonth") || "",
+        studentName: url.searchParams.get("studentName") || "",
+      };
+    } else {
+      try {
+        body = await req.json();
+      } catch {
+        return json(400, { ok: false, error: "Body invalido", requestId });
+      }
     }
 
     const action = (String(body?.action || "list_bills").trim() || "list_bills") as Action;
