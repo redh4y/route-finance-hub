@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type MouseEvent } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,10 +10,14 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+
 import {
   AlertTriangle, CheckCircle2, Clock, Copy, Download, Eye,
   FileText, Loader2, Search, Shield, XCircle,
 } from "lucide-react";
+
+const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-boleto-links`;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 /* ───── Types ───── */
 
@@ -101,6 +105,16 @@ function sortBills(items: PublicBoletoItem[]) {
   });
 }
 
+function getItemKey(item: PublicBoletoItem) {
+  return item.our_number || item.drive_url || `${item.reference_month}-${item.student_name}`;
+}
+
+function getDownloadFileName(item: PublicBoletoItem) {
+  const safeName = String(item.student_name || "boleto").trim() || "boleto";
+  const safeRef = String(item.reference_month || "sem-referencia").trim() || "sem-referencia";
+  return `${safeName} - ${safeRef}.pdf`;
+}
+
 /* ───── Component ───── */
 
 export default function PublicBoletoLinksPage() {
@@ -112,6 +126,7 @@ export default function PublicBoletoLinksPage() {
   const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null);
   const [previewReferenceMonth, setPreviewReferenceMonth] = useState<string | null>(null);
   const [previewStudentName, setPreviewStudentName] = useState<string | null>(null);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
   const canSearch = cpfDigits.length === 11;
@@ -125,13 +140,60 @@ export default function PublicBoletoLinksPage() {
     } catch { /* best effort */ }
   };
 
-  const handleDownloadClick = async (
-    e: MouseEvent<HTMLAnchorElement>,
-    params: { driveUrl: string; referenceMonth?: string | null; studentName?: string | null },
-  ) => {
-    e.preventDefault();
-    await logDownload(params);
-    window.open(params.driveUrl, "_blank", "noopener,noreferrer");
+  const handleDownloadClick = async (item: PublicBoletoItem) => {
+    const itemKey = getItemKey(item);
+    setDownloadingKey(itemKey);
+
+    try {
+      const response = await fetch(SUPABASE_FUNCTIONS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          action: "download_bill",
+          cpf: cpfDigits,
+          driveUrl: item.drive_url,
+          referenceMonth: item.reference_month,
+          studentName: item.student_name || null,
+        }),
+      });
+
+      if (!response.ok) {
+        let message = "N?o foi poss?vel baixar o boleto.";
+        try {
+          const payload = await response.json();
+          if (payload?.error) message = payload.error;
+        } catch {
+          const text = await response.text();
+          if (text) message = text;
+        }
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = getDownloadFileName(item);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Download iniciado.");
+    } catch (error: any) {
+      await logDownload({
+        driveUrl: item.drive_url,
+        referenceMonth: item.reference_month,
+        studentName: item.student_name || null,
+      });
+      toast.error(error?.message || "N?o foi poss?vel baixar o boleto.");
+    } finally {
+      setDownloadingKey((current) => (current === itemKey ? null : current));
+    }
   };
 
   const handleCopyDigitableLine = async (line: string | null | undefined) => {
@@ -340,14 +402,19 @@ export default function PublicBoletoLinksPage() {
                                   <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openPreview(item)}>
                                     <Eye className="h-4 w-4" />
                                   </Button>
-                                  <a href={item.drive_url} target="_blank" rel="noreferrer"
-                                    onClick={(e) => handleDownloadClick(e, { driveUrl: item.drive_url, referenceMonth: item.reference_month, studentName: item.student_name || "Aluno" })}
+                                  <Button
+                                    size="sm"
+                                    className="gap-1.5 h-8"
+                                    onClick={() => handleDownloadClick(item)}
+                                    disabled={downloadingKey === getItemKey(item)}
                                   >
-                                    <Button size="sm" className="gap-1.5 h-8">
+                                    {downloadingKey === getItemKey(item) ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
                                       <Download className="h-3.5 w-3.5" />
-                                      Baixar
-                                    </Button>
-                                  </a>
+                                    )}
+                                    Baixar
+                                  </Button>
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -442,14 +509,19 @@ export default function PublicBoletoLinksPage() {
                             <Eye className="h-4 w-4" />
                             Visualizar
                           </Button>
-                          <a href={item.drive_url} target="_blank" rel="noreferrer"
-                            onClick={(e) => handleDownloadClick(e, { driveUrl: item.drive_url, referenceMonth: item.reference_month, studentName: item.student_name || "Aluno" })}
+                          <Button
+                            size="sm"
+                            className="gap-1.5 w-full h-11"
+                            onClick={() => handleDownloadClick(item)}
+                            disabled={downloadingKey === getItemKey(item)}
                           >
-                            <Button size="sm" className="gap-1.5 w-full h-11">
+                            {downloadingKey === getItemKey(item) ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
                               <Download className="h-4 w-4" />
-                              Baixar boleto
-                            </Button>
-                          </a>
+                            )}
+                            Baixar boleto
+                          </Button>
                         </div>
                       </div>
                     );
@@ -500,17 +572,23 @@ export default function PublicBoletoLinksPage() {
               Pré-visualização do boleto
             </DialogTitle>
             {previewDownloadUrl && (
-              <a
-                href={previewDownloadUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0"
-                onClick={(e) => handleDownloadClick(e, { driveUrl: previewDownloadUrl, referenceMonth: previewReferenceMonth, studentName: previewStudentName })}
+              <Button
+                size="sm"
+                className="gap-1.5 shrink-0"
+                onClick={() => handleDownloadClick({
+                  reference_month: previewReferenceMonth || "",
+                  student_name: previewStudentName || "Aluno",
+                  drive_url: previewDownloadUrl,
+                })}
+                disabled={downloadingKey === previewDownloadUrl}
               >
-                <Button size="sm" className="gap-1.5">
-                  <Download className="h-4 w-4" /> Baixar
-                </Button>
-              </a>
+                {downloadingKey === previewDownloadUrl ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Baixar
+              </Button>
             )}
           </div>
           {previewUrl && (

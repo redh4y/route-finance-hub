@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "OPTIONS, POST",
 };
 
-type Action = "list_bills" | "log_download";
+type Action = "list_bills" | "log_download" | "download_bill";
 
 function rid() {
   return crypto.randomUUID().slice(0, 8);
@@ -27,6 +27,19 @@ function digits(value: string | null | undefined) {
 function maskCpf(cpf: string) {
   if (!cpf) return "";
   return cpf.length === 11 ? `${cpf.slice(0, 3)}***${cpf.slice(-2)}` : "invalid";
+}
+
+function sanitizeFileNamePart(value: string | null | undefined) {
+  return String(value || "")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildAttachmentFileName(studentName: string | null | undefined, referenceMonth: string | null | undefined) {
+  const safeName = sanitizeFileNamePart(studentName) || "boleto";
+  const safeRef = String(referenceMonth || "").trim() || "sem-referencia";
+  return `${safeName} - ${safeRef}.pdf`;
 }
 
 function billingStatusPriority(status: string) {
@@ -120,6 +133,79 @@ serve(async (req) => {
       });
 
       return json(200, { ok: true, requestId });
+    }
+
+    if (action === "download_bill") {
+      const driveUrl = String(body?.driveUrl || "").trim();
+      if (!driveUrl) {
+        return json(400, { ok: false, error: "Link do boleto nao informado", requestId });
+      }
+
+      const { data: boletoRow, error: boletoError } = await sb
+        .from("payer_boleto_links")
+        .select("reference_month, student_name, drive_url")
+        .eq("cpf_digits", cpf)
+        .eq("drive_url", driveUrl)
+        .limit(1)
+        .maybeSingle();
+
+      if (boletoError) {
+        return json(500, { ok: false, error: boletoError.message, requestId });
+      }
+
+      if (!boletoRow) {
+        return json(404, { ok: false, error: "Boleto nao encontrado para este CPF", requestId });
+      }
+
+      await writeAccessLog(sb, {
+        action: "DOWNLOAD",
+        cpf_digits: cpf,
+        reference_month: boletoRow.reference_month || null,
+        student_name: boletoRow.student_name || null,
+        drive_url: boletoRow.drive_url,
+        user_agent: userAgent || null,
+        request_id: requestId,
+      });
+
+      let upstream: Response;
+      try {
+        upstream = await fetch(boletoRow.drive_url, {
+          method: "GET",
+          redirect: "follow",
+          headers: {
+            "User-Agent": userAgent || "TavaresFinance/2via",
+          },
+        });
+      } catch (error) {
+        return json(502, {
+          ok: false,
+          error: error instanceof Error ? error.message : "Falha ao baixar arquivo no Google Drive",
+          requestId,
+        });
+      }
+
+      if (!upstream.ok || !upstream.body) {
+        const upstreamMessage = await upstream.text().catch(() => "");
+        return json(502, {
+          ok: false,
+          error: upstreamMessage || `Falha ao baixar arquivo do Drive (${upstream.status})`,
+          requestId,
+        });
+      }
+
+      const headers = new Headers();
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Cache-Control", "no-store");
+      headers.set("Content-Type", upstream.headers.get("content-type") || "application/pdf");
+      headers.set(
+        "Content-Disposition",
+        `attachment; filename="${buildAttachmentFileName(boletoRow.student_name, boletoRow.reference_month)}"`,
+      );
+
+      return new Response(upstream.body, {
+        status: 200,
+        headers,
+      });
     }
 
     const { data: payer, error: payerError } = await sb
