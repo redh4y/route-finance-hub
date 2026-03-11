@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
 
 const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-boleto-links`;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const LAST_CPF_STORAGE_KEY = "public-boleto-links:last-cpf";
 
 /* ───── Types ───── */
 
@@ -198,21 +199,31 @@ export default function PublicBoletoLinksPage() {
     setPreviewStudentName(item.student_name || "Aluno");
   };
 
-  const handleSearchBills = async () => {
-    if (!canSearch) { toast.error("Informe um CPF válido."); return; }
+  const fetchBills = async (targetCpf: string, options?: { silent?: boolean }) => {
+    if (targetCpf.length !== 11) {
+      if (!options?.silent) {
+        toast.error("Informe um CPF v?lido.");
+      }
+      return;
+    }
+
     setIsLoading(true);
     setItems([]);
     setHasSearched(true);
+
     try {
       const { data, error } = await supabase.functions.invoke("public-boleto-links", {
-        body: { action: "list_bills", cpf: cpfDigits },
+        body: { action: "list_bills", cpf: targetCpf },
       });
-      // The SDK may place non-2xx JSON in error; extract the body from either
+
       const payload = data ?? (error && typeof error === "object" && "error" in error ? error : null);
       if (payload && !payload.ok) {
         const msg = payload.error || "Falha na consulta";
+        localStorage.removeItem(LAST_CPF_STORAGE_KEY);
         if (msg.includes("nao encontrado")) {
-          toast.warning("CPF não encontrado no cadastro. Verifique o número informado.");
+          if (!options?.silent) {
+            toast.warning("CPF n?o encontrado no cadastro. Verifique o n?mero informado.");
+          }
         } else {
           throw new Error(msg);
         }
@@ -222,21 +233,36 @@ export default function PublicBoletoLinksPage() {
       } else {
         const foundItems = sortBills((payload?.items || []) as PublicBoletoItem[]);
         setItems(foundItems);
-        if (foundItems.length === 0) toast.warning("Nenhum boleto encontrado para o CPF informado.");
+        localStorage.setItem(LAST_CPF_STORAGE_KEY, targetCpf);
+        if (foundItems.length === 0 && !options?.silent) {
+          toast.warning("Nenhum boleto encontrado para o CPF informado.");
+        }
       }
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao buscar boletos");
+      if (!options?.silent) {
+        toast.error(error?.message || "Erro ao buscar boletos");
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSearchBills = async () => {
+    await fetchBills(cpfDigits);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && canSearch && !isLoading) handleSearchBills();
   };
 
+  useEffect(() => {
+    const savedCpf = localStorage.getItem(LAST_CPF_STORAGE_KEY);
+    const savedDigits = onlyDigits(savedCpf || "");
+    if (savedDigits.length !== 11) return;
 
-
+    setCpf(formatCpfMask(savedDigits));
+    void fetchBills(savedDigits, { silent: true });
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -550,7 +576,7 @@ export default function PublicBoletoLinksPage() {
           }
         }}
       >
-        <DialogContent className="w-[96vw] max-w-6xl h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-2">
+        <DialogContent className="w-[96vw] max-w-6xl h-[calc(100dvh-8.5rem)] max-h-[calc(100dvh-8.5rem)] top-[calc(50%+2.25rem)] sm:top-[50%] sm:h-[95vh] sm:max-h-[95vh] !p-0 !gap-0 !flex !flex-col min-h-0 overflow-hidden [&>button]:right-2 [&>button]:top-3 sm:[&>button]:top-2">
           <div className="w-full shrink-0 border-b px-4 py-3 pr-10 flex items-center justify-between gap-3">
             <DialogTitle className="m-0 text-base">
               Pré-visualização do boleto
