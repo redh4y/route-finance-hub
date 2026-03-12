@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  Search, Download, Eye, FileText, Activity,
+  Search, Download, Eye, FileText, Activity, Users, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -33,6 +33,14 @@ function formatDateShort(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(value));
 }
 
+function formatReferenceMonth(value: string | null | undefined) {
+  if (!value || !/^\d{4}-\d{2}$/.test(value)) return "-";
+  const [year, month] = value.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(date);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 type AccessLog = {
   id: string;
   created_at: string;
@@ -47,11 +55,20 @@ type AccessLog = {
   _from_payers?: boolean;
 };
 
+type CoverageRow = {
+  cpf_digits: string;
+  student_name: string | null;
+  searched: boolean;
+  downloaded: boolean;
+  last_access_at: string | null;
+};
+
 const PAGE_SIZE = 50;
 
 export default function BoletoAccessLogsPage() {
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState<string>("ALL");
+  const [coverageMonth, setCoverageMonth] = useState<string>("LATEST");
   const [page, setPage] = useState(1);
 
   const from = (page - 1) * PAGE_SIZE;
@@ -126,6 +143,114 @@ export default function BoletoAccessLogsPage() {
         searches: searchRes.count || 0,
         downloads: downloadRes.count || 0,
         today: todayRes.count || 0,
+      };
+    },
+    staleTime: 30_000,
+  });
+
+
+  const { data: coverageMonths = [] } = useQuery({
+    queryKey: ["public-boleto-access-coverage-months"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("payer_boleto_links")
+        .select("reference_month")
+        .order("reference_month", { ascending: false });
+
+      if (error) throw error;
+
+      return Array.from(
+        new Set((data || []).map((row) => row.reference_month).filter(Boolean)),
+      ) as string[];
+    },
+    staleTime: 30_000,
+  });
+
+  const { data: coverage, isLoading: coverageLoading } = useQuery({
+    queryKey: ["public-boleto-access-coverage", coverageMonth],
+    queryFn: async () => {
+      let referenceMonth = coverageMonth === "LATEST" ? null : coverageMonth;
+
+      if (!referenceMonth) {
+        const { data: latestMonthRow, error: latestMonthError } = await supabase
+          .from("payer_boleto_links")
+          .select("reference_month")
+          .order("reference_month", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestMonthError) throw latestMonthError;
+        referenceMonth = latestMonthRow?.reference_month || null;
+      }
+      if (!referenceMonth) {
+        return {
+          referenceMonth: null,
+          rows: [] as CoverageRow[],
+          totalStudents: 0,
+          searchedStudents: 0,
+          downloadedStudents: 0,
+          pendingStudents: 0,
+          untouchedStudents: 0,
+          consultedOnlyStudents: 0,
+        };
+      }
+
+      const { data: boletoRows, error: boletoRowsError } = await supabase
+        .from("payer_boleto_links")
+        .select("cpf_digits,student_name")
+        .eq("reference_month", referenceMonth);
+
+      if (boletoRowsError) throw boletoRowsError;
+
+      const boletoMap = new Map<string, { student_name: string | null }>();
+      for (const row of boletoRows || []) {
+        const cpfDigits = String(row.cpf_digits || "").trim();
+        if (!cpfDigits) continue;
+        if (!boletoMap.has(cpfDigits)) {
+          boletoMap.set(cpfDigits, { student_name: row.student_name || null });
+        }
+      }
+
+      const { data: logRows, error: logRowsError } = await (supabase as any)
+        .from("public_boleto_access_logs")
+        .select("cpf_digits,action,created_at,student_name")
+        .eq("reference_month", referenceMonth)
+        .order("created_at", { ascending: false });
+
+      if (logRowsError) throw logRowsError;
+
+      const rows: CoverageRow[] = Array.from(boletoMap.entries()).map(([cpfDigits, boleto]) => {
+        const logsForCpf = (logRows || []).filter((row: any) => row.cpf_digits === cpfDigits);
+        const searched = logsForCpf.length > 0;
+        const downloaded = logsForCpf.some((row: any) => row.action === "DOWNLOAD");
+        const lastAccessAt = logsForCpf[0]?.created_at || null;
+        const studentName = logsForCpf.find((row: any) => row.student_name)?.student_name || boleto.student_name || null;
+
+        return {
+          cpf_digits: cpfDigits,
+          student_name: studentName,
+          searched,
+          downloaded,
+          last_access_at: lastAccessAt,
+        };
+      });
+
+      rows.sort((a, b) => {
+        const aPending = a.downloaded ? 1 : 0;
+        const bPending = b.downloaded ? 1 : 0;
+        if (aPending !== bPending) return aPending - bPending;
+        return String(a.student_name || "").localeCompare(String(b.student_name || ""), "pt-BR");
+      });
+
+      return {
+        referenceMonth,
+        rows,
+        totalStudents: rows.length,
+        searchedStudents: rows.filter((row) => row.searched).length,
+        downloadedStudents: rows.filter((row) => row.downloaded).length,
+        pendingStudents: rows.filter((row) => !row.downloaded).length,
+        untouchedStudents: rows.filter((row) => !row.searched).length,
+        consultedOnlyStudents: rows.filter((row) => row.searched && !row.downloaded).length,
       };
     },
     staleTime: 30_000,
@@ -206,6 +331,109 @@ export default function BoletoAccessLogsPage() {
             </Card>
           </div>
 
+          {/* Cobertura da 2? via */}
+          <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+            <Card>
+              <CardHeader className="pb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Cobertura do m?s {formatReferenceMonth(coverage?.referenceMonth)}
+                </CardTitle>
+                <div className="w-full sm:w-56">
+                  <Select value={coverageMonth} onValueChange={setCoverageMonth}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Selecionar m?s" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LATEST">Mais recente</SelectItem>
+                      {coverageMonths.map((month) => (
+                        <SelectItem key={month} value={month}>{formatReferenceMonth(month)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="rounded-xl border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">Alunos com boleto</p>
+                    <p className="text-2xl font-bold">{coverage?.totalStudents ?? "?"}</p>
+                  </div>
+                  <div className="rounded-xl border bg-blue-500/5 p-3">
+                    <p className="text-xs text-muted-foreground">J? consultaram</p>
+                    <p className="text-2xl font-bold text-blue-600">{coverage?.searchedStudents ?? "?"}</p>
+                  </div>
+                  <div className="rounded-xl border bg-green-500/5 p-3">
+                    <p className="text-xs text-muted-foreground">J? baixaram</p>
+                    <p className="text-2xl font-bold text-green-600">{coverage?.downloadedStudents ?? "?"}</p>
+                  </div>
+                  <div className="rounded-xl border bg-amber-500/5 p-3">
+                    <p className="text-xs text-muted-foreground">Consultou e n?o baixou</p>
+                    <p className="text-2xl font-bold text-amber-600">{coverage?.consultedOnlyStudents ?? "?"}</p>
+                  </div>
+                  <div className="rounded-xl border bg-rose-500/5 p-3">
+                    <p className="text-xs text-muted-foreground">Ainda n?o baixaram</p>
+                    <p className="text-2xl font-bold text-rose-600">{coverage?.pendingStudents ?? "?"}</p>
+                  </div>
+                  <div className="rounded-xl border bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Nem consultaram</p>
+                    <p className="text-2xl font-bold">{coverage?.untouchedStudents ?? "?"}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Base: alunos com boleto cadastrado no m?s mais recente da 2? via.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  Pend?ncias de download
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {coverageLoading ? (
+                  <p className="text-sm text-muted-foreground">Carregando cobertura...</p>
+                ) : (coverage?.rows || []).filter((row) => !row.downloaded).length === 0 ? (
+                  <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                    Todos os alunos j? baixaram seus boletos no m?s analisado.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
+                    {(coverage?.rows || [])
+                      .filter((row) => !row.downloaded)
+                      .map((row) => (
+                        <div key={row.cpf_digits} className="rounded-xl border px-3 py-2.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{row.student_name || row.cpf_digits}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{row.cpf_digits}</p>
+                              {row.last_access_at && (
+                                <p className="text-[11px] text-muted-foreground mt-1">
+                                  ?ltimo acesso: {formatDateTime(row.last_access_at)}
+                                </p>
+                              )}
+                            </div>
+                            {row.searched ? (
+                              <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50">
+                                Consultou
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-rose-700 border-rose-300 bg-rose-50">
+                                N?o acessou
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Filters */}
           <Card>
             <CardContent className="pt-5 pb-4">
@@ -248,109 +476,178 @@ export default function BoletoAccessLogsPage() {
               </Badge>
             </CardHeader>
             <CardContent className="px-0">
-              <ScrollArea className="h-[520px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="pl-6">Data/hora</TableHead>
-                      <TableHead>Ação</TableHead>
-                      <TableHead>CPF</TableHead>
-                      <TableHead>Competência</TableHead>
-                      <TableHead>Aluno</TableHead>
-                      <TableHead>Resultados</TableHead>
-                      <TableHead className="pr-6">Link</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoading && (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-10 text-sm text-muted-foreground">
-                          Carregando...
-                        </TableCell>
-                      </TableRow>
+              <div className="md:hidden px-4 space-y-3 pb-4">
+                {isLoading && (
+                  <div className="rounded-xl border p-4 text-center text-sm text-muted-foreground">
+                    Carregando...
+                  </div>
+                )}
+                {!isLoading && rows.length === 0 && (
+                  <div className="rounded-xl border p-4 text-center text-sm text-muted-foreground">
+                    Nenhum log encontrado.
+                  </div>
+                )}
+                {!isLoading && rows.map((row) => (
+                  <div key={row.id} className="rounded-xl border p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">{row.student_name || "Sem identifica??o"}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{row.cpf_digits}</p>
+                      </div>
+                      {row.action === "DOWNLOAD" ? (
+                        <Badge className="bg-green-500/15 text-green-700 dark:text-green-400 border-0 gap-1 text-[11px]">
+                          <Download className="h-3 w-3" />
+                          Download
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 text-[11px]">
+                          <Search className="h-3 w-3" />
+                          Consulta
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Data</p>
+                        <p>{formatDateTime(row.created_at)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Compet?ncia</p>
+                        <p>{row.reference_month ? formatReferenceMonth(row.reference_month) : "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Resultados</p>
+                        <p>
+                          {row.found_count != null ? row.found_count.toLocaleString("pt-BR") : "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Origem</p>
+                        <p>{row._from_payers ? "Cadastro" : row.source || "-"}</p>
+                      </div>
+                    </div>
+
+                    {row.drive_url && (
+                      <a
+                        href={row.drive_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                      >
+                        <Eye className="h-4 w-4" />
+                        Ver link
+                      </a>
                     )}
-                    {!isLoading && rows.length === 0 && (
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden md:block">
+                <ScrollArea className="h-[520px]">
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-10 text-sm text-muted-foreground">
-                          Nenhum log encontrado.
-                        </TableCell>
+                        <TableHead className="pl-6">Data/hora</TableHead>
+                        <TableHead>A??o</TableHead>
+                        <TableHead>CPF</TableHead>
+                        <TableHead>Compet?ncia</TableHead>
+                        <TableHead>Aluno</TableHead>
+                        <TableHead>Resultados</TableHead>
+                        <TableHead className="pr-6">Link</TableHead>
                       </TableRow>
-                    )}
-                    {rows.map((row) => (
-                      <TableRow key={row.id} className="group">
-                        <TableCell className="pl-6 whitespace-nowrap text-xs text-muted-foreground">
-                          {formatDateTime(row.created_at)}
-                        </TableCell>
-                        <TableCell>
-                          {row.action === "DOWNLOAD" ? (
-                            <Badge className="bg-green-500/15 text-green-700 dark:text-green-400 border-0 gap-1 text-[11px]">
-                              <Download className="h-3 w-3" />
-                              Download
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="gap-1 text-[11px]">
-                              <Search className="h-3 w-3" />
-                              Consulta
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs tracking-wide">
-                          {row.cpf_digits}
-                        </TableCell>
-                        <TableCell className="text-sm">{row.reference_month || "–"}</TableCell>
-                        <TableCell className="text-sm max-w-[200px] truncate">
-                          {row.student_name ? (
-                            <span className="flex items-center gap-1.5">
-                              {row.student_name}
-                              {row._from_payers && (
-                                <Badge variant="outline" className="text-[10px] px-1 py-0 font-normal text-muted-foreground">
-                                  cadastro
-                                </Badge>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">–</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {row.found_count != null ? (
-                            <Badge
-                              variant={row.found_count === 0 ? "destructive" : "secondary"}
-                              className="text-[11px]"
-                            >
-                              {row.found_count}
-                            </Badge>
-                          ) : (
-                            "–"
-                          )}
-                        </TableCell>
-                        <TableCell className="pr-6">
-                          {row.drive_url ? (
-                            <a
-                              href={row.drive_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary hover:underline inline-flex items-center gap-1 text-xs"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                              Ver
-                            </a>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">–</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+                    </TableHeader>
+                    <TableBody>
+                      {isLoading && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-10 text-sm text-muted-foreground">
+                            Carregando...
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {!isLoading && rows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-10 text-sm text-muted-foreground">
+                            Nenhum log encontrado.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {rows.map((row) => (
+                        <TableRow key={row.id} className="group">
+                          <TableCell className="pl-6 whitespace-nowrap text-xs text-muted-foreground">
+                            {formatDateTime(row.created_at)}
+                          </TableCell>
+                          <TableCell>
+                            {row.action === "DOWNLOAD" ? (
+                              <Badge className="bg-green-500/15 text-green-700 dark:text-green-400 border-0 gap-1 text-[11px]">
+                                <Download className="h-3 w-3" />
+                                Download
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="gap-1 text-[11px]">
+                                <Search className="h-3 w-3" />
+                                Consulta
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs tracking-wide">
+                            {row.cpf_digits}
+                          </TableCell>
+                          <TableCell className="text-sm">{row.reference_month || "-"}</TableCell>
+                          <TableCell className="text-sm max-w-[200px] truncate">
+                            {row.student_name ? (
+                              <span className="flex items-center gap-1.5">
+                                {row.student_name}
+                                {row._from_payers && (
+                                  <Badge variant="outline" className="text-[10px] px-1 py-0 font-normal text-muted-foreground">
+                                    cadastro
+                                  </Badge>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {row.found_count != null ? (
+                              <Badge
+                                variant={row.found_count === 0 ? "destructive" : "secondary"}
+                                className="text-[11px]"
+                              >
+                                {row.found_count}
+                              </Badge>
+                            ) : (
+                              "-"
+                            )}
+                          </TableCell>
+                          <TableCell className="pr-6">
+                            {row.drive_url ? (
+                              <a
+                                href={row.drive_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline inline-flex items-center gap-1 text-xs"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                Ver
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">-</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </div>
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between pt-4 border-t mt-2 px-6">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between pt-4 border-t mt-2 px-4 md:px-6">
                   <p className="text-xs text-muted-foreground">
-                    {from + 1}–{Math.min(from + PAGE_SIZE, total)} de{" "}
-                    {total.toLocaleString("pt-BR")} · Página {page} de {totalPages}
+                    {from + 1}?{Math.min(from + PAGE_SIZE, total)} de {" "}
+                    {total.toLocaleString("pt-BR")} ? P?gina {page} de {totalPages}
                   </p>
                   <div className="flex items-center gap-1">
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => setPage(1)}>
@@ -360,7 +657,7 @@ export default function BoletoAccessLogsPage() {
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
                     {startPage > 1 && (
-                      <span className="text-xs text-muted-foreground px-1">…</span>
+                      <span className="text-xs text-muted-foreground px-1">?</span>
                     )}
                     {pageNumbers.map((n) => (
                       <Button
@@ -374,7 +671,7 @@ export default function BoletoAccessLogsPage() {
                       </Button>
                     ))}
                     {endPage < totalPages && (
-                      <span className="text-xs text-muted-foreground px-1">…</span>
+                      <span className="text-xs text-muted-foreground px-1">?</span>
                     )}
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
                       <ChevronRight className="h-4 w-4" />
