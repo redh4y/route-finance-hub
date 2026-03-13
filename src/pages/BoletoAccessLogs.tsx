@@ -284,64 +284,69 @@ export default function BoletoAccessLogsPage() {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <CardContent className="pt-4 pb-3 flex items-start gap-3">
                 <div className="rounded-lg bg-primary/10 p-2.5">
                   <Activity className="h-5 w-5 text-primary" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Total de acessos</p>
-                  <p className="text-xl font-bold">{stats?.total?.toLocaleString("pt-BR") ?? "–"}</p>
+                  <p className="text-xl font-bold">{stats?.total?.toLocaleString("pt-BR") ? "–"}</p>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <CardContent className="pt-4 pb-3 flex items-start gap-3">
                 <div className="rounded-lg bg-blue-500/10 p-2.5">
                   <Search className="h-5 w-5 text-blue-500" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Consultas</p>
-                  <p className="text-xl font-bold">{stats?.searches?.toLocaleString("pt-BR") ?? "–"}</p>
+                  <p className="text-xl font-bold">{stats?.searches?.toLocaleString("pt-BR") ? "–"}</p>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <CardContent className="pt-4 pb-3 flex items-start gap-3">
                 <div className="rounded-lg bg-green-500/10 p-2.5">
                   <Download className="h-5 w-5 text-green-500" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Downloads</p>
-                  <p className="text-xl font-bold">{stats?.downloads?.toLocaleString("pt-BR") ?? "–"}</p>
+                  <p className="text-xl font-bold">{stats?.downloads?.toLocaleString("pt-BR") ? "–"}</p>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <CardContent className="pt-4 pb-3 flex items-start gap-3">
                 <div className="rounded-lg bg-amber-500/10 p-2.5">
                   <FileText className="h-5 w-5 text-amber-500" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Hoje</p>
-                  <p className="text-xl font-bold">{stats?.today?.toLocaleString("pt-BR") ?? "–"}</p>
+                  <p className="text-xl font-bold">{stats?.today?.toLocaleString("pt-BR") ? "–"}</p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
           {/* Cobertura da 2? via */}
-          <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+          <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr] items-start">
             <Card>
               <CardHeader className="pb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Cobertura do m?s {formatReferenceMonth(coverage?.referenceMonth)}
+                <CardTitle className="flex flex-col items-start gap-1 text-sm sm:text-base">
+                  <span className="inline-flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Cobertura do m?s
+                  </span>
+                  <span className="text-base sm:text-lg font-semibold leading-tight break-words">
+                    {formatReferenceMonth(coverage?.referenceMonth)}
+                  </span>
                 </CardTitle>
                 <div className="w-full sm:w-56">
                   <Select value={coverageMonth} onValueChange={setCoverageMonth}>
-                    <SelectTrigger className="h-9">
+                    <SelectTrigger className="h-9 w-full">
                       <SelectValue placeholder="Selecionar m?s" />
                     </SelectTrigger>
                     <SelectContent>
@@ -354,34 +359,34 @@ export default function BoletoAccessLogsPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="rounded-xl border bg-muted/30 p-3">
                     <p className="text-xs text-muted-foreground">Alunos com boleto</p>
-                    <p className="text-2xl font-bold">{coverage?.totalStudents ?? "?"}</p>
+                    <p className="text-2xl font-bold">{coverage?.totalStudents ? "?"}</p>
                   </div>
                   <div className="rounded-xl border bg-blue-500/5 p-3">
                     <p className="text-xs text-muted-foreground">J? consultaram</p>
-                    <p className="text-2xl font-bold text-blue-600">{coverage?.searchedStudents ?? "?"}</p>
+                    <p className="text-2xl font-bold text-blue-600">{coverage?.searchedStudents ? "?"}</p>
                   </div>
                   <div className="rounded-xl border bg-green-500/5 p-3">
                     <p className="text-xs text-muted-foreground">J? baixaram</p>
-                    <p className="text-2xl font-bold text-green-600">{coverage?.downloadedStudents ?? "?"}</p>
+                    <p className="text-2xl font-bold text-green-600">{coverage?.downloadedStudents ? "?"}</p>
                   </div>
                   <div className="rounded-xl border bg-amber-500/5 p-3">
                     <p className="text-xs text-muted-foreground">Consultou e n?o baixou</p>
-                    <p className="text-2xl font-bold text-amber-600">{coverage?.consultedOnlyStudents ?? "?"}</p>
+                    <p className="text-2xl font-bold text-amber-600">{coverage?.consultedOnlyStudents ? "?"}</p>
                   </div>
                   <div className="rounded-xl border bg-rose-500/5 p-3">
                     <p className="text-xs text-muted-foreground">Ainda n?o baixaram</p>
-                    <p className="text-2xl font-bold text-rose-600">{coverage?.pendingStudents ?? "?"}</p>
+                    <p className="text-2xl font-bold text-rose-600">{coverage?.pendingStudents ? "?"}</p>
                   </div>
                   <div className="rounded-xl border bg-muted/40 p-3">
                     <p className="text-xs text-muted-foreground">Nem consultaram</p>
-                    <p className="text-2xl font-bold">{coverage?.untouchedStudents ?? "?"}</p>
+                    <p className="text-2xl font-bold">{coverage?.untouchedStudents ? "?"}</p>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Base: alunos com boleto cadastrado no m?s mais recente da 2? via.
+                  Base: alunos com boleto cadastrado no m?s selecionado da 2? via.
                 </p>
               </CardContent>
             </Card>
@@ -405,8 +410,8 @@ export default function BoletoAccessLogsPage() {
                     {(coverage?.rows || [])
                       .filter((row) => !row.downloaded)
                       .map((row) => (
-                        <div key={row.cpf_digits} className="rounded-xl border px-3 py-2.5">
-                          <div className="flex items-start justify-between gap-3">
+                        <div key={row.cpf_digits} className="rounded-xl border px-3 py-2.5 overflow-hidden">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
                               <p className="text-sm font-medium truncate">{row.student_name || row.cpf_digits}</p>
                               <p className="text-xs text-muted-foreground font-mono">{row.cpf_digits}</p>
@@ -417,11 +422,11 @@ export default function BoletoAccessLogsPage() {
                               )}
                             </div>
                             {row.searched ? (
-                              <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50">
+                              <Badge variant="outline" className="self-start whitespace-nowrap text-amber-700 border-amber-300 bg-amber-50">
                                 Consultou
                               </Badge>
                             ) : (
-                              <Badge variant="outline" className="text-rose-700 border-rose-300 bg-rose-50">
+                              <Badge variant="outline" className="self-start whitespace-nowrap text-rose-700 border-rose-300 bg-rose-50">
                                 N?o acessou
                               </Badge>
                             )}
@@ -491,7 +496,7 @@ export default function BoletoAccessLogsPage() {
                   <div key={row.id} className="rounded-xl border p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-medium">{row.student_name || "Sem identifica??o"}</p>
+                        <p className="text-sm font-medium">{row.student_name || "Sem identifica?o"}</p>
                         <p className="text-xs text-muted-foreground font-mono">{row.cpf_digits}</p>
                       </div>
                       {row.action === "DOWNLOAD" ? (
@@ -549,7 +554,7 @@ export default function BoletoAccessLogsPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="pl-6">Data/hora</TableHead>
-                        <TableHead>A??o</TableHead>
+                        <TableHead>A?o</TableHead>
                         <TableHead>CPF</TableHead>
                         <TableHead>Compet?ncia</TableHead>
                         <TableHead>Aluno</TableHead>
@@ -649,7 +654,7 @@ export default function BoletoAccessLogsPage() {
                     {from + 1}?{Math.min(from + PAGE_SIZE, total)} de {" "}
                     {total.toLocaleString("pt-BR")} ? P?gina {page} de {totalPages}
                   </p>
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1 justify-start md:justify-end">
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => setPage(1)}>
                       <ChevronsLeft className="h-4 w-4" />
                     </Button>

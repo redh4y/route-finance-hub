@@ -92,7 +92,20 @@ export function usePayers(filters: PayersFilters = {}) {
         query = query.eq("document_valid", filters.documentValid);
       }
       if (filters.search) {
-        query = query.ilike("name_lower", `%${filters.search.toLowerCase()}%`);
+        const search = filters.search.trim();
+        const searchLower = search.toLowerCase();
+        const searchDigits = search.replace(/\D/g, "");
+
+        const clauses = [
+          `name_lower.ilike.%${searchLower}%`,
+          `payer_code.ilike.%${search}%`,
+        ];
+
+        if (searchDigits) {
+          clauses.push(`document_digits.ilike.%${searchDigits}%`);
+        }
+
+        query = query.or(clauses.join(","));
       }
 
       const { data, error, count } = await query
