@@ -6,14 +6,28 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 import {
-  AlertTriangle, CheckCircle2, Clock, Copy, Download, Eye,
-  FileText, Loader2, Search, Shield, XCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Download,
+  Eye,
+  FileText,
+  Loader2,
+  Search,
+  Shield,
+  XCircle,
 } from "lucide-react";
 
 const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-boleto-links`;
@@ -52,9 +66,11 @@ function getDrivePreviewUrl(url: string) {
   const direct = String(url || "").trim();
   if (!direct) return null;
   const byFilePath = direct.match(/\/file\/d\/([^/]+)/i);
-  if (byFilePath?.[1]) return `https://drive.google.com/file/d/${byFilePath[1]}/preview`;
+  if (byFilePath?.[1])
+    return `https://drive.google.com/file/d/${byFilePath[1]}/preview`;
   const byIdQuery = direct.match(/[?&]id=([^&]+)/i);
-  if (byIdQuery?.[1]) return `https://drive.google.com/file/d/${byIdQuery[1]}/preview`;
+  if (byIdQuery?.[1])
+    return `https://drive.google.com/file/d/${byIdQuery[1]}/preview`;
   return null;
 }
 
@@ -62,7 +78,9 @@ function formatMonth(ref: string) {
   if (!ref || !/^\d{4}-\d{2}$/.test(ref)) return ref;
   const [y, m] = ref.split("-");
   const date = new Date(Number(y), Number(m) - 1, 1);
-  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(date);
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
+    date,
+  );
   return `${label.charAt(0).toUpperCase() + label.slice(1)}/${y}`;
 }
 
@@ -74,22 +92,49 @@ function formatDateBR(value: string | null | undefined) {
 
 function formatCurrency(cents: number | null | undefined) {
   if (typeof cents !== "number") return "–";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(cents / 100);
 }
 
 function getStatusInfo(status: string | null | undefined) {
   const s = String(status || "").toUpperCase();
   if (s === "PAGO")
-    return { label: "Pago", icon: CheckCircle2, cls: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" };
+    return {
+      label: "Pago",
+      icon: CheckCircle2,
+      cls: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30",
+    };
   if (s === "EM_ABERTO")
-    return { label: "Em aberto", icon: Clock, cls: "bg-amber-500/15 text-amber-700 border-amber-500/30" };
+    return {
+      label: "Em aberto",
+      icon: Clock,
+      cls: "bg-amber-500/15 text-amber-700 border-amber-500/30",
+    };
   if (s === "VENCIDO")
-    return { label: "Vencido", icon: AlertTriangle, cls: "bg-destructive/15 text-destructive border-destructive/30" };
+    return {
+      label: "Vencido",
+      icon: AlertTriangle,
+      cls: "bg-destructive/15 text-destructive border-destructive/30",
+    };
   if (s === "CANCELADO")
-    return { label: "Cancelado", icon: XCircle, cls: "bg-muted text-muted-foreground border-border" };
+    return {
+      label: "Cancelado",
+      icon: XCircle,
+      cls: "bg-muted text-muted-foreground border-border",
+    };
   if (s === "REVISAO")
-    return { label: "Em revisão", icon: AlertTriangle, cls: "bg-purple-500/15 text-purple-700 border-purple-500/30" };
-  return { label: "Sem status", icon: FileText, cls: "bg-muted text-muted-foreground border-border" };
+    return {
+      label: "Em revisão",
+      icon: AlertTriangle,
+      cls: "bg-purple-500/15 text-purple-700 border-purple-500/30",
+    };
+  return {
+    label: "Sem status",
+    icon: FileText,
+    cls: "bg-muted text-muted-foreground border-border",
+  };
 }
 
 function canShowDigitableLine(status: string | null | undefined) {
@@ -102,17 +147,24 @@ function sortBills(items: PublicBoletoItem[]) {
     const ad = String(a.due_date || "");
     const bd = String(b.due_date || "");
     if (ad !== bd) return bd.localeCompare(ad);
-    return String(b.reference_month || "").localeCompare(String(a.reference_month || ""));
+    return String(b.reference_month || "").localeCompare(
+      String(a.reference_month || ""),
+    );
   });
 }
 
 function getItemKey(item: PublicBoletoItem) {
-  return item.our_number || item.drive_url || `${item.reference_month}-${item.student_name}`;
+  return (
+    item.our_number ||
+    item.drive_url ||
+    `${item.reference_month}-${item.student_name}`
+  );
 }
 
 function getDownloadFileName(item: PublicBoletoItem) {
   const safeName = String(item.student_name || "boleto").trim() || "boleto";
-  const safeRef = String(item.reference_month || "sem-referencia").trim() || "sem-referencia";
+  const safeRef =
+    String(item.reference_month || "sem-referencia").trim() || "sem-referencia";
   return `${safeName} - ${safeRef}.pdf`;
 }
 
@@ -124,21 +176,39 @@ export default function PublicBoletoLinksPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [items, setItems] = useState<PublicBoletoItem[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null);
-  const [previewReferenceMonth, setPreviewReferenceMonth] = useState<string | null>(null);
-  const [previewStudentName, setPreviewStudentName] = useState<string | null>(null);
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(
+    null,
+  );
+  const [previewReferenceMonth, setPreviewReferenceMonth] = useState<
+    string | null
+  >(null);
+  const [previewStudentName, setPreviewStudentName] = useState<string | null>(
+    null,
+  );
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
   const canSearch = cpfDigits.length === 11;
   const welcomeName = items[0]?.student_name || "";
 
-  const logDownload = async (params: { driveUrl: string; referenceMonth?: string | null; studentName?: string | null }) => {
+  const logDownload = async (params: {
+    driveUrl: string;
+    referenceMonth?: string | null;
+    studentName?: string | null;
+  }) => {
     try {
       await supabase.functions.invoke("public-boleto-links", {
-        body: { action: "log_download", cpf: cpfDigits, driveUrl: params.driveUrl, referenceMonth: params.referenceMonth || null, studentName: params.studentName || null },
+        body: {
+          action: "log_download",
+          cpf: cpfDigits,
+          driveUrl: params.driveUrl,
+          referenceMonth: params.referenceMonth || null,
+          studentName: params.studentName || null,
+        },
       });
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
   };
 
   const handleDownloadClick = (item: PublicBoletoItem) => {
@@ -183,23 +253,34 @@ export default function PublicBoletoLinksPage() {
 
   const handleCopyDigitableLine = async (line: string | null | undefined) => {
     const value = String(line || "").trim();
-    if (!value) { toast.error("Código de barras indisponível para este boleto."); return; }
+    if (!value) {
+      toast.error("Código de barras indisponível para este boleto.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(value);
       toast.success("Código de barras copiado!");
-    } catch { toast.error("Não foi possível copiar o código de barras."); }
+    } catch {
+      toast.error("Não foi possível copiar o código de barras.");
+    }
   };
 
   const openPreview = (item: PublicBoletoItem) => {
     const preview = getDrivePreviewUrl(item.drive_url);
-    if (!preview) { toast.error("Link do Google Drive inválido para pré-visualização."); return; }
+    if (!preview) {
+      toast.error("Link do Google Drive inválido para pré-visualização.");
+      return;
+    }
     setPreviewUrl(preview);
     setPreviewDownloadUrl(item.drive_url);
     setPreviewReferenceMonth(item.reference_month);
     setPreviewStudentName(item.student_name || "Aluno");
   };
 
-  const fetchBills = async (targetCpf: string, options?: { silent?: boolean }) => {
+  const fetchBills = async (
+    targetCpf: string,
+    options?: { silent?: boolean },
+  ) => {
     if (targetCpf.length !== 11) {
       if (!options?.silent) {
         toast.error("Informe um CPF v?lido.");
@@ -212,17 +293,24 @@ export default function PublicBoletoLinksPage() {
     setHasSearched(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("public-boleto-links", {
-        body: { action: "list_bills", cpf: targetCpf },
-      });
+      const { data, error } = await supabase.functions.invoke(
+        "public-boleto-links",
+        {
+          body: { action: "list_bills", cpf: targetCpf },
+        },
+      );
 
-      const payload = data ?? (error && typeof error === "object" && "error" in error ? error : null);
+      const payload =
+        data ??
+        (error && typeof error === "object" && "error" in error ? error : null);
       if (payload && !payload.ok) {
         const msg = payload.error || "Falha na consulta";
         localStorage.removeItem(LAST_CPF_STORAGE_KEY);
         if (msg.includes("nao encontrado")) {
           if (!options?.silent) {
-            toast.warning("CPF n?o encontrado no cadastro. Verifique o n?mero informado.");
+            toast.warning(
+              "CPF não encontrado no cadastro. Verifique o número informado.",
+            );
           }
         } else {
           throw new Error(msg);
@@ -231,7 +319,9 @@ export default function PublicBoletoLinksPage() {
       } else if (error && !payload) {
         throw error;
       } else {
-        const foundItems = sortBills((payload?.items || []) as PublicBoletoItem[]);
+        const foundItems = sortBills(
+          (payload?.items || []) as PublicBoletoItem[],
+        );
         setItems(foundItems);
         localStorage.setItem(LAST_CPF_STORAGE_KEY, targetCpf);
         if (foundItems.length === 0 && !options?.silent) {
@@ -291,7 +381,8 @@ export default function PublicBoletoLinksPage() {
             <div>
               <p className="text-base font-semibold">Olá, {welcomeName}!</p>
               <p className="text-xs text-muted-foreground">
-                {items.length} boleto{items.length !== 1 ? "s" : ""} encontrado{items.length !== 1 ? "s" : ""} para o seu CPF.
+                {items.length} boleto{items.length !== 1 ? "s" : ""} encontrado
+                {items.length !== 1 ? "s" : ""} para o seu CPF.
               </p>
             </div>
           </div>
@@ -305,7 +396,11 @@ export default function PublicBoletoLinksPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={cpf}
-                  onChange={(e) => { setCpf(formatCpfMask(e.target.value)); setItems([]); setHasSearched(false); }}
+                  onChange={(e) => {
+                    setCpf(formatCpfMask(e.target.value));
+                    setItems([]);
+                    setHasSearched(false);
+                  }}
                   onKeyDown={handleKeyDown}
                   placeholder="Digite seu CPF: 000.000.000-00"
                   disabled={isLoading}
@@ -318,9 +413,15 @@ export default function PublicBoletoLinksPage() {
                 className="h-12 px-6 text-base shrink-0"
               >
                 {isLoading ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Buscando...</>
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Buscando...
+                  </>
                 ) : (
-                  <><Search className="h-4 w-4 mr-2" />Buscar boletos</>
+                  <>
+                    <Search className="h-4 w-4 mr-2" />
+                    Buscar boletos
+                  </>
                 )}
               </Button>
             </div>
@@ -331,10 +432,11 @@ export default function PublicBoletoLinksPage() {
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
           <Shield className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
           <p className="text-sm text-amber-900">
-            Antes de pagar, confira atentamente os dados: <strong>nome</strong>, <strong>CPF</strong>, <strong>vencimento</strong> e <strong>valor</strong>.
+            Antes de pagar, confira atentamente os dados: <strong>nome</strong>,{" "}
+            <strong>CPF</strong>, <strong>vencimento</strong> e{" "}
+            <strong>valor</strong>.
           </p>
         </div>
-
 
         {/* Results */}
         <Card className="shadow-sm">
@@ -342,7 +444,10 @@ export default function PublicBoletoLinksPage() {
             {isLoading ? (
               <div className="space-y-3">
                 {[0, 1, 2].map((k) => (
-                  <div key={k} className="rounded-xl border p-4 animate-pulse space-y-3">
+                  <div
+                    key={k}
+                    className="rounded-xl border p-4 animate-pulse space-y-3"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="h-5 w-32 rounded bg-muted" />
                       <div className="h-5 w-20 rounded bg-muted" />
@@ -390,33 +495,54 @@ export default function PublicBoletoLinksPage() {
                       {items.map((item, idx) => {
                         const st = getStatusInfo(item.public_status);
                         const StIcon = st.icon;
-                        const showBarcode = canShowDigitableLine(item.public_status) && item.digitable_line;
+                        const showBarcode =
+                          canShowDigitableLine(item.public_status) &&
+                          item.digitable_line;
                         return (
-                          <Fragment key={`${item.reference_month}-${item.our_number || idx}`}>
-                            <TableRow className={cn("border-b-0", showBarcode && "")}>
+                          <Fragment
+                            key={`${item.reference_month}-${item.our_number || idx}`}
+                          >
+                            <TableRow
+                              className={cn("border-b-0", showBarcode && "")}
+                            >
                               <TableCell className="font-medium">
                                 {formatMonth(item.reference_month)}
                               </TableCell>
-                              <TableCell>{formatDateBR(item.due_date)}</TableCell>
+                              <TableCell>
+                                {formatDateBR(item.due_date)}
+                              </TableCell>
                               <TableCell className="font-semibold tabular-nums">
                                 {formatCurrency(item.amount_cents)}
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline" className={cn("gap-1 text-[11px] border", st.cls)}>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "gap-1 text-[11px] border",
+                                    st.cls,
+                                  )}
+                                >
                                   <StIcon className="h-3 w-3" />
                                   {st.label}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="inline-flex items-center gap-1.5">
-                                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openPreview(item)}>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8"
+                                    onClick={() => openPreview(item)}
+                                  >
                                     <Eye className="h-4 w-4" />
                                   </Button>
                                   <Button
                                     size="sm"
                                     className="gap-1.5 h-8"
                                     onClick={() => handleDownloadClick(item)}
-                                    disabled={downloadingKey === getItemKey(item)}
+                                    disabled={
+                                      downloadingKey === getItemKey(item)
+                                    }
                                   >
                                     {downloadingKey === getItemKey(item) ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -434,13 +560,24 @@ export default function PublicBoletoLinksPage() {
                                   <div className="flex items-center gap-2">
                                     <span
                                       className="text-[11px] font-mono rounded-md border bg-card px-2.5 py-1 break-all cursor-copy hover:bg-muted/50 transition-colors"
-                                      onClick={() => handleCopyDigitableLine(item.digitable_line)}
+                                      onClick={() =>
+                                        handleCopyDigitableLine(
+                                          item.digitable_line,
+                                        )
+                                      }
                                       title="Clique para copiar"
                                     >
                                       {item.digitable_line}
                                     </span>
-                                    <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs shrink-0"
-                                      onClick={() => handleCopyDigitableLine(item.digitable_line)}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="gap-1.5 h-7 text-xs shrink-0"
+                                      onClick={() =>
+                                        handleCopyDigitableLine(
+                                          item.digitable_line,
+                                        )
+                                      }
                                     >
                                       <Copy className="h-3 w-3" />
                                       Copiar
@@ -461,7 +598,9 @@ export default function PublicBoletoLinksPage() {
                   {items.map((item, idx) => {
                     const st = getStatusInfo(item.public_status);
                     const StIcon = st.icon;
-                    const showBarcode = canShowDigitableLine(item.public_status) && item.digitable_line;
+                    const showBarcode =
+                      canShowDigitableLine(item.public_status) &&
+                      item.digitable_line;
                     return (
                       <div
                         key={`${item.reference_month}-${item.our_number || idx}`}
@@ -472,7 +611,13 @@ export default function PublicBoletoLinksPage() {
                           <p className="font-semibold text-lg">
                             {formatMonth(item.reference_month)}
                           </p>
-                          <Badge variant="outline" className={cn("gap-1 text-[11px] border shrink-0", st.cls)}>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "gap-1 text-[11px] border shrink-0",
+                              st.cls,
+                            )}
+                          >
                             <StIcon className="h-3 w-3" />
                             {st.label}
                           </Badge>
@@ -481,12 +626,20 @@ export default function PublicBoletoLinksPage() {
                         {/* Info */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Vencimento</p>
-                            <p className="text-sm font-medium">{formatDateBR(item.due_date)}</p>
+                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
+                              Vencimento
+                            </p>
+                            <p className="text-sm font-medium">
+                              {formatDateBR(item.due_date)}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Valor</p>
-                            <p className="text-sm font-bold">{formatCurrency(item.amount_cents)}</p>
+                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
+                              Valor
+                            </p>
+                            <p className="text-sm font-bold">
+                              {formatCurrency(item.amount_cents)}
+                            </p>
                           </div>
                         </div>
 
@@ -498,14 +651,19 @@ export default function PublicBoletoLinksPage() {
                             </p>
                             <span
                               className="text-[11px] font-mono rounded-lg border bg-muted/50 px-3 py-2.5 break-all block cursor-copy active:bg-muted transition-colors"
-                              onClick={() => handleCopyDigitableLine(item.digitable_line)}
+                              onClick={() =>
+                                handleCopyDigitableLine(item.digitable_line)
+                              }
                             >
                               {item.digitable_line}
                             </span>
                             <Button
-                              size="sm" variant="outline"
+                              size="sm"
+                              variant="outline"
                               className="gap-1.5 w-full h-10"
-                              onClick={() => handleCopyDigitableLine(item.digitable_line)}
+                              onClick={() =>
+                                handleCopyDigitableLine(item.digitable_line)
+                              }
                             >
                               <Copy className="h-3.5 w-3.5" />
                               Copiar código de barras
@@ -515,7 +673,12 @@ export default function PublicBoletoLinksPage() {
 
                         {/* Actions */}
                         <div className="grid grid-cols-2 gap-2 pt-1">
-                          <Button size="sm" variant="outline" className="gap-1.5 h-11" onClick={() => openPreview(item)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 h-11"
+                            onClick={() => openPreview(item)}
+                          >
                             <Eye className="h-4 w-4" />
                             Visualizar
                           </Button>
@@ -585,11 +748,13 @@ export default function PublicBoletoLinksPage() {
               <Button
                 size="sm"
                 className="gap-1.5 shrink-0"
-                onClick={() => handleDownloadClick({
-                  reference_month: previewReferenceMonth || "",
-                  student_name: previewStudentName || "Aluno",
-                  drive_url: previewDownloadUrl,
-                })}
+                onClick={() =>
+                  handleDownloadClick({
+                    reference_month: previewReferenceMonth || "",
+                    student_name: previewStudentName || "Aluno",
+                    drive_url: previewDownloadUrl,
+                  })
+                }
                 disabled={downloadingKey === previewDownloadUrl}
               >
                 {downloadingKey === previewDownloadUrl ? (
