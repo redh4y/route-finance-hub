@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PageTransition } from "@/components/ui/page-transition";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs } from "@/hooks/useOptimizedImport";
+import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs, type ImportResult } from "@/hooks/useOptimizedImport";
 import { useInvoiceImport } from "@/hooks/useInvoiceImport";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
@@ -449,6 +449,7 @@ function ImportPayersCard() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
+      setLastImportResult(null);
       setPreviewRows([]);
       setPreviewSummary({
         total: 0,
@@ -468,6 +469,7 @@ function ImportPayersCard() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
+      setLastImportResult(null);
       setPreviewRows([]);
       setPreviewSummary({
         total: 0,
@@ -664,6 +666,7 @@ function ImportPayersCard() {
   const handleClear = () => {
     setFile(null);
     setPreviewRows([]);
+    setLastImportResult(null);
     reset();
   };
 
@@ -799,6 +802,7 @@ function ImportBillingsCard() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewRows, setPreviewRows] = useState<BillingPreviewRow[]>([]);
   const [previewFilter, setPreviewFilter] = useState<"ALL" | BillingPreviewType>("ALL");
+  const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
   const { importBillings, isImporting, progress, reset } = useOptimizedImportBillings();
 
   const summary = useMemo(() => ({
@@ -820,6 +824,7 @@ function ImportBillingsCard() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
+      setLastImportResult(null);
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -829,6 +834,7 @@ function ImportBillingsCard() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
+      setLastImportResult(null);
     }
   };
 
@@ -892,7 +898,8 @@ function ImportBillingsCard() {
 
   const handleImport = async () => {
     if (!file) return;
-    await importBillings(file);
+    const result = await importBillings(file);
+    setLastImportResult(result);
     setFile(null);
     setPreviewRows([]);
     reset();
@@ -901,6 +908,7 @@ function ImportBillingsCard() {
   const handleClear = () => {
     setFile(null);
     setPreviewRows([]);
+    setLastImportResult(null);
     reset();
   };
 
@@ -1014,6 +1022,59 @@ function ImportBillingsCard() {
         </CardContent>
       </Card>
       </div>
+
+      {lastImportResult && (lastImportResult.errors > 0 || lastImportResult.success > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Resultado da importa??o</CardTitle>
+            <CardDescription>
+              Veja quantos boletos foram importados com sucesso e quais linhas falharam.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">Sucesso: {lastImportResult.success}</Badge>
+              <Badge variant={lastImportResult.errors > 0 ? "destructive" : "outline"}>Erros: {lastImportResult.errors}</Badge>
+              <Badge variant="outline">Total: {lastImportResult.total}</Badge>
+            </div>
+
+            {lastImportResult.errors > 0 ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5">
+                <div className="border-b border-destructive/20 px-4 py-3">
+                  <p className="font-medium text-destructive">Erros encontrados</p>
+                  <p className="text-sm text-muted-foreground">
+                    Corrija estes pontos no arquivo e importe novamente.
+                  </p>
+                </div>
+                <div className="max-h-[320px] overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[120px]">Linha</TableHead>
+                        <TableHead>Erro</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lastImportResult.errorDetails.map((item, idx) => (
+                        <TableRow key={`${item.row}-${idx}`}>
+                          <TableCell className="font-mono text-xs">
+                            {item.row > 0 ? item.row : "Sistema"}
+                          </TableCell>
+                          <TableCell className="text-sm">{item.error}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                Nenhum erro encontrado nesta importa??o.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {previewRows.length > 0 && (
         <Card>
@@ -1472,6 +1533,7 @@ function ImportCEPsCard() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
+      setLastImportResult(null);
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -1481,6 +1543,7 @@ function ImportCEPsCard() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
+      setLastImportResult(null);
     }
   };
 

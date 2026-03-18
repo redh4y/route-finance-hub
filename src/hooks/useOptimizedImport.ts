@@ -62,6 +62,13 @@ function hasPayerUpdateChanges(currentPayer: any, update: Record<string, any>): 
 
 type TransformedBilling = NonNullable<ReturnType<typeof transformBillingRow>>;
 
+function formatBillingErrorMessage(billing: Partial<TransformedBilling> | undefined, message: string) {
+  const payer = billing?.payer_name || billing?.payer_code || billing?.payer_id || "Pagador n?o identificado";
+  const referenceMonth = billing?.reference_month || "sem compet?ncia";
+  const nossoNumero = billing?.nosso_numero ? ` | Nosso n?mero: ${billing.nosso_numero}` : "";
+  return `${payer} | ${referenceMonth}${nossoNumero} | ${message}`;
+}
+
 function getBillingIdentityKey(billing: Pick<TransformedBilling, "payer_id" | "reference_month" | "nosso_numero" | "seu_numero" | "due_date" | "status">): string {
   const payer = billing.payer_id || "";
   const ref = billing.reference_month || "";
@@ -516,6 +523,7 @@ export function useOptimizedImportBillings() {
           payerId = crypto.randomUUID();
           payersToCreate.push({
             id: payerId,
+            legacy_id: payerId,
             name: billing.payer_name || `Pagador ${codeCandidate || billing.payer_id}`,
             document: docCandidate,
             document_digits: docCandidate,
@@ -696,10 +704,21 @@ export function useOptimizedImportBillings() {
       if (payersToCreate.length > 0) {
         const { error } = await supabase
           .from("payers")
-          .upsert(payersToCreate, { onConflict: "id" });
+          .upsert(
+            payersToCreate.map((payer) => ({
+              ...payer,
+              legacy_id: payer.legacy_id || payer.id,
+            })),
+            { onConflict: "id" }
+          );
 
         if (error) {
-          console.warn("Error creating placeholder payers:", error);
+          result.errors += payersToCreate.length;
+          result.errorDetails.push({
+            row: 0,
+            error: `Falha ao criar pagadores tempor?rios da importa??o: ${error.message}`,
+          });
+          throw error;
         }
       }
 
@@ -719,13 +738,13 @@ export function useOptimizedImportBillings() {
               const { error } = await supabase.from("billings").insert(b);
               if (error) {
                 result.errors++;
-                result.errorDetails.push({ row: 0, error: error.message });
+                result.errorDetails.push({ row: 0, error: formatBillingErrorMessage(b, error.message) });
               } else {
                 result.success++;
               }
             } catch (e: any) {
               result.errors++;
-              result.errorDetails.push({ row: 0, error: e.message });
+              result.errorDetails.push({ row: 0, error: formatBillingErrorMessage(b, e.message) });
             }
           }
         }
@@ -741,7 +760,7 @@ export function useOptimizedImportBillings() {
           result.success++;
         } catch (err: any) {
           result.errors++;
-          result.errorDetails.push({ row: 0, error: err.message });
+          result.errorDetails.push({ row: 0, error: formatBillingErrorMessage(data as Partial<TransformedBilling>, err.message) });
         }
       }
 
