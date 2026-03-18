@@ -1436,7 +1436,6 @@ export type Database = {
           is_coordinator: boolean | null
           last_billing_ref: string | null
           last_payment_at: string | null
-          legacy_id: string
           manual_active_until: string | null
           match_ok: boolean | null
           name: string
@@ -1479,7 +1478,6 @@ export type Database = {
           is_coordinator?: boolean | null
           last_billing_ref?: string | null
           last_payment_at?: string | null
-          legacy_id: string
           manual_active_until?: string | null
           match_ok?: boolean | null
           name: string
@@ -1522,7 +1520,6 @@ export type Database = {
           is_coordinator?: boolean | null
           last_billing_ref?: string | null
           last_payment_at?: string | null
-          legacy_id?: string
           manual_active_until?: string | null
           match_ok?: boolean | null
           name?: string

@@ -672,7 +672,6 @@ export default function AddressMatch() {
           toast.loading(`Criando ${i + batch.length}/${inserts.length} novos (${pct}%)...`, { id: "update-payers" });
 
           const rows = batch.map(change => ({
-            legacy_id: crypto.randomUUID(),
             name: change.payer_name,
             document: change.doc_digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
             document_digits: change.doc_digits,

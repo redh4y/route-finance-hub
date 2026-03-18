@@ -523,7 +523,6 @@ export function useOptimizedImportBillings() {
           payerId = crypto.randomUUID();
           payersToCreate.push({
             id: payerId,
-            legacy_id: payerId,
             name: billing.payer_name || `Pagador ${codeCandidate || billing.payer_id}`,
             document: docCandidate,
             document_digits: docCandidate,
@@ -707,7 +706,6 @@ export function useOptimizedImportBillings() {
           .upsert(
             payersToCreate.map((payer) => ({
               ...payer,
-              legacy_id: payer.legacy_id || payer.id,
             })),
             { onConflict: "id" }
           );
