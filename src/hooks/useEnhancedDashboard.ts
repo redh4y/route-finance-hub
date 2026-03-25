@@ -25,6 +25,10 @@ export interface BillingKPIs {
   cancelledValueCents: number;
   reviewCount: number;
   reviewValueCents: number;
+  // totais derivados
+  totalCount: number;
+  expectedRevenueCents: number; // soma de amount_expected_cents de todos (paid+open+review)
+  collectionRate: number;       // % paidValueCents / expectedRevenueCents
 }
 
 export interface DailyFlow {
@@ -100,9 +104,15 @@ export function useEnhancedDashboard(range: DateRange) {
   const billingsQuery = useQuery({
     queryKey: ["enhanced-dash-billings", range],
     queryFn: async () => {
+      // Filtrar pelo período (reference_month), excluir CANCELADO
+      const startMonth = range.startDate.slice(0, 7); // "YYYY-MM"
+      const endMonth = range.endDate.slice(0, 7);
       const { data, error } = await supabase
         .from("billings")
-        .select("status, due_date, amount_expected_cents, amount_paid_cents");
+        .select("payer_id, status, due_date, amount_expected_cents, amount_paid_cents")
+        .gte("reference_month", startMonth)
+        .lte("reference_month", endMonth)
+        .neq("status", "CANCELADO");
       if (error) throw error;
       return data || [];
     },
@@ -174,23 +184,33 @@ export function useEnhancedDashboard(range: DateRange) {
   }, [financialQuery.data]);
 
   const billingKPIs = useMemo<BillingKPIs>(() => {
-    const bills = billingsQuery.data || [];
+    const allBills = billingsQuery.data || [];
+    // Filtrar apenas pagadores ATIVOS (CANCELADO já excluído na query)
+    const activePayers = payersQuery.data || [];
+    const activeIds = new Set(activePayers.filter((p) => p.status === "ATIVO").map((p) => p.id));
+    const bills = allBills.filter((b) => b.payer_id && activeIds.has(b.payer_id));
     const today = new Date().toISOString().split("T")[0];
     const open = bills.filter((b) => b.status === "OPEN");
     const overdue = open.filter((b) => b.due_date && b.due_date < today);
     const paid = bills.filter((b) => b.status === "PAID");
-    const cancelled = bills.filter((b) => b.status === "CANCELADO");
+    const cancelled: typeof bills = []; // excluídos na query
     const review = bills.filter((b) => b.status === "NEEDS_REVIEW");
     const sumExpected = (arr: typeof bills) => arr.reduce((s, b) => s + (b.amount_expected_cents || 0), 0);
     const sumPaid = (arr: typeof bills) => arr.reduce((s, b) => s + (b.amount_paid_cents || b.amount_expected_cents || 0), 0);
+    const totalCount = paid.length + open.length + review.length;
+    const expectedRevenueCents = sumExpected(paid) + sumExpected(open) + sumExpected(review);
+    const paidValueCents = sumPaid(paid);
+    const collectionRate = expectedRevenueCents > 0
+      ? Math.round((paidValueCents / expectedRevenueCents) * 100) : 0;
     return {
       openCount: open.length, openValueCents: sumExpected(open),
       overdueCount: overdue.length, overdueValueCents: sumExpected(overdue),
-      paidCount: paid.length, paidValueCents: sumPaid(paid),
+      paidCount: paid.length, paidValueCents,
       cancelledCount: cancelled.length, cancelledValueCents: sumExpected(cancelled),
       reviewCount: review.length, reviewValueCents: sumExpected(review),
+      totalCount, expectedRevenueCents, collectionRate,
     };
-  }, [billingsQuery.data]);
+  }, [billingsQuery.data, payersQuery.data]);
 
   const dailyFlow = useMemo<DailyFlow[]>(() => {
     const entries = financialQuery.data || [];

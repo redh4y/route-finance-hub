@@ -1,12 +1,15 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-export function mapBillingStatus(status: string): "paid" | "open" | "cancelled" | "review" {
+export function mapBillingStatus(status: string, dueDate?: string | null): "paid" | "open" | "overdue" | "cancelled" | "review" {
   switch (status) {
     case "PAID":
       return "paid";
-    case "OPEN":
+    case "OPEN": {
+      const today = new Date().toISOString().split("T")[0];
+      if (dueDate && dueDate < today) return "overdue";
       return "open";
+    }
     case "CANCELADO":
       return "cancelled";
     case "NEEDS_REVIEW":
@@ -16,7 +19,7 @@ export function mapBillingStatus(status: string): "paid" | "open" | "cancelled" 
   }
 }
 
-type StatusType = "paid" | "open" | "cancelled" | "review" | "active" | "inactive";
+type StatusType = "paid" | "open" | "overdue" | "cancelled" | "review" | "active" | "inactive";
 
 interface StatusBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   status: StatusType;
@@ -26,6 +29,7 @@ interface StatusBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 const statusConfig: Record<StatusType, { label: string; className: string }> = {
   paid: { label: "Pago", className: "badge-paid" },
   open: { label: "Em Aberto", className: "badge-open" },
+  overdue: { label: "Vencido", className: "badge-overdue" },
   cancelled: { label: "Cancelado", className: "badge-cancelled" },
   review: { label: "Revisão", className: "badge-review" },
   active: { label: "Ativo", className: "badge-active" },

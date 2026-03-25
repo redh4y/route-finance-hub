@@ -24,7 +24,7 @@ export interface ImportResult {
 }
 
 const PAYER_UPDATE_FIELDS =
-  "id, billing_seen_in_month, last_billing_ref, status, billing_mode, default_route, last_payment_at, needs_review";
+  "id, name, document_digits, payer_code, billing_seen_in_month, last_billing_ref, status, billing_mode, default_route, last_payment_at, needs_review";
 
 function normalizePayerCompareValue(key: string, value: unknown) {
   if (value === undefined || value === null || value === "") return null;
@@ -132,7 +132,12 @@ export function useImportPayers() {
         new Set(valid.map((v) => v.payer.document_digits).filter((d): d is string => !!d))
       );
       const payerCodes = Array.from(
-        new Set(valid.map((v) => v.payer.payer_code).filter((c): c is string => !!c))
+        new Set(
+          valid
+            .filter((v) => !v.payer.document_digits)
+            .map((v) => v.payer.payer_code)
+            .filter((c): c is string => !!c)
+        )
       );
 
       let candidateQuery = supabase.from("payers").select("id, document_digits, payer_code");
@@ -169,7 +174,7 @@ export function useImportPayers() {
           const doc = item.payer.document_digits || null;
           const code = item.payer.payer_code || null;
           const docMatches = doc ? (docMap.get(doc) || []) : [];
-          const codeMatches = code ? (codeMap.get(code) || []) : [];
+          const codeMatches = !doc && code ? (codeMap.get(code) || []) : [];
 
           if (docMatches.length > 1) {
             result.errors++;
@@ -177,23 +182,14 @@ export function useImportPayers() {
             return null;
           }
 
-          if (codeMatches.length > 1) {
+          if (!doc && codeMatches.length > 1) {
             result.errors++;
             result.errorDetails.push({ row: item.rowNumber, error: `Ambiguidade por Cod Pagador (${code})` });
             return null;
           }
 
           const docId = docMatches[0] || null;
-          const codeId = codeMatches[0] || null;
-
-          if (docId && codeId && docId !== codeId) {
-            result.errors++;
-            result.errorDetails.push({
-              row: item.rowNumber,
-              error: `Conflito de identidade: CPF aponta para ${docId} e Cod Pagador para ${codeId}`,
-            });
-            return null;
-          }
+          const codeId = !doc ? (codeMatches[0] || null) : null;
 
           const targetId = docId || codeId || item.payer.id;
           return { ...item, payer: { ...item.payer, id: targetId } };
@@ -483,6 +479,7 @@ export function useImportBillings() {
           // Update payer's billing info
           const payerUpdate: Record<string, any> = {
             billing_seen_in_month: billing.reference_month,
+            ...(billing.payer_code ? { payer_code: billing.payer_code } : {}),
             last_billing_ref: billing.reference_month,
             status: "ATIVO",
             billing_mode: "BOLETO",
@@ -589,10 +586,19 @@ async function findOrCreatePayer(billing: NonNullable<ReturnType<typeof transfor
       .select(PAYER_UPDATE_FIELDS)
       .eq("document_digits", docCandidate)
       .maybeSingle();
-    if (payerByDoc) return payerByDoc;
+    if (payerByDoc) {
+      if (codeCandidate && payerByDoc.payer_code !== codeCandidate) {
+        await supabase
+          .from("payers")
+          .update({ payer_code: codeCandidate })
+          .eq("id", payerByDoc.id);
+        return { ...payerByDoc, payer_code: codeCandidate };
+      }
+      return payerByDoc;
+    }
   }
 
-  if (codeCandidate) {
+  if (!docCandidate && codeCandidate) {
     const { data: payerByCode } = await supabase
       .from("payers")
       .select(PAYER_UPDATE_FIELDS)

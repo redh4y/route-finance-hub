@@ -169,6 +169,8 @@ export interface GroupedContact {
   phone: string;
   dup_count: number;
   dup_phones: string;
+  /** Other contact names that share the same primary phone number */
+  phone_shared_with: string;
 }
 
 export function readJsonContacts(raw: RawContact[]): GroupedContact[] {
@@ -220,7 +222,25 @@ export function readJsonContacts(raw: RawContact[]): GroupedContact[] {
       phone: preferredPhone,
       dup_count: phones.length,
       dup_phones: uniquePhones.join(" | "),
+      phone_shared_with: "", // populated below
     });
+  }
+
+  // Build reverse index: normalized phone → contact names
+  const phoneToNames = new Map<string, string[]>();
+  for (const row of rows) {
+    const norm = normPhoneDigits(row.phone);
+    if (!norm) continue;
+    if (!phoneToNames.has(norm)) phoneToNames.set(norm, []);
+    phoneToNames.get(norm)!.push(row.name);
+  }
+
+  // Populate phone_shared_with for contacts whose phone is shared with others
+  for (const row of rows) {
+    const norm = normPhoneDigits(row.phone);
+    const names = phoneToNames.get(norm) || [];
+    const others = names.filter((n) => n !== row.name);
+    row.phone_shared_with = others.join(" | ");
   }
 
   return rows;
@@ -247,6 +267,8 @@ export interface PhoneMatchRow {
   phone_match_dup_phones: string;
   phone_match_status: PhoneMatchStatus | "";
   telefone_secundario: string;
+  /** Other contact names that share the same phone number */
+  phone_shared_names: string;
   /** The final phone to use (updated or original) */
   phone_final: string;
 }
@@ -306,7 +328,7 @@ export function applyPhoneMatch(
     const bestPhoneNorm = normPhoneDigits(bestContact.phone);
 
     let status: PhoneMatchStatus;
-    let phoneFinal = currentPhone;
+    let phoneFinal = currentPhone ? formatPhoneE164(currentPhone) : "";
     let telSecundario = "";
 
     if (bestScore >= config.threshold) {
@@ -335,6 +357,7 @@ export function applyPhoneMatch(
       phone_match_dup_phones: bestContact.dup_phones,
       phone_match_status: status,
       telefone_secundario: telSecundario,
+      phone_shared_names: bestContact.phone_shared_with,
       phone_final: phoneFinal,
     });
   }
@@ -352,6 +375,7 @@ function emptyResult(status: PhoneMatchStatus, phoneFinal: string): PhoneMatchRo
     phone_match_dup_phones: "",
     phone_match_status: status,
     telefone_secundario: "",
+    phone_shared_names: "",
     phone_final: phoneFinal,
   };
 }

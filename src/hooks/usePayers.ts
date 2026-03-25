@@ -53,6 +53,8 @@ export interface PayersFilters {
   search?: string;
   page?: number;
   pageSize?: number;
+  sortBy?: "name" | "status" | "last_payment_at" | "billing_mode";
+  sortOrder?: "asc" | "desc";
 }
 
 export interface PayersResult {
@@ -108,8 +110,10 @@ export function usePayers(filters: PayersFilters = {}) {
         query = query.or(clauses.join(","));
       }
 
+      const sortCol = filters.sortBy || "name";
+      const sortAsc = filters.sortOrder !== "desc";
       const { data, error, count } = await query
-        .order("name", { ascending: true })
+        .order(sortCol, { ascending: sortAsc })
         .range(from, to);
 
       if (error) throw error;
@@ -198,6 +202,50 @@ export function useUpdatePayer() {
     onError: (error) => {
       toast.error("Erro ao atualizar pagador: " + error.message);
     },
+  });
+}
+
+export function useMarkAsReviewed() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase
+        .from("payers")
+        .update({ needs_review: false, review_flag: false })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["payer", data.id] });
+      toast.success("Pagador marcado como revisado");
+    },
+    onError: (error) => {
+      toast.error("Erro ao marcar como revisado: " + error.message);
+    },
+  });
+}
+
+export function useOverduePayerIds() {
+  return useQuery({
+    queryKey: ["overdue-payer-ids"],
+    queryFn: async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const { data, error } = await supabase
+        .from("billings")
+        .select("payer_id")
+        .eq("status", "OPEN")
+        .lt("due_date", today);
+      if (error) throw error;
+      return new Set((data || []).map((b) => b.payer_id).filter(Boolean));
+    },
+    staleTime: 60_000,
   });
 }
 

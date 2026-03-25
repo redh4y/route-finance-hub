@@ -139,38 +139,53 @@ export default function Dashboard() {
               />
             </StaggeredItem>
 
-            {/* Original main stats */}
+            {/* Billing stats — seguem o filtro de período */}
             <StaggeredItem>
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                <StatCard
-                  title="Pagadores Ativos"
-                  value={stats?.activePayers || 0}
-                  subtitle={`de ${stats?.totalPayers || 0} total`}
-                  icon={Users}
-                  variant="positive"
-                />
-                <StatCard
-                  title="Receita Esperada"
-                  value={formatCurrency(stats?.expectedRevenueCents || 0)}
-                  subtitle={`${stats?.billingsThisMonth || 0} cobranças`}
-                  icon={DollarSign}
-                  variant="neutral"
-                />
-                <StatCard
-                  title="Receita Recebida"
-                  value={formatCurrency(stats?.actualRevenueCents || 0)}
-                  subtitle={`${stats?.paidBillings || 0} pagos`}
-                  icon={CheckCircle2}
-                  variant="positive"
-                />
-                <StatCard
-                  title="Pendente"
-                  value={formatCurrency(stats?.pendingRevenueCents || 0)}
-                  subtitle={`${stats?.openBillings || 0} em aberto`}
-                  icon={Clock}
-                  variant="warning"
-                />
-              </div>
+              {enhanced.isLoading ? (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                  {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-36" />)}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                    Período · {formatPeriodLabel(range.startDate, range.endDate)}
+                  </p>
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                    <StatCard
+                      title="Inadimplência"
+                      value={enhanced.billingKPIs.overdueCount}
+                      subtitle={`${enhanced.billingKPIs.totalCount > 0 ? Math.round((enhanced.billingKPIs.overdueCount / enhanced.billingKPIs.totalCount) * 100) : 0}% dos boletos vencidos`}
+                      icon={AlertTriangle}
+                      variant={enhanced.billingKPIs.overdueCount > 0 ? "negative" : "positive"}
+                      href={`/financeiro/entradas?status=OPEN&month=${range.startDate.slice(0, 7)}`}
+                    />
+                    <StatCard
+                      title="Receita Esperada"
+                      value={formatCurrency(enhanced.billingKPIs.expectedRevenueCents)}
+                      subtitle={`${enhanced.billingKPIs.totalCount} cobranças`}
+                      icon={DollarSign}
+                      variant="neutral"
+                      href={`/financeiro/entradas?month=${range.startDate.slice(0, 7)}`}
+                    />
+                    <StatCard
+                      title="Receita Recebida"
+                      value={formatCurrency(enhanced.billingKPIs.paidValueCents)}
+                      subtitle={`${enhanced.billingKPIs.paidCount} pagos · ${enhanced.billingKPIs.collectionRate}% recebido`}
+                      icon={CheckCircle2}
+                      variant="positive"
+                      href={`/financeiro/entradas?status=PAID&month=${range.startDate.slice(0, 7)}`}
+                    />
+                    <StatCard
+                      title="Pendente"
+                      value={formatCurrency(enhanced.billingKPIs.openValueCents + enhanced.billingKPIs.reviewValueCents)}
+                      subtitle={`${enhanced.billingKPIs.openCount + enhanced.billingKPIs.reviewCount} em aberto ou revisão`}
+                      icon={Clock}
+                      variant="warning"
+                      href={`/financeiro/entradas?status=OPEN&month=${range.startDate.slice(0, 7)}`}
+                    />
+                  </div>
+                </div>
+              )}
             </StaggeredItem>
 
             {/* Enhanced KPIs */}
@@ -196,6 +211,7 @@ export default function Dashboard() {
                       subtitle={formatCurrency(enhanced.billingKPIs.openValueCents)}
                       icon={Clock}
                       variant="warning"
+                      href={`/financeiro/entradas?status=OPEN&month=${range.startDate.slice(0, 7)}`}
                     />
                     <StatCard
                       title="Boletos Vencidos"
@@ -203,6 +219,7 @@ export default function Dashboard() {
                       subtitle={formatCurrency(enhanced.billingKPIs.overdueValueCents)}
                       icon={ArrowDownCircle}
                       variant="negative"
+                      href={`/financeiro/entradas?status=OPEN&month=${range.startDate.slice(0, 7)}`}
                     />
                   </div>
 

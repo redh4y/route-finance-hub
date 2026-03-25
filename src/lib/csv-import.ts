@@ -134,11 +134,13 @@ export function parseCSVDate(dateStr: string | null | undefined): string | null 
 }
 
 // Parse currency value from CSV
+// Handles Brazilian format (685,00) and bank exports that use tab as decimal separator (685\t00)
 export function parseCSVCurrency(value: string | null | undefined): number {
   if (!value) return 0;
   const cleaned = value
     .replace("R$", "")
-    .replace(/\s/g, "")
+    .replace(/\t/g, ",")  // tab used as decimal separator in some bank exports
+    .replace(/ /g, "")
     .replace(/\./g, "")
     .replace(",", ".");
   const num = parseFloat(cleaned);
@@ -209,10 +211,16 @@ function hasGarbledEncoding(text: string): boolean {
 // Parse CSV file with encoding auto-detection (tries UTF-8 first, falls back to Latin-1)
 export function parseCSV<T>(file: File): Promise<T[]> {
   return new Promise((resolve, reject) => {
-    // First try UTF-8
-    Papa.parse<T>(file, {
+    const baseOptions = {
       header: true,
       skipEmptyLines: true,
+      delimiter: "",
+      delimitersToGuess: [";", ",", "	", "|"],
+    } as const;
+
+    // First try UTF-8
+    Papa.parse<T>(file, {
+      ...baseOptions,
       encoding: "UTF-8",
       complete: (results) => {
         if (results.errors.length > 0) {
@@ -224,8 +232,7 @@ export function parseCSV<T>(file: File): Promise<T[]> {
           console.log("Detected garbled UTF-8, retrying with Latin-1...");
           // Re-parse with Latin-1
           Papa.parse<T>(file, {
-            header: true,
-            skipEmptyLines: true,
+            ...baseOptions,
             encoding: "ISO-8859-1",
             complete: (latin1Results) => {
               resolve(latin1Results.data);

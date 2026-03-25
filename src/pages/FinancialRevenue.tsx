@@ -47,6 +47,7 @@ interface Billing {
   amount_expected_cents: number
   amount_paid_cents: number | null
   settlement_at: string | null
+  nosso_numero: string | null
   payers?: { name: string | null } | null
 }
 
@@ -65,15 +66,16 @@ interface FinancialEntry {
 const BILLINGS_PAGE_SIZE = 50;
 
 export default function FinancialRevenue() {
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthRef())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const statusFilter = searchParams.get('status')
+  const monthFromUrl = searchParams.get('month')
+  const [selectedMonth, setSelectedMonth] = useState(monthFromUrl || getCurrentMonthRef())
   const [groupId, setGroupId] = useState('')
   const [subgroupId, setSubgroupId] = useState('')
   const [costCenterId, setCostCenterId] = useState('')
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
-  const [searchParams, setSearchParams] = useSearchParams()
-  const statusFilter = searchParams.get('status')
   const [billingsPage, setBillingsPage] = useState(1)
   const [entriesPage, setEntriesPage] = useState(1)
   const navigate = useNavigate()
@@ -156,7 +158,7 @@ export default function FinancialRevenue() {
     queryFn: async () => {
       let query = supabase
         .from('billings')
-        .select('*, payers(name)', { count: 'exact' })
+        .select('id, payer_id, payer_code, reference_month, due_date, status, amount_expected_cents, amount_paid_cents, settlement_at, nosso_numero, payers(name)', { count: 'exact' })
         .eq('reference_month', selectedMonth)
         .order('due_date', { ascending: true })
 
@@ -568,7 +570,7 @@ export default function FinancialRevenue() {
                                   Venc. alterado
                                 </Badge>
                               )}
-                              <StatusBadge status={mapBillingStatus(billing.status)} />
+                              <StatusBadge status={mapBillingStatus(billing.status, billing.due_date)} />
                             </div>
                           </div>
                           <span className="font-mono text-sm ml-2 shrink-0">{formatCurrency(billing.amount_expected_cents)}</span>
@@ -582,6 +584,7 @@ export default function FinancialRevenue() {
                           <TableRow>
                             <TableHead>Vencimento</TableHead>
                             <TableHead>Pagador</TableHead>
+                            <TableHead className="text-muted-foreground">Nosso Nº</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Valor</TableHead>
                           </TableRow>
@@ -600,7 +603,8 @@ export default function FinancialRevenue() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-sm">{billing.payers?.name || billing.payer_id}</TableCell>
-                              <TableCell><StatusBadge status={mapBillingStatus(billing.status)} /></TableCell>
+                              <TableCell className="font-mono text-xs text-muted-foreground">{billing.nosso_numero || '—'}</TableCell>
+                              <TableCell><StatusBadge status={mapBillingStatus(billing.status, billing.due_date)} /></TableCell>
                               <TableCell className="text-right font-mono">{formatCurrency(billing.amount_expected_cents)}</TableCell>
                             </TableRow>
                           ))}

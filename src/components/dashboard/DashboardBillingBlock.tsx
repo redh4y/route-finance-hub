@@ -12,7 +12,6 @@ interface Props {
 const items = [
   { key: "paid", label: "Pagos", status: "PAID" as const, badgeStatus: "paid" as const, countKey: "paidCount", valueKey: "paidValueCents" },
   { key: "open", label: "Em Aberto", status: "OPEN" as const, badgeStatus: "open" as const, countKey: "openCount", valueKey: "openValueCents" },
-  { key: "cancelled", label: "Cancelados", status: "CANCELADO" as const, badgeStatus: "cancelled" as const, countKey: "cancelledCount", valueKey: "cancelledValueCents" },
   { key: "review", label: "Revisão", status: "NEEDS_REVIEW" as const, badgeStatus: "review" as const, countKey: "reviewCount", valueKey: "reviewValueCents" },
 ] as const;
 
@@ -26,7 +25,7 @@ export function DashboardBillingBlock({ billingKPIs }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           {items.map((item) => {
             const count = billingKPIs[item.countKey];
             const value = billingKPIs[item.valueKey];

@@ -172,6 +172,10 @@
     @apply bg-warning/10 text-warning border-warning/20;
   }
   
+  .badge-overdue {
+    @apply bg-destructive/15 text-destructive border-destructive/30 font-semibold;
+  }
+
   .badge-cancelled {
     @apply bg-destructive/10 text-destructive border-destructive/20;
   }

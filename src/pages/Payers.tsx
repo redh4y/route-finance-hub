@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { usePayers, usePayersStats, usePayerById, Payer } from "@/hooks/usePayers";
+import { usePayers, usePayersStats, usePayerById, useMarkAsReviewed, useTogglePayerStatus, useOverduePayerIds, Payer } from "@/hooks/usePayers";
 import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
 import { ExportButton } from "@/components/ExportButton";
@@ -55,6 +55,11 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ShieldAlert,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  CheckCheck,
+  TrendingDown,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -85,9 +90,16 @@ export default function Payers() {
   const [isMobile, setIsMobile] = useState(false);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
+  const [sortBy, setSortBy] = useState<"name" | "status" | "last_payment_at" | "billing_mode">("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isValidatingCpfs, setIsValidatingCpfs] = useState(false);
+
+  const toggleSort = (col: typeof sortBy) => {
+    if (sortBy === col) setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+    else { setSortBy(col); setSortOrder("asc"); }
+  };
   const [newPayer, setNewPayer] = useState({
     name: "",
     document: "",
@@ -196,7 +208,12 @@ export default function Payers() {
     search: searchTerm || undefined,
     page,
     pageSize: PAGE_SIZE,
+    sortBy,
+    sortOrder,
   });
+
+  const toggleStatus = useTogglePayerStatus();
+  const { data: overduePayerIds = new Set<string>() } = useOverduePayerIds();
 
   const payers = payersResult?.rows || [];
   const totalCount = payersResult?.count || 0;
@@ -217,6 +234,36 @@ export default function Payers() {
     const phoneDigits = newPayer.phone.replace(/\D/g, "");
     setIsCreating(true);
     try {
+      if (documentDigits) {
+        const { data: existingByDoc, error: existingError } = await supabase
+          .from("payers")
+          .select("id")
+          .eq("document_digits", documentDigits)
+          .maybeSingle();
+        if (existingError) throw existingError;
+
+        if (existingByDoc) {
+          const { error } = await supabase.from("payers").update({
+            name,
+            document: newPayer.document.trim() || null,
+            document_digits: documentDigits,
+            document_valid: validateCPF(documentDigits),
+            phone: phoneDigits || null,
+            neighborhood: newPayer.neighborhood.trim() || null,
+            billing_mode: newPayer.billingMode,
+            status: newPayer.status,
+            needs_review: false,
+            birth_date: null,
+          }).eq("id", existingByDoc.id);
+          if (error) throw error;
+          toast.success("Pagador atualizado com sucesso.");
+          setIsCreateOpen(false);
+          resetNewPayer();
+          queryClient.invalidateQueries({ queryKey: ["payers"] });
+          return;
+        }
+      }
+
       const { error } = await supabase.from("payers").insert([{
         id: crypto.randomUUID(),
         name,
@@ -383,6 +430,7 @@ export default function Payers() {
                             key={payer.id}
                             payer={payer}
                             isSelected={selectedPayerId === payer.id}
+                            isOverdue={overduePayerIds.has(payer.id)}
                             onClick={() => setSelectedPayerId(payer.id)}
                             onEdit={() => setEditPayerId(payer.id)}
                           />
@@ -394,9 +442,18 @@ export default function Payers() {
                         <Table>
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              <TableHead>Pagador</TableHead>
-                              <TableHead className="text-center">Modo</TableHead>
-                              <TableHead>Status</TableHead>
+                              <TableHead>
+                                <SortHeader label="Pagador" col="name" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />
+                              </TableHead>
+                              <TableHead className="text-center">
+                                <SortHeader label="Modo" col="billing_mode" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />
+                              </TableHead>
+                              <TableHead>
+                                <SortHeader label="Status" col="status" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />
+                              </TableHead>
+                              <TableHead>
+                                <SortHeader label="Último pgto." col="last_payment_at" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />
+                              </TableHead>
                               <TableHead className="text-right">Ações</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -406,8 +463,10 @@ export default function Payers() {
                                 key={payer.id}
                                 payer={payer}
                                 isSelected={selectedPayerId === payer.id}
+                                isOverdue={overduePayerIds.has(payer.id)}
                                 onClick={() => setSelectedPayerId(payer.id)}
                                 onEdit={() => setEditPayerId(payer.id)}
+                                onToggleStatus={() => toggleStatus.mutate({ id: payer.id, currentStatus: payer.status })}
                               />
                             ))}
                           </TableBody>
@@ -563,11 +622,13 @@ export default function Payers() {
 function PayerCardMobile({
   payer,
   isSelected,
+  isOverdue,
   onClick,
   onEdit,
 }: {
   payer: Payer;
   isSelected: boolean;
+  isOverdue?: boolean;
   onClick: () => void;
   onEdit: () => void;
 }) {
@@ -577,6 +638,7 @@ function PayerCardMobile({
   return (
     <div
       onClick={onClick}
+      onDoubleClick={onEdit}
       className={cn(
         "px-3 py-3 active:bg-muted/60 transition-colors cursor-pointer overflow-hidden",
         isSelected && "bg-primary/5"
@@ -599,6 +661,9 @@ function PayerCardMobile({
           <span className="font-medium text-sm truncate block">{payer.name}</span>
         </div>
 
+        {isOverdue && (
+          <TrendingDown className="h-3.5 w-3.5 text-destructive shrink-0" title="Boleto vencido" />
+        )}
         {payer.needs_review && (
           <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
         )}
@@ -651,13 +716,17 @@ function PayerCardMobile({
 function PayerRow({
   payer,
   isSelected,
+  isOverdue,
   onClick,
   onEdit,
+  onToggleStatus,
 }: {
   payer: Payer;
   isSelected: boolean;
+  isOverdue?: boolean;
   onClick: () => void;
   onEdit: () => void;
+  onToggleStatus: () => void;
 }) {
   if (!payer) return null;
   const isActive = payer.status === "ATIVO";
@@ -665,6 +734,7 @@ function PayerRow({
   return (
     <TableRow
       onClick={onClick}
+      onDoubleClick={onEdit}
       className={cn(
         "cursor-pointer transition-colors hover:bg-muted/50",
         isSelected && "bg-primary/5"
@@ -685,6 +755,11 @@ function PayerRow({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{payer.name}</span>
+              {isOverdue && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 border-destructive/40 text-destructive bg-destructive/5 gap-1">
+                  <TrendingDown className="h-2.5 w-2.5" />Vencido
+                </Badge>
+              )}
               {payer.is_coordinator && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">Coord</Badge>
               )}
@@ -727,10 +802,20 @@ function PayerRow({
       <TableCell>
         <Badge
           variant={isActive ? "default" : "secondary"}
-          className={cn("text-xs", isActive && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30")}
+          className={cn(
+            "text-xs cursor-pointer hover:opacity-75 transition-opacity select-none",
+            isActive && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+          )}
+          onClick={(e) => { e.stopPropagation(); onToggleStatus(); }}
+          title={isActive ? "Clique para inativar" : "Clique para ativar"}
         >
           {isActive ? "Ativo" : "Inativo"}
         </Badge>
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground tabular-nums">
+        {payer.last_payment_at
+          ? new Date(payer.last_payment_at).toLocaleDateString("pt-BR")
+          : "—"}
       </TableCell>
       <TableCell className="text-right">
         <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
@@ -738,6 +823,32 @@ function PayerRow({
         </Button>
       </TableCell>
     </TableRow>
+  );
+}
+
+// ── Sort header helper ──
+function SortHeader({
+  label, col, sortBy, sortOrder, onSort,
+}: {
+  label: string;
+  col: "name" | "status" | "last_payment_at" | "billing_mode";
+  sortBy: string;
+  sortOrder: "asc" | "desc";
+  onSort: (col: "name" | "status" | "last_payment_at" | "billing_mode") => void;
+}) {
+  const active = sortBy === col;
+  return (
+    <button
+      className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+      onClick={() => onSort(col)}
+    >
+      {label}
+      {active ? (
+        sortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+      ) : (
+        <ArrowUpDown className="h-3 w-3 opacity-40" />
+      )}
+    </button>
   );
 }
 
@@ -765,6 +876,7 @@ function EmptyState({ searchTerm, quickFilter }: { searchTerm: string; quickFilt
 // ── Quick view panel ──
 function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | null; isMobileSheet?: boolean }) {
   const { data: selectedPayer } = usePayerById(payerId || "");
+  const markAsReviewed = useMarkAsReviewed();
   const payerCode = selectedPayer?.payer_code || null;
 
   const { data: paidBillings } = useQuery({
@@ -817,8 +929,17 @@ function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | 
   }, [paidBillings]);
 
   const billingFlags = useMemo(() => {
-    const statuses = new Set((allBillings || []).map((b) => b.status));
-    return { hasAny: (allBillings || []).length > 0, hasOpen: statuses.has("OPEN"), hasCancelled: statuses.has("CANCELADO"), hasPaid: statuses.has("PAID") };
+    const bills = allBillings || [];
+    const statuses = new Set(bills.map((b) => b.status));
+    const today = new Date().toISOString().split("T")[0];
+    const overdueBills = bills.filter((b) => b.status === "OPEN" && b.due_date && b.due_date < today);
+    return {
+      hasAny: bills.length > 0,
+      hasOpen: statuses.has("OPEN"),
+      hasCancelled: statuses.has("CANCELADO"),
+      hasPaid: statuses.has("PAID"),
+      overdueCount: overdueBills.length,
+    };
   }, [allBillings]);
 
   if (!payerId || !selectedPayer) {
@@ -869,18 +990,28 @@ function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | 
 
       {/* Alerts */}
       {selectedPayer.needs_review && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
-          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-          <div className="text-xs">
-            <p className="font-medium">Necessita revisão</p>
-            {selectedPayer.review_reason && (
-              <p className="opacity-80 mt-0.5">
-                {isImportedWithoutRegister(selectedPayer.review_reason)
-                  ? "Criado automaticamente na importação de boletos."
-                  : selectedPayer.review_reason}
-              </p>
-            )}
+        <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 overflow-hidden">
+          <div className="flex items-start gap-2 p-3">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className="text-xs flex-1">
+              <p className="font-medium">Necessita revisão</p>
+              {selectedPayer.review_reason && (
+                <p className="opacity-80 mt-0.5">
+                  {isImportedWithoutRegister(selectedPayer.review_reason)
+                    ? "Criado automaticamente na importação de boletos."
+                    : selectedPayer.review_reason}
+                </p>
+              )}
+            </div>
           </div>
+          <button
+            className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium border-t border-amber-500/20 hover:bg-amber-500/10 transition-colors"
+            onClick={() => markAsReviewed.mutate(selectedPayer.id)}
+            disabled={markAsReviewed.isPending}
+          >
+            <CheckCheck className="h-3.5 w-3.5" />
+            {markAsReviewed.isPending ? "Salvando…" : "Marcar como revisado"}
+          </button>
         </div>
       )}
 
@@ -912,12 +1043,17 @@ function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | 
                 : "-"
           }
         />
-        {!latestPaidDate && billingFlags.hasOpen && (
+        {billingFlags.overdueCount > 0 ? (
+          <Badge variant="outline" className="gap-1 text-destructive border-destructive/40 bg-destructive/5 text-xs">
+            <TrendingDown className="h-3 w-3" />
+            {billingFlags.overdueCount} {billingFlags.overdueCount === 1 ? "boleto vencido" : "boletos vencidos"}
+          </Badge>
+        ) : !latestPaidDate && billingFlags.hasOpen ? (
           <Badge variant="outline" className="gap-1 text-amber-600 border-amber-500/50 text-xs">
             <Clock className="h-3 w-3" />
             Boleto em aberto
           </Badge>
-        )}
+        ) : null}
         {selectedPayer.pix_monthly_amount_cents && (
           <InfoRow icon={Receipt} label="PIX mensal" value={formatCurrency(selectedPayer.pix_monthly_amount_cents)} />
         )}

@@ -100,6 +100,12 @@ type BillingPreviewRow = {
   note: string;
 };
 
+type BillingNameConflict = {
+  payerId: string;
+  csvName: string;
+  dbName: string;
+};
+
 const getBillingPreviewBaseKey = (billing: {
   payer_id: string;
   reference_month: string;
@@ -127,9 +133,9 @@ const getBillingPreviewStatusKey = (billing: {
   status: string;
 }) => `${getBillingPreviewBaseKey(billing)}|ST|${(billing.status || "").trim().toUpperCase()}`;
 
-async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
-  const rows = await parseCSV<BillingCSVRow>(file);
-  const transformed = rows.map(transformBillingRow).filter(Boolean) as NonNullable<ReturnType<typeof transformBillingRow>>[];
+async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreviewRow[]; nameConflicts: BillingNameConflict[] }> {
+  const csvRows = await parseCSV<BillingCSVRow>(file);
+  const transformed = csvRows.map(transformBillingRow).filter(Boolean) as NonNullable<ReturnType<typeof transformBillingRow>>[];
 
   const incomingByStatus = new Map<string, NonNullable<ReturnType<typeof transformBillingRow>>>();
   for (const billing of transformed) {
@@ -174,12 +180,19 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
       (codeCandidate ? payerIdByCode.get(codeCandidate) : null) ||
       null;
     const payerMatch = resolvedPayerId ? payerById.get(resolvedPayerId) : null;
+    const csvName = b.payer_name?.trim() || null;
+    const dbName = payerMatch?.name?.trim() || null;
+    const hasNameConflict = !!payerMatch && !!csvName && dbName !== csvName;
     return {
       ...b,
       payer_id: resolvedPayerId || "",
       _payerFound: !!payerMatch,
       _payerName: payerMatch?.name || b.payer_name || `Pagador ${codeCandidate || docCandidate || "sem identificador"}`,
       _payerCode: payerMatch?.payer_code || codeCandidate || null,
+      _csvName: csvName,
+      _dbName: dbName,
+      _hasNameConflict: hasNameConflict,
+      _resolvedPayerId: resolvedPayerId,
     };
   });
 
@@ -222,7 +235,7 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
     );
   });
 
-  return resolvedIncoming.map((b) => {
+  const rows = resolvedIncoming.map((b) => {
     const statusKey = getBillingPreviewStatusKey(b);
     const baseKey = getBillingPreviewBaseKey(b);
 
@@ -325,6 +338,22 @@ async function analyzeBillingPreview(file: File): Promise<BillingPreviewRow[]> {
       note: "Novo boleto a ser inserido.",
     };
   });
+
+  // Collect name conflicts: payer found by CPF/code but CSV name differs from DB name (deduped by payerId)
+  const nameConflictMap = new Map<string, BillingNameConflict>();
+  for (const b of resolvedIncoming) {
+    if (b._hasNameConflict && b._resolvedPayerId && b._csvName && b._dbName) {
+      if (!nameConflictMap.has(b._resolvedPayerId)) {
+        nameConflictMap.set(b._resolvedPayerId, {
+          payerId: b._resolvedPayerId,
+          csvName: b._csvName,
+          dbName: b._dbName,
+        });
+      }
+    }
+  }
+
+  return { rows, nameConflicts: Array.from(nameConflictMap.values()) };
 }
 
 
@@ -803,6 +832,8 @@ function ImportBillingsCard() {
   const [previewRows, setPreviewRows] = useState<BillingPreviewRow[]>([]);
   const [previewFilter, setPreviewFilter] = useState<"ALL" | BillingPreviewType>("ALL");
   const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
+  const [nameConflicts, setNameConflicts] = useState<BillingNameConflict[]>([]);
+  const [approvedNameUpdates, setApprovedNameUpdates] = useState<Set<string>>(new Set());
   const { importBillings, isImporting, progress, reset } = useOptimizedImportBillings();
 
   const summary = useMemo(() => ({
@@ -825,6 +856,9 @@ function ImportBillingsCard() {
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
       setLastImportResult(null);
+      setNameConflicts([]);
+      setApprovedNameUpdates(new Set());
+      setNameConflictsReviewed(false);
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -835,6 +869,9 @@ function ImportBillingsCard() {
     if (selectedFile) {
       setFile(selectedFile);
       setLastImportResult(null);
+      setNameConflicts([]);
+      setApprovedNameUpdates(new Set());
+      setNameConflictsReviewed(false);
     }
   };
 
@@ -842,15 +879,31 @@ function ImportBillingsCard() {
     if (!file) return;
     setIsPreviewing(true);
     try {
-      const rows = await analyzeBillingPreview(file);
-      setPreviewRows(rows);
-      toast.success(`Analise concluida: ${rows.length} linhas comparadas.`);
+      const { rows, nameConflicts: conflicts } = await analyzeBillingPreview(file);
+      const relevantRows = rows.filter((row) => row.type !== "NO_CHANGE");
+      setPreviewRows(relevantRows);
+      setNameConflicts(conflicts);
+      setNameConflictsReviewed(true);
+      // By default, approve all name updates
+      setApprovedNameUpdates(new Set(conflicts.map((c) => c.payerId)));
+      const conflictMsg = conflicts.length > 0 ? ` ${conflicts.length} conflito(s) de nome detectado(s).` : "";
+      toast.success(`Análise concluída: ${rows.length} linhas comparadas, ${relevantRows.length} com diferença.${conflictMsg}`);
     } catch (error: any) {
       toast.error(`Falha na analise: ${error.message || String(error)}`);
       setPreviewRows([]);
+      setNameConflicts([]);
     } finally {
       setIsPreviewing(false);
     }
+  };
+
+  const toggleNameUpdate = (payerId: string) => {
+    setApprovedNameUpdates((prev) => {
+      const next = new Set(prev);
+      if (next.has(payerId)) next.delete(payerId);
+      else next.add(payerId);
+      return next;
+    });
   };
 
   const handleExportPreviewCsv = () => {
@@ -896,12 +949,44 @@ function ImportBillingsCard() {
     URL.revokeObjectURL(url);
   };
 
+  // Tracks whether the user has already reviewed name conflicts for the current file
+  const [nameConflictsReviewed, setNameConflictsReviewed] = useState(false);
+
   const handleImport = async () => {
     if (!file) return;
-    const result = await importBillings(file);
+
+    // If conflicts haven't been checked yet for this file, scan first and pause for review
+    if (!nameConflictsReviewed) {
+      setIsPreviewing(true);
+      try {
+        const { nameConflicts: conflicts } = await analyzeBillingPreview(file);
+        setNameConflictsReviewed(true);
+        if (conflicts.length > 0) {
+          setNameConflicts(conflicts);
+          setApprovedNameUpdates(new Set(conflicts.map((c) => c.payerId)));
+          toast.warning(`${conflicts.length} conflito(s) de nome encontrado(s). Revise abaixo e confirme novamente.`);
+          return;
+        }
+      } catch (error: any) {
+        toast.error(`Falha ao verificar nomes: ${error.message || String(error)}`);
+        return;
+      } finally {
+        setIsPreviewing(false);
+      }
+    }
+
+    const nameUpdates = Object.fromEntries(
+      nameConflicts
+        .filter((c) => approvedNameUpdates.has(c.payerId))
+        .map((c) => [c.payerId, c.csvName])
+    );
+    const result = await importBillings({ file, nameUpdates: Object.keys(nameUpdates).length > 0 ? nameUpdates : undefined });
     setLastImportResult(result);
     setFile(null);
     setPreviewRows([]);
+    setNameConflicts([]);
+    setApprovedNameUpdates(new Set());
+    setNameConflictsReviewed(false);
     reset();
   };
 
@@ -909,6 +994,8 @@ function ImportBillingsCard() {
     setFile(null);
     setPreviewRows([]);
     setLastImportResult(null);
+    setNameConflicts([]);
+    setApprovedNameUpdates(new Set());
     reset();
   };
 
@@ -1022,6 +1109,49 @@ function ImportBillingsCard() {
         </CardContent>
       </Card>
       </div>
+
+      {nameConflicts.length > 0 && (
+        <Card className="border-warning/40 bg-warning/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base text-warning">
+              <AlertCircle className="h-4 w-4" />
+              Nomes divergentes ({nameConflicts.length})
+            </CardTitle>
+            <CardDescription>
+              Os pagadores abaixo foram encontrados pelo CPF, mas o nome no CSV é diferente do cadastro. Marque quais devem ser atualizados.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {nameConflicts.map((conflict) => {
+                const approved = approvedNameUpdates.has(conflict.payerId);
+                return (
+                  <div
+                    key={conflict.payerId}
+                    onClick={() => toggleNameUpdate(conflict.payerId)}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      approved
+                        ? "border-warning/40 bg-warning/10"
+                        : "border-border bg-muted/30 opacity-60"
+                    }`}
+                  >
+                    <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${approved ? "border-warning bg-warning" : "border-muted-foreground"}`}>
+                      {approved && <span className="text-white text-xs font-bold leading-none">✓</span>}
+                    </div>
+                    <div className="flex-1 min-w-0 text-sm">
+                      <span className="text-muted-foreground line-through mr-2">{conflict.dbName}</span>
+                      <span className="font-medium">→ {conflict.csvName}</span>
+                    </div>
+                    <Badge variant={approved ? "outline" : "secondary"} className="shrink-0 text-xs">
+                      {approved ? "Atualizar" : "Manter"}
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {lastImportResult && (lastImportResult.errors > 0 || lastImportResult.success > 0) && (
         <Card>

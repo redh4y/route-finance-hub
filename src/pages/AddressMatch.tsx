@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageTransition } from "@/components/ui/page-transition";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { processAllRows, type CepRecord, type MatchConfig as EngineMatchConfig } from "@/lib/address-match-engine";
+import { processAllRows, type CepRecord, type MatchConfig as EngineMatchConfig, type BairroAlias } from "@/lib/address-match-engine";
 import {
   type GroupedContact,
   type PhoneMatchRow,
@@ -41,7 +41,19 @@ import {
   Info,
   Phone,
   Save,
+  Trash2,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Search,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ── Types ──
 interface MatchConfig {
@@ -106,6 +118,7 @@ interface PayerChangePreview {
   doc_digits: string;
   payer_name: string;
   is_new: boolean;
+  change_type: "new" | "update" | "confirm";
   existing_id?: string;
   changes: { field: string; old_value: string; new_value: string }[];
   update_data: Record<string, unknown>;
@@ -121,9 +134,21 @@ const DEFAULT_CONFIG: MatchConfig = {
   fallback_global: false,
 };
 
+const RESULTS_PAGE_SIZE = 100;
+const FAILURES_PAGE_SIZE = 50;
+
 // Normalize phone: keep only digits, remove +55
 function normalizePhone(raw: string): string {
   return normPhoneDigits(raw);
+}
+
+function normalizeAliasText(value: string): string {
+  return (value || "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export default function AddressMatch() {
@@ -159,8 +184,43 @@ export default function AddressMatch() {
   const [isUpdatingPayers, setIsUpdatingPayers] = useState(false);
   const [updatePayersResult, setUpdatePayersResult] = useState<{ updated: number; created: number; errors: number } | null>(null);
   const [payerChangesPreview, setPayerChangesPreview] = useState<PayerChangePreview[]>([]);
+  const [payerAlreadyUpToDate, setPayerAlreadyUpToDate] = useState(0);
   const [showPayerPreviewModal, setShowPayerPreviewModal] = useState(false);
+  const [expandedConfirmRows, setExpandedConfirmRows] = useState<Set<number>>(new Set());
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [bairroAliases, setBairroAliases] = useState<BairroAlias[]>([]);
+  const [showAliasPanel, setShowAliasPanel] = useState(false);
+  const [isSavingAlias, setIsSavingAlias] = useState(false);
+  const [newAliasEntrada, setNewAliasEntrada] = useState("");
+  const [newAliasBairroCanon, setNewAliasBairroCanon] = useState("");
+  const [newAliasComplemento, setNewAliasComplemento] = useState("");
+  const [newAliasMatchType, setNewAliasMatchType] = useState<"EXACT" | "CONTAINS">("CONTAINS");
+  const [resultsSearch, setResultsSearch] = useState("");
+  const [resultsFilter, setResultsFilter] = useState<"all" | "ok" | "review" | "fail">("all");
+  const [resultsPage, setResultsPage] = useState(1);
+  const [failuresPage, setFailuresPage] = useState(1);
+
+  const loadAliases = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("bairro_aliases")
+      .select("id, entrada, bairro_canonico, complemento, match_type, ordem")
+      .order("ordem", { ascending: true })
+      .order("entrada", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar aliases de bairro:", error);
+      return;
+    }
+
+    setBairroAliases(((data || []) as BairroAlias[]).map((alias) => ({
+      ...alias,
+      match_type: alias.match_type as "EXACT" | "CONTAINS",
+    })));
+  }, []);
+
+  useEffect(() => {
+    void loadAliases();
+  }, [loadAliases]);
 
   const payersCols = useMemo(() => {
     if (payersData.length === 0) return [];
@@ -335,6 +395,7 @@ export default function AddressMatch() {
           const pct = Math.round((processed / total) * 100);
           toast.loading(`Processando ${processed}/${total} (${pct}%)...`, { id: "match-progress" });
         },
+        bairroAliases,
       );
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
@@ -488,9 +549,11 @@ export default function AddressMatch() {
       const fieldLabels: Record<string, string> = {
         street: "Rua", number: "Número", neighborhood: "Bairro",
         cep: "CEP", city: "Cidade", state: "UF", phone: "Telefone",
+        needs_review: "Revisão pendente",
       };
 
       const changes: PayerChangePreview[] = [];
+      let alreadyUpToDate = 0;
 
       // Collect all doc_digits
       const docMap = new Map<string, Record<string, unknown>[]>();
@@ -513,7 +576,7 @@ export default function AddressMatch() {
 
         const { data } = await supabase
           .from("payers")
-          .select("id, document_digits, street, number, neighborhood, cep, city, state, phone, name")
+          .select("id, document_digits, street, number, neighborhood, cep, city, state, phone, name, needs_review")
           .in("document_digits", batch);
 
         if (data) {
@@ -577,15 +640,48 @@ export default function AddressMatch() {
               });
             }
           }
+          // Se match_ok=true e payer ainda tem needs_review=true → confirmar endereço
+          if (matchOk && existing.needs_review === true) {
+            updateData.needs_review = false;
+            fieldChanges.push({
+              field: fieldLabels.needs_review,
+              old_value: "Pendente",
+              new_value: "Confirmado",
+            });
+          }
           if (fieldChanges.length > 0) {
+            // Detectar se é apenas confirmação de needs_review (sem mudança real de dados)
+            const isOnlyConfirm = fieldChanges.length === 1 && fieldChanges[0].field === fieldLabels.needs_review;
+            if (isOnlyConfirm) {
+              // Adicionar linhas informativas para o usuário saber o que está sendo confirmado
+              const addrParts = ["street", "number", "neighborhood", "city", "state"]
+                .map((f) => updateData[f]).filter(Boolean);
+              if (addrParts.length > 0) {
+                fieldChanges.push({
+                  field: "Endereço confirmado",
+                  old_value: "já estava correto",
+                  new_value: addrParts.join(", "),
+                });
+              }
+              if (updateData.phone) {
+                fieldChanges.push({
+                  field: "Telefone confirmado",
+                  old_value: "já estava correto",
+                  new_value: String(updateData.phone),
+                });
+              }
+            }
             changes.push({
               doc_digits: doc,
               payer_name: String(existing.name || payerName),
               is_new: false,
+              change_type: isOnlyConfirm ? "confirm" : "update",
               existing_id: existing.id as string,
               changes: fieldChanges,
               update_data: updateData,
             });
+          } else {
+            alreadyUpToDate++;
           }
         } else {
           // New payer
@@ -605,6 +701,7 @@ export default function AddressMatch() {
               doc_digits: doc,
               payer_name: payerName,
               is_new: true,
+              change_type: "new",
               changes: fieldChanges,
               update_data: updateData,
             });
@@ -613,10 +710,11 @@ export default function AddressMatch() {
       }
 
       setPayerChangesPreview(changes);
+      setPayerAlreadyUpToDate(alreadyUpToDate);
       setShowPayerPreviewModal(true);
 
       if (changes.length === 0) {
-        toast.info("Nenhuma alteração necessária — todos os dados já estão atualizados");
+        toast.info(`Nenhuma alteração necessária — ${alreadyUpToDate} pagadores já estão atualizados`);
       }
     } catch (err) {
       console.error("previewPayerChanges error:", err);
@@ -637,56 +735,122 @@ export default function AddressMatch() {
     let errors = 0;
 
     try {
-      const updates = payerChangesPreview.filter(c => !c.is_new && c.existing_id);
-      const inserts = payerChangesPreview.filter(c => c.is_new || !c.existing_id);
+      const updates = payerChangesPreview.filter((change) => !change.is_new && change.existing_id);
+      const inserts = payerChangesPreview.filter((change) => change.is_new || !change.existing_id);
 
-      // ── Batch updates using Promise.all in chunks ──
       const BATCH = 50;
       for (let i = 0; i < updates.length; i += BATCH) {
         const batch = updates.slice(i, i + BATCH);
-        const pct = Math.round(((i + batch.length) / (updates.length + inserts.length)) * 100);
+        const pct = Math.round(((i + batch.length) / Math.max(updates.length + inserts.length, 1)) * 100);
         toast.loading(`Atualizando ${i + batch.length}/${updates.length + inserts.length} (${pct}%)...`, { id: "update-payers" });
 
         const results = await Promise.all(
-          batch.map(change => {
+          batch.map((change) => {
             const data = { ...change.update_data, updated_at: new Date().toISOString() };
             return supabase
               .from("payers")
               .update(data)
               .eq("id", change.existing_id!)
               .then(({ error }) => {
-                if (error) { console.error("Update error:", error); return "error" as const; }
+                if (error) {
+                  console.error("Update error:", error);
+                  return "error" as const;
+                }
                 return "ok" as const;
               });
           })
         );
-        for (const r of results) { if (r === "ok") updated++; else errors++; }
+
+        for (const result of results) {
+          if (result === "ok") updated++;
+          else errors++;
+        }
       }
 
-      // ── Batch inserts ──
       if (inserts.length > 0) {
-        const INSERT_BATCH = 50;
-        for (let i = 0; i < inserts.length; i += INSERT_BATCH) {
-          const batch = inserts.slice(i, i + INSERT_BATCH);
-          const pct = Math.round(((updates.length + i + batch.length) / (updates.length + inserts.length)) * 100);
-          toast.loading(`Criando ${i + batch.length}/${inserts.length} novos (${pct}%)...`, { id: "update-payers" });
+        const existingDocs = Array.from(new Set(inserts.map((change) => change.doc_digits).filter(Boolean)));
+        const existingByDoc = new Map<string, string>();
 
-          const rows = batch.map(change => ({
+        if (existingDocs.length > 0) {
+          const { data, error } = await supabase
+            .from("payers")
+            .select("id, document_digits")
+            .in("document_digits", existingDocs);
+
+          if (error) throw error;
+
+          for (const payer of data || []) {
+            if (payer.document_digits) {
+              existingByDoc.set(payer.document_digits, payer.id);
+            }
+          }
+        }
+
+        const insertsToUpdate = inserts.filter((change) => existingByDoc.has(change.doc_digits));
+        const insertsToCreate = inserts.filter((change) => !existingByDoc.has(change.doc_digits));
+
+        for (let i = 0; i < insertsToUpdate.length; i += BATCH) {
+          const batch = insertsToUpdate.slice(i, i + BATCH);
+          const results = await Promise.all(
+            batch.map((change) => {
+              const existingId = existingByDoc.get(change.doc_digits)!;
+              const data = {
+                ...change.update_data,
+                name: change.payer_name,
+                document: change.doc_digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
+                document_digits: change.doc_digits,
+                document_valid: change.doc_digits.length === 11,
+                updated_at: new Date().toISOString(),
+              };
+
+              return supabase
+                .from("payers")
+                .update(data)
+                .eq("id", existingId)
+                .then(({ error }) => {
+                  if (error) {
+                    console.error("Insert->update error:", error);
+                    return "error" as const;
+                  }
+                  return "ok" as const;
+                });
+            })
+          );
+
+          for (const result of results) {
+            if (result === "ok") updated++;
+            else errors++;
+          }
+        }
+
+        const INSERT_BATCH = 50;
+        for (let i = 0; i < insertsToCreate.length; i += INSERT_BATCH) {
+          const batch = insertsToCreate.slice(i, i + INSERT_BATCH);
+          const pct = Math.round(((updates.length + insertsToUpdate.length + i + batch.length) / Math.max(updates.length + inserts.length, 1)) * 100);
+          toast.loading(`Criando ${i + batch.length}/${insertsToCreate.length} novos (${pct}%)...`, { id: "update-payers" });
+
+          const rows = batch.map((change) => ({
+            id: crypto.randomUUID(),
             name: change.payer_name,
             document: change.doc_digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4"),
             document_digits: change.doc_digits,
             document_valid: change.doc_digits.length === 11,
+            status: "ATIVO",
+            needs_review: change.update_data.match_ok !== true,
             ...change.update_data,
           }));
 
           const { error, data } = await supabase.from("payers").insert(rows as any[]).select("id");
           if (error) {
             console.error("Batch insert error, falling back:", error);
-            // Fallback: insert one by one
             for (const row of rows) {
-              const { error: e2 } = await supabase.from("payers").insert(row as any);
-              if (e2) { errors++; console.error("Insert error:", e2); }
-              else created++;
+              const { error: insertError } = await supabase.from("payers").insert(row as any);
+              if (insertError) {
+                errors++;
+                console.error("Insert error:", insertError);
+              } else {
+                created++;
+              }
             }
           } else {
             created += data?.length || batch.length;
@@ -710,7 +874,93 @@ export default function AddressMatch() {
     }
   };
 
+  const addAlias = async () => {
+    const entrada = normalizeAliasText(newAliasEntrada);
+    const bairroCanonico = newAliasBairroCanon.trim();
+    const complemento = newAliasComplemento.trim();
 
+    if (!entrada || !bairroCanonico) {
+      toast.error("Preencha padr?o e bairro can?nico");
+      return;
+    }
+
+    setIsSavingAlias(true);
+    try {
+      const { error } = await supabase.from("bairro_aliases").insert({
+        entrada,
+        bairro_canonico: bairroCanonico,
+        complemento: complemento || null,
+        match_type: newAliasMatchType,
+      } as any);
+
+      if (error) throw error;
+
+      setNewAliasEntrada("");
+      setNewAliasBairroCanon("");
+      setNewAliasComplemento("");
+      setNewAliasMatchType("CONTAINS");
+      await loadAliases();
+      toast.success("Alias adicionado");
+    } catch (err) {
+      console.error("addAlias error:", err);
+      toast.error("Erro ao adicionar alias");
+    } finally {
+      setIsSavingAlias(false);
+    }
+  };
+
+  const deleteAlias = async (id: string) => {
+    try {
+      const { error } = await supabase.from("bairro_aliases").delete().eq("id", id);
+      if (error) throw error;
+      await loadAliases();
+      toast.success("Alias removido");
+    } catch (err) {
+      console.error("deleteAlias error:", err);
+      toast.error("Erro ao remover alias");
+    }
+  };
+
+  const filteredResults = useMemo(() => {
+    if (!response?.results) return [];
+
+    const searchDigits = resultsSearch.replace(/\D/g, "");
+    const searchText = resultsSearch.trim().toLowerCase();
+
+    return response.results.filter((result) => {
+      const matchesFilter =
+        resultsFilter === "all"
+          ? true
+          : resultsFilter === "ok"
+            ? result.match_ok === true
+            : resultsFilter === "review"
+              ? result.review_status === "REVIEW"
+              : result.match_ok !== true && result.review_status !== "REVIEW";
+
+      if (!matchesFilter) return false;
+      if (!searchText) return true;
+
+      const name = String(result[nameCol] || "").toLowerCase();
+      const docRaw = String(result[docCol] || "");
+      const docDigits = docRaw.replace(/\D/g, "");
+
+      return name.includes(searchText) || (searchDigits ? docDigits.includes(searchDigits) : docRaw.toLowerCase().includes(searchText));
+    });
+  }, [response, resultsFilter, resultsSearch, nameCol, docCol]);
+
+  const resultsTotalPages = Math.max(1, Math.ceil(filteredResults.length / RESULTS_PAGE_SIZE));
+  const paginatedResults = filteredResults.slice((resultsPage - 1) * RESULTS_PAGE_SIZE, resultsPage * RESULTS_PAGE_SIZE);
+
+  const failuresTotalPages = Math.max(1, Math.ceil((response?.diagnostics.failures.length || 0) / FAILURES_PAGE_SIZE));
+  const paginatedFailures = (response?.diagnostics.failures || []).slice((failuresPage - 1) * FAILURES_PAGE_SIZE, failuresPage * FAILURES_PAGE_SIZE);
+
+  useEffect(() => {
+    setResultsPage((page) => Math.min(page, resultsTotalPages));
+  }, [resultsTotalPages]);
+
+  useEffect(() => {
+    setFailuresPage((page) => Math.min(page, failuresTotalPages));
+  }, [failuresTotalPages]);
 
   const getEnrichedResults = () => {
     if (!response?.results) return [];
@@ -1100,6 +1350,130 @@ export default function AddressMatch() {
             </Card>
           </div>
 
+          {/* Aliases de bairro */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  Aliases de Bairro
+                  <Badge variant="secondary">{bairroAliases.length}</Badge>
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => setShowAliasPanel((v) => !v)}
+                >
+                  {showAliasPanel ? "Ocultar" : "Gerenciar"}
+                </Button>
+              </div>
+              {!showAliasPanel && (
+                <CardDescription className="text-xs">
+                  {bairroAliases.length} aliases carregados do banco — clique em "Gerenciar" para adicionar ou remover
+                </CardDescription>
+              )}
+            </CardHeader>
+            {showAliasPanel && (
+              <CardContent className="space-y-4">
+                {/* Add form */}
+                <div className="grid gap-2 sm:grid-cols-[1fr_1.5fr_0.5fr_auto_auto] items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Padrão (entrada)</Label>
+                    <Input
+                      placeholder="ex: ANICETO"
+                      value={newAliasEntrada}
+                      onChange={(e) => setNewAliasEntrada(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Bairro canônico</Label>
+                    <Input
+                      placeholder="ex: Jardim Aniceto"
+                      value={newAliasBairroCanon}
+                      onChange={(e) => setNewAliasBairroCanon(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Complemento</Label>
+                    <Input
+                      placeholder="A, B, I…"
+                      value={newAliasComplemento}
+                      onChange={(e) => setNewAliasComplemento(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tipo</Label>
+                    <select
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                      value={newAliasMatchType}
+                      onChange={(e) => setNewAliasMatchType(e.target.value as "EXACT" | "CONTAINS")}
+                    >
+                      <option value="CONTAINS">CONTAINS</option>
+                      <option value="EXACT">EXACT</option>
+                    </select>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1 self-end"
+                    onClick={addAlias}
+                    disabled={isSavingAlias}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {isSavingAlias ? "..." : "Adicionar"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Padrão será normalizado automaticamente (UPPERCASE, sem acentos). Use <strong>CONTAINS</strong> para substring e <strong>EXACT</strong> para match exato.
+                </p>
+
+                {/* Alias table */}
+                {bairroAliases.length > 0 && (
+                  <ScrollArea className="h-[280px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Padrão</TableHead>
+                          <TableHead className="text-xs">Bairro Canônico</TableHead>
+                          <TableHead className="text-xs">Comp.</TableHead>
+                          <TableHead className="text-xs">Tipo</TableHead>
+                          <TableHead className="w-8"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {bairroAliases.map((alias) => (
+                          <TableRow key={(alias as BairroAlias & { id: string }).id}>
+                            <TableCell className="text-xs font-mono">{alias.entrada}</TableCell>
+                            <TableCell className="text-xs">{alias.bairro_canonico}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{alias.complemento || "—"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs py-0">
+                                {alias.match_type}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-destructive hover:text-destructive"
+                                onClick={() => deleteAlias((alias as BairroAlias & { id: string }).id!)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            )}
+          </Card>
+
           {/* Update payers result */}
           {updatePayersResult && (
             <Card className="border-emerald-500/30 bg-emerald-500/5">
@@ -1219,6 +1593,33 @@ export default function AddressMatch() {
 
                 <TabsContent value="results">
                   <Card>
+                    {/* Filter bar */}
+                    <div className="flex flex-col sm:flex-row gap-2 p-3 border-b">
+                      <div className="relative flex-1 max-w-xs">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <Input
+                          placeholder="Buscar por nome ou CPF..."
+                          value={resultsSearch}
+                          onChange={(e) => { setResultsSearch(e.target.value); setResultsPage(1); }}
+                          className="pl-8 h-9 text-sm"
+                        />
+                      </div>
+                      <Select value={resultsFilter} onValueChange={(v) => { setResultsFilter(v as typeof resultsFilter); setResultsPage(1); }}>
+                        <SelectTrigger className="h-9 w-full sm:w-44">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos ({response.results.length})</SelectItem>
+                          <SelectItem value="ok">Match OK ({response.summary.matched})</SelectItem>
+                          <SelectItem value="review">Revisão ({response.summary.review})</SelectItem>
+                          <SelectItem value="fail">Falha ({response.summary.failed})</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-xs text-muted-foreground self-center whitespace-nowrap">
+                        {filteredResults.length !== response.results.length && `${filteredResults.length} filtrados · `}
+                        pág. {resultsPage}/{resultsTotalPages}
+                      </span>
+                    </div>
                     <ScrollArea className="h-[500px]">
                       <Table>
                         <TableHeader>
@@ -1237,7 +1638,7 @@ export default function AddressMatch() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {response.results.slice(0, 200).map((r, i) => (
+                          {paginatedResults.map((r, i) => (
                             <TableRow key={i}>
                               <TableCell className="text-xs max-w-[150px] truncate">
                                 {String(r[nameCol] || "")}
@@ -1289,13 +1690,39 @@ export default function AddressMatch() {
                               </TableCell>
                             </TableRow>
                           ))}
+                          {paginatedResults.length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={11} className="text-center py-8 text-muted-foreground text-sm">
+                                Nenhum resultado com os filtros aplicados.
+                              </TableCell>
+                            </TableRow>
+                          )}
                         </TableBody>
                       </Table>
                     </ScrollArea>
-                    {response.results.length > 200 && (
-                      <p className="text-xs text-muted-foreground p-3 border-t">
-                        Mostrando 200 de {response.results.length}. Exporte o CSV para ver todos.
-                      </p>
+                    {resultsTotalPages > 1 && (
+                      <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-muted-foreground">
+                        <span>
+                          {(resultsPage - 1) * RESULTS_PAGE_SIZE + 1}–{Math.min(resultsPage * RESULTS_PAGE_SIZE, filteredResults.length)} de {filteredResults.length}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setResultsPage((p) => Math.max(1, p - 1))}
+                            disabled={resultsPage <= 1}
+                            className="rounded p-1 hover:bg-muted disabled:opacity-40"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <span className="px-2 tabular-nums">{resultsPage} / {resultsTotalPages}</span>
+                          <button
+                            onClick={() => setResultsPage((p) => Math.min(resultsTotalPages, p + 1))}
+                            disabled={resultsPage >= resultsTotalPages}
+                            className="rounded p-1 hover:bg-muted disabled:opacity-40"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </Card>
                 </TabsContent>
@@ -1355,7 +1782,7 @@ export default function AddressMatch() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {response.diagnostics.failures.map((f, i) => (
+                          {paginatedFailures.map((f, i) => (
                             <TableRow key={i}>
                               <TableCell className="text-xs max-w-[300px] truncate">{f.endereco}</TableCell>
                               <TableCell>
@@ -1377,13 +1804,37 @@ export default function AddressMatch() {
                           {response.diagnostics.failures.length === 0 && (
                             <TableRow>
                               <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                                Nenhuma falha encontrada 🎉
+                                Nenhuma falha encontrada
                               </TableCell>
                             </TableRow>
                           )}
                         </TableBody>
                       </Table>
                     </ScrollArea>
+                    {failuresTotalPages > 1 && (
+                      <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-muted-foreground">
+                        <span>
+                          {(failuresPage - 1) * FAILURES_PAGE_SIZE + 1}–{Math.min(failuresPage * FAILURES_PAGE_SIZE, response.diagnostics.failures.length)} de {response.diagnostics.failures.length}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setFailuresPage((p) => Math.max(1, p - 1))}
+                            disabled={failuresPage <= 1}
+                            className="rounded p-1 hover:bg-muted disabled:opacity-40"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <span className="px-2 tabular-nums">{failuresPage} / {failuresTotalPages}</span>
+                          <button
+                            onClick={() => setFailuresPage((p) => Math.min(failuresTotalPages, p + 1))}
+                            disabled={failuresPage >= failuresTotalPages}
+                            className="rounded p-1 hover:bg-muted disabled:opacity-40"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </Card>
                 </TabsContent>
               </Tabs>
@@ -1392,23 +1843,32 @@ export default function AddressMatch() {
         </div>
 
         {/* Modal de preview de alterações */}
-        <Dialog open={showPayerPreviewModal} onOpenChange={setShowPayerPreviewModal}>
-          <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
-            <DialogHeader>
+        <Dialog open={showPayerPreviewModal} onOpenChange={(open) => { setShowPayerPreviewModal(open); if (!open) setExpandedConfirmRows(new Set()); }}>
+          <DialogContent className="max-w-4xl h-[85vh] flex flex-col overflow-hidden p-0">
+            <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b">
               <DialogTitle>Alterações nos Pagadores</DialogTitle>
               <DialogDescription>
                 {payerChangesPreview.length === 0
-                  ? "Nenhuma alteração necessária — todos os dados já estão atualizados."
-                  : `${payerChangesPreview.filter(c => !c.is_new).length} atualizações + ${payerChangesPreview.filter(c => c.is_new).length} novos pagadores`}
+                  ? `Nenhuma alteração necessária — ${payerAlreadyUpToDate} pagadores já estão atualizados.`
+                  : [
+                      payerChangesPreview.filter(c => c.change_type === "update").length > 0
+                        && `${payerChangesPreview.filter(c => c.change_type === "update").length} atualizações`,
+                      payerChangesPreview.filter(c => c.change_type === "confirm").length > 0
+                        && `${payerChangesPreview.filter(c => c.change_type === "confirm").length} confirmações`,
+                      payerChangesPreview.filter(c => c.is_new).length > 0
+                        && `${payerChangesPreview.filter(c => c.is_new).length} novos`,
+                      payerAlreadyUpToDate > 0
+                        && `${payerAlreadyUpToDate} já atualizados`,
+                    ].filter(Boolean).join(" · ")}
               </DialogDescription>
             </DialogHeader>
 
             {payerChangesPreview.length > 0 && (
-              <ScrollArea className="flex-1 min-h-0">
+              <ScrollArea className="flex-1 overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[80px]">Tipo</TableHead>
+                      <TableHead className="w-[90px]">Tipo</TableHead>
                       <TableHead>Nome</TableHead>
                       <TableHead>CPF</TableHead>
                       <TableHead>Campo</TableHead>
@@ -1417,36 +1877,83 @@ export default function AddressMatch() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {payerChangesPreview.map((p, pi) =>
-                      p.changes.map((c, ci) => (
-                        <TableRow key={`${pi}-${ci}`}>
-                          {ci === 0 && (
-                            <>
-                              <TableCell rowSpan={p.changes.length}>
-                                <Badge variant={p.is_new ? "default" : "outline"} className="text-[10px] px-1.5 py-0">
-                                  {p.is_new ? "NOVO" : "ATUALIZAR"}
-                                </Badge>
-                              </TableCell>
-                              <TableCell rowSpan={p.changes.length} className="text-xs font-medium">
-                                {p.payer_name}
-                              </TableCell>
-                              <TableCell rowSpan={p.changes.length} className="text-xs font-mono">
-                                {p.doc_digits}
-                              </TableCell>
-                            </>
-                          )}
-                          <TableCell className="text-xs font-medium">{c.field}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{c.old_value}</TableCell>
-                          <TableCell className="text-xs font-medium text-emerald-600">{c.new_value}</TableCell>
-                        </TableRow>
-                      ))
-                    )}
+                    {payerChangesPreview.map((p, pi) => {
+                      const isConfirm = p.change_type === "confirm";
+                      const mainChanges = isConfirm ? p.changes.filter(c => c.old_value !== "já estava correto") : p.changes;
+                      const infoChanges = isConfirm ? p.changes.filter(c => c.old_value === "já estava correto") : [];
+                      const isExpanded = expandedConfirmRows.has(pi);
+                      const visibleRowCount = mainChanges.length + (isExpanded ? infoChanges.length : 0);
+
+                      return [
+                        ...mainChanges.map((c, ci) => (
+                          <TableRow
+                            key={`${pi}-${ci}`}
+                            className={isConfirm ? "cursor-pointer hover:bg-muted/40" : undefined}
+                            onClick={isConfirm && infoChanges.length > 0 ? () => setExpandedConfirmRows(prev => {
+                              const next = new Set(prev);
+                              next.has(pi) ? next.delete(pi) : next.add(pi);
+                              return next;
+                            }) : undefined}
+                          >
+                            {ci === 0 && (
+                              <>
+                                <TableCell rowSpan={visibleRowCount}>
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-[10px] px-1.5 py-0 ${
+                                      p.change_type === "new"
+                                        ? "bg-blue-50 text-blue-700 border-blue-300"
+                                        : p.change_type === "confirm"
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                        : "bg-amber-50 text-amber-700 border-amber-300"
+                                    }`}
+                                  >
+                                    {p.change_type === "new" ? "NOVO" : p.change_type === "confirm" ? "CONFIRMAR" : "ATUALIZAR"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell rowSpan={visibleRowCount} className="text-xs font-medium">
+                                  {p.payer_name}
+                                </TableCell>
+                                <TableCell rowSpan={visibleRowCount} className="text-xs font-mono">
+                                  {p.doc_digits}
+                                </TableCell>
+                              </>
+                            )}
+                            <TableCell className="text-xs font-medium">{c.field}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{c.old_value}</TableCell>
+                            <TableCell className="text-xs font-medium text-emerald-600">
+                              <span className="flex items-center gap-1">
+                                {c.new_value}
+                                {ci === mainChanges.length - 1 && isConfirm && infoChanges.length > 0 && (
+                                  <ChevronRight className={`h-3 w-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                )}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        )),
+                        ...(isExpanded ? infoChanges.map((c, ci) => (
+                          <TableRow
+                            key={`${pi}-info-${ci}`}
+                            className="bg-muted/20 cursor-pointer"
+                            onClick={() => setExpandedConfirmRows(prev => {
+                              const next = new Set(prev);
+                              next.delete(pi);
+                              return next;
+                            })}
+                          >
+                            <TableCell className="text-xs text-muted-foreground pl-4">{c.field}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground/60 italic">{c.old_value}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{c.new_value}</TableCell>
+                          </TableRow>
+                        )) : []),
+                      ];
+                    })}
                   </TableBody>
                 </Table>
               </ScrollArea>
             )}
 
-            <DialogFooter className="gap-2 pt-4 border-t">
+            <DialogFooter className="flex-shrink-0 gap-2 px-6 py-4 border-t">
               <Button variant="outline" onClick={() => setShowPayerPreviewModal(false)}>
                 Cancelar
               </Button>
@@ -1470,7 +1977,14 @@ export default function AddressMatch() {
 
 // ── Sub-components ──
 
+const PHONE_PAGE_SIZE = 100;
+
+type PhoneFilter = "all" | "updated" | "secondary" | "below" | "shared";
+
 function PhoneResultsTable({ results }: { results: PhoneDisplayRow[] }) {
+  const [statusFilter, setStatusFilter] = useState<PhoneFilter>("all");
+  const [phonePage, setPhonePage] = useState(1);
+
   const statusColors: Record<string, string> = {
     ATUALIZADO: "bg-emerald-500/10 text-emerald-600 border-emerald-500/40",
     ATUALIZADO_DUPLICADO: "bg-amber-500/10 text-amber-600 border-amber-500/40",
@@ -1481,8 +1995,43 @@ function PhoneResultsTable({ results }: { results: PhoneDisplayRow[] }) {
     SEM_MATCH: "bg-muted text-muted-foreground",
   };
 
+  const counts = useMemo(() => ({
+    updated: results.filter((r) => r.match.phone_match_status === "ATUALIZADO" || r.match.phone_match_status === "ATUALIZADO_DUPLICADO").length,
+    secondary: results.filter((r) => r.match.phone_match_status === "TELEFONE_SECUNDARIO").length,
+    below: results.filter((r) => r.match.phone_match_status === "ABAIXO_THRESHOLD").length,
+    shared: results.filter((r) => !!r.match.phone_shared_names).length,
+  }), [results]);
+
+  const filtered = useMemo(() => {
+    if (statusFilter === "updated") return results.filter((r) => r.match.phone_match_status === "ATUALIZADO" || r.match.phone_match_status === "ATUALIZADO_DUPLICADO");
+    if (statusFilter === "secondary") return results.filter((r) => r.match.phone_match_status === "TELEFONE_SECUNDARIO");
+    if (statusFilter === "below") return results.filter((r) => r.match.phone_match_status === "ABAIXO_THRESHOLD");
+    if (statusFilter === "shared") return results.filter((r) => !!r.match.phone_shared_names);
+    return results;
+  }, [results, statusFilter]);
+
+  const paginated = filtered.slice((phonePage - 1) * PHONE_PAGE_SIZE, phonePage * PHONE_PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PHONE_PAGE_SIZE));
+
   return (
     <Card>
+      <div className="flex flex-col sm:flex-row gap-2 p-3 border-b">
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as PhoneFilter); setPhonePage(1); }}>
+          <SelectTrigger className="h-9 w-full sm:w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos ({results.length})</SelectItem>
+            <SelectItem value="updated">Atualizados ({counts.updated})</SelectItem>
+            <SelectItem value="secondary">Secundários ({counts.secondary})</SelectItem>
+            <SelectItem value="below">Abaixo threshold ({counts.below})</SelectItem>
+            <SelectItem value="shared">Compartilhados ({counts.shared})</SelectItem>
+          </SelectContent>
+        </Select>
+        {filtered.length !== results.length && (
+          <span className="text-xs text-muted-foreground self-center">{filtered.length} filtrados</span>
+        )}
+      </div>
       <ScrollArea className="h-[500px]">
         <Table>
           <TableHeader>
@@ -1496,11 +2045,12 @@ function PhoneResultsTable({ results }: { results: PhoneDisplayRow[] }) {
               <TableHead>Tel. Final</TableHead>
               <TableHead>Tel. Secundário</TableHead>
               <TableHead>Dups</TableHead>
+              <TableHead>Tel. compartilhado</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {results.slice(0, 300).map((r, i) => (
-              <TableRow key={i}>
+            {paginated.map((r, i) => (
+              <TableRow key={i} className={r.match.phone_shared_names ? "bg-orange-500/5" : ""}>
                 <TableCell className="text-xs">{r.payer_name}</TableCell>
                 <TableCell className="text-xs font-mono">{r.payer_phone || "—"}</TableCell>
                 <TableCell className="text-xs font-mono tabular-nums">
@@ -1534,15 +2084,48 @@ function PhoneResultsTable({ results }: { results: PhoneDisplayRow[] }) {
                     ? r.match.phone_match_dup_count
                     : "—"}
                 </TableCell>
+                <TableCell className="text-xs max-w-[180px]">
+                  {r.match.phone_shared_names ? (
+                    <span className="text-orange-600 font-medium" title={r.match.phone_shared_names}>
+                      ⚠ {r.match.phone_shared_names}
+                    </span>
+                  ) : "—"}
+                </TableCell>
               </TableRow>
             ))}
+            {paginated.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground text-sm">
+                  Nenhum resultado com o filtro aplicado.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </ScrollArea>
-      {results.length > 300 && (
-        <p className="text-xs text-muted-foreground p-3 border-t">
-          Mostrando 300 de {results.length}. Exporte o CSV para ver todos.
-        </p>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-muted-foreground">
+          <span>
+            {(phonePage - 1) * PHONE_PAGE_SIZE + 1}–{Math.min(phonePage * PHONE_PAGE_SIZE, filtered.length)} de {filtered.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPhonePage((p) => Math.max(1, p - 1))}
+              disabled={phonePage <= 1}
+              className="rounded p-1 hover:bg-muted disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="px-2 tabular-nums">{phonePage} / {totalPages}</span>
+            <button
+              onClick={() => setPhonePage((p) => Math.min(totalPages, p + 1))}
+              disabled={phonePage >= totalPages}
+              className="rounded p-1 hover:bg-muted disabled:opacity-40"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       )}
     </Card>
   );

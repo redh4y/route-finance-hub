@@ -130,6 +130,11 @@ const navItems = [
     icon: CheckCircle2,
   },
   {
+    label: "Advertências",
+    path: "/advertencias",
+    icon: AlertTriangle,
+  },
+  {
     label: "Configurações",
     path: "/configuracoes",
     icon: Settings2,

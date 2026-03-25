@@ -56,6 +56,7 @@ import StudentHelp from "./pages/attendance/StudentHelp";
 import AttendanceAdmin from "./pages/attendance/AttendanceAdmin";
 import PollDashboard from "./pages/PollDashboard";
 import ReviewInbox from "./pages/ReviewInbox";
+import StudentWarnings from "./pages/StudentWarnings";
 
 const queryClient = new QueryClient();
 
@@ -308,6 +309,15 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Reconciliation />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Student Warnings */}
+              <Route
+                path="/advertencias"
+                element={
+                  <ProtectedRoute>
+                    <StudentWarnings />
                   </ProtectedRoute>
                 }
               />

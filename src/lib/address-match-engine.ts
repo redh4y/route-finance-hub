@@ -236,7 +236,12 @@ function _mergeComplement(a: string | null, b: string | null): string {
   return aa || bb || "";
 }
 
-function _mapBairroAlias(rawNorm: string): [string | null, string | null] {
+function _mapBairroAlias(rawNorm: string, aliases?: BairroAlias[]): [string | null, string | null] {
+  // DB-driven aliases take priority; hardcoded rules are the fallback
+  if (aliases && aliases.length > 0) {
+    const result = applyBairroAliases(rawNorm, aliases);
+    if (result[0] !== null) return result;
+  }
   if (/\b(COAB|COHAB|CHOAB)\s*I\b/.test(rawNorm)) return ["Doutor Fábio Talarico", null];
   if (/\b(COAB|COHAB|CHOAB)\s*II\b/.test(rawNorm)) return ["Mario Garcia da Costa", null];
   if (/\bCOA?H?AB\s*1\b/.test(rawNorm) || /\bCOAB1\b/.test(rawNorm) || /\bCOHAB1\b/.test(rawNorm))
@@ -305,7 +310,7 @@ interface BairroResult {
   bairro_complemento: string;
 }
 
-function normalizeBairroRules(bairroRaw: string): BairroResult {
+function normalizeBairroRules(bairroRaw: string, aliases?: BairroAlias[]): BairroResult {
   let raw = normText(bairroRaw || "");
   if (!raw) return { bairro_classificacao: "", bairro_normalizado: "", bairro_complemento: "" };
   raw = raw.replace(/^\bBAIRRO\b\s+/, "").trim();
@@ -320,12 +325,12 @@ function normalizeBairroRules(bairroRaw: string): BairroResult {
   if (_hasComplementPattern(raw)) {
     const [bairroPart, complemento] = _splitBairroComplemento(raw);
     if (!bairroPart) return { bairro_classificacao: "COMPLEMENTO", bairro_normalizado: "", bairro_complemento: complemento || raw };
-    const [mapped, comp2] = _mapBairroAlias(bairroPart);
+    const [mapped, comp2] = _mapBairroAlias(bairroPart, aliases);
     const mergedComp = _mergeComplement(complemento, comp2);
     if (mapped) return { bairro_classificacao: "OK", bairro_normalizado: mapped, bairro_complemento: mergedComp };
     return { bairro_classificacao: "OK", bairro_normalizado: _titleCaseKeepRoman(bairroPart), bairro_complemento: mergedComp };
   }
-  const [mapped, comp] = _mapBairroAlias(raw);
+  const [mapped, comp] = _mapBairroAlias(raw, aliases);
   if (mapped) return { bairro_classificacao: "OK", bairro_normalizado: mapped, bairro_complemento: comp || "" };
   return { bairro_classificacao: "OK", bairro_normalizado: _titleCaseKeepRoman(raw), bairro_complemento: "" };
 }
@@ -436,6 +441,41 @@ function parseEndereco(endereco: string): ParsedAddress {
 // ══════════════════════════════════════════════════
 //  CEP / BAIRRO INDEX
 // ══════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════
+//  BAIRRO ALIASES (DB-driven)
+// ══════════════════════════════════════════════════
+
+export interface BairroAlias {
+  id?: string;
+  entrada: string;
+  bairro_canonico: string;
+  complemento?: string | null;
+  match_type: "EXACT" | "CONTAINS";
+  ordem?: number;
+}
+
+/**
+ * Apply DB-driven bairro aliases to a normalized bairro string.
+ * Sorts aliases by: ordem ascending, then entrada length descending (longer = more specific wins).
+ * Returns [bairro_canonico, complemento] or [null, null] if no match.
+ */
+export function applyBairroAliases(rawNorm: string, aliases: BairroAlias[]): [string | null, string | null] {
+  const sorted = [...aliases].sort((a, b) => {
+    const oa = a.ordem ?? 100;
+    const ob = b.ordem ?? 100;
+    if (oa !== ob) return oa - ob;
+    return b.entrada.length - a.entrada.length; // longer patterns first within same ordem
+  });
+  for (const alias of sorted) {
+    const matched =
+      alias.match_type === "EXACT"
+        ? rawNorm.trim() === alias.entrada
+        : rawNorm.includes(alias.entrada);
+    if (matched) return [alias.bairro_canonico, alias.complemento ?? null];
+  }
+  return [null, null];
+}
 
 export interface CepRecord {
   logradouro: string;
@@ -670,10 +710,11 @@ export function processRow(
   bairroIndex: Map<string, CepRecord[]>,
   keyToLabel: Map<string, string>,
   config: MatchConfig,
+  aliases?: BairroAlias[],
 ): MatchResult {
   const parts = parseEndereco(endereco);
   const numero = parts.numero || extractNumeroEndereco(endereco);
-  const binfo = normalizeBairroRules(parts.bairro);
+  const binfo = normalizeBairroRules(parts.bairro, aliases);
   const bairroCandidato = binfo.bairro_normalizado || parts.bairro;
   const qLog = parts.logradouro || preprocessForMatch(endereco);
 
@@ -765,6 +806,7 @@ export async function processAllRows(
   enderecoCol: string,
   config: MatchConfig,
   onProgress?: (processed: number, total: number) => void,
+  aliases?: BairroAlias[],
 ): Promise<Record<string, unknown>[]> {
   const bairroIndex = buildBairroIndex(cepBase);
   const keyToLabel = buildKeyToLabel(cepBase);
@@ -776,7 +818,7 @@ export async function processAllRows(
     for (let j = i; j < end; j++) {
       const row = payersData[j];
       const endereco = String(row[enderecoCol] || "");
-      const matchResult = processRow(endereco, cepBase, bairroIndex, keyToLabel, config);
+      const matchResult = processRow(endereco, cepBase, bairroIndex, keyToLabel, config, aliases);
       results.push({ ...row, ...matchResult });
     }
     onProgress?.(end, payersData.length);

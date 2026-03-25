@@ -1,3 +1,6 @@
+# Obsidian local config
+docs/obsidian/.obsidian/
+
 # Logs
 logs
 *.log

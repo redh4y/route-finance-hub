@@ -28,7 +28,7 @@ const BATCH_SIZE_BILLINGS = 100;
 const BATCH_SIZE_CEPS = 500;
 
 const PAYER_UPDATE_FIELDS =
-  "id, payer_code, billing_seen_in_month, last_billing_ref, status, billing_mode, default_route, last_payment_at, needs_review";
+  "id, name, document_digits, payer_code, billing_seen_in_month, last_billing_ref, status, billing_mode, default_route, last_payment_at, needs_review";
 
 function normalizePayerCompareValue(key: string, value: unknown) {
   if (value === undefined || value === null || value === "") return null;
@@ -188,7 +188,12 @@ export function useOptimizedImportPayers() {
         new Set(transformed.map((v) => v.payer.document_digits).filter((d): d is string => !!d))
       );
       const payerCodes = Array.from(
-        new Set(transformed.map((v) => v.payer.payer_code).filter((c): c is string => !!c))
+        new Set(
+          transformed
+            .filter((v) => !v.payer.document_digits)
+            .map((v) => v.payer.payer_code)
+            .filter((c): c is string => !!c)
+        )
       );
 
       const candidatePayers =
@@ -216,32 +221,34 @@ export function useOptimizedImportPayers() {
           const doc = item.payer.document_digits || null;
           const code = item.payer.payer_code || null;
           const docMatches = doc ? (docMap.get(doc) || []) : [];
-          const codeMatches = code ? (codeMap.get(code) || []) : [];
+          const codeMatches = !doc && code ? (codeMap.get(code) || []) : [];
 
           if (docMatches.length > 1) {
             result.errors++;
             result.errorDetails.push({ row: item.rowNumber, error: `Ambiguidade por CPF (${doc})` });
             return null;
           }
-          if (codeMatches.length > 1) {
+          if (!doc && codeMatches.length > 1) {
             result.errors++;
             result.errorDetails.push({ row: item.rowNumber, error: `Ambiguidade por Cod Pagador (${code})` });
             return null;
           }
 
           const docId = docMatches[0] || null;
-          const codeId = codeMatches[0] || null;
-          if (docId && codeId && docId !== codeId) {
-            result.errors++;
-            result.errorDetails.push({
-              row: item.rowNumber,
-              error: `Conflito de identidade: CPF aponta para ${docId} e Cod Pagador para ${codeId}`,
-            });
-            return null;
-          }
-
+          const codeId = !doc ? (codeMatches[0] || null) : null;
           const targetId = docId || codeId || item.payer.id;
-          return { ...item, payer: { ...item.payer, id: targetId, run_id: runId } };
+          const isUpdate = !!(docId || codeId);
+          return {
+            ...item,
+            payer: {
+              ...item.payer,
+              id: targetId,
+              run_id: runId,
+              // Pagador existia como placeholder (criado durante import de boletos):
+              // limpa as flags de revisão temporária agora que os dados reais chegaram.
+              ...(isUpdate && { needs_review: false }),
+            },
+          };
         })
         .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
 
@@ -359,7 +366,9 @@ export function useOptimizedImportBillings() {
   const [progress, setProgress] = useState(0);
 
   const mutation = useMutation({
-    mutationFn: async (file: File): Promise<ImportResult & { referenceMonth: string | null }> => {
+    mutationFn: async (input: File | { file: File; nameUpdates?: Record<string, string> }): Promise<ImportResult & { referenceMonth: string | null }> => {
+      const file = input instanceof File ? input : input.file;
+      const nameUpdates = input instanceof File ? undefined : input.nameUpdates;
       const rows = await parseCSV<BillingCSVRow>(file);
       const runId = crypto.randomUUID();
       const result: ImportResult & { referenceMonth: string | null } = {
@@ -426,7 +435,8 @@ export function useOptimizedImportBillings() {
       const importedCodes = Array.from(
         new Set(
           billings
-            .map((b) => b.payer_code || (/^\d{11}$/.test(b.payer_id) ? null : b.payer_id))
+            .filter((b) => !/^\d{11}$/.test(b.payer_id || ""))
+            .map((b) => b.payer_code || b.payer_id)
             .filter((v): v is string => !!v)
         )
       );
@@ -469,6 +479,9 @@ export function useOptimizedImportBillings() {
 
       const existingBillingsMap = new Map<string, (typeof existingBillings)[number]>();
       const existingBillingsByBase = new Map<string, (typeof existingBillings)[number][]>();
+      // Índice global por nosso_numero (sem payer_id nem reference_month)
+      // nosso_numero é único no banco emissor → permite encontrar mesmo quando o mês mudou
+      const existingBillingsByNosso = new Map<string, (typeof existingBillings)[number][]>();
 
       const registerExistingBilling = (billingRow: (typeof existingBillings)[number]) => {
         const keys = getExistingBillingLookupKeys({
@@ -481,17 +494,43 @@ export function useOptimizedImportBillings() {
         });
         keys.forEach((k) => existingBillingsMap.set(k, billingRow));
 
-        const baseKey = getBillingBaseLookupKey({
-          payer_id: billingRow.payer_id,
-          reference_month: billingRow.reference_month,
-          nosso_numero: billingRow.nosso_numero,
-          seu_numero: billingRow.seu_numero,
-          due_date: billingRow.due_date,
-        });
-        const list = existingBillingsByBase.get(baseKey) || [];
-        const next = list.filter((x) => x.id !== billingRow.id);
-        next.push(billingRow);
-        existingBillingsByBase.set(baseKey, next);
+        // Indexar sob todas as variações de base key para sobreviver a mismatches de nosso_numero
+        // Ex: DB tem nosso_numero mas CSV novo não tem (ou vice-versa)
+        const baseKeysToRegister = [
+          getBillingBaseLookupKey({
+            payer_id: billingRow.payer_id,
+            reference_month: billingRow.reference_month,
+            nosso_numero: billingRow.nosso_numero,
+            seu_numero: billingRow.seu_numero,
+            due_date: billingRow.due_date,
+          }),
+        ];
+        if (billingRow.nosso_numero) {
+          // Também indexar sem nosso_numero: permite que CSV sem nosso_numero encontre este registro
+          baseKeysToRegister.push(
+            getBillingBaseLookupKey({
+              payer_id: billingRow.payer_id,
+              reference_month: billingRow.reference_month,
+              nosso_numero: null,
+              seu_numero: billingRow.seu_numero,
+              due_date: billingRow.due_date,
+            })
+          );
+        }
+        for (const baseKey of baseKeysToRegister) {
+          const list = existingBillingsByBase.get(baseKey) || [];
+          const next = list.filter((x) => x.id !== billingRow.id);
+          next.push(billingRow);
+          existingBillingsByBase.set(baseKey, next);
+        }
+        // Índice global por nosso_numero (sem payer_id/reference_month)
+        if (billingRow.nosso_numero) {
+          const nn = billingRow.nosso_numero.trim();
+          const nnList = existingBillingsByNosso.get(nn) || [];
+          const nnNext = nnList.filter((x) => x.id !== billingRow.id);
+          nnNext.push(billingRow);
+          existingBillingsByNosso.set(nn, nnNext);
+        }
       };
 
       existingBillings.forEach((b) => registerExistingBilling(b));
@@ -585,17 +624,27 @@ export function useOptimizedImportBillings() {
           );
         }
 
-        const existingVariants = Array.from(
+        let existingVariants = Array.from(
           new Map(
             baseKeys
               .flatMap((k) => existingBillingsByBase.get(k) || [])
               .map((b) => [b.id, b])
           ).values()
         );
-        const sameStatus = existingVariants.find((b) => b.status === billing.status);
-        const hasPaidVariant = existingVariants.some((b) => b.status === "PAID");
-        const openVariant = existingVariants.find((b) => b.status === "OPEN");
-        const cancelVariant = existingVariants.find((b) => b.status === "CANCELADO");
+
+        // Fallback: se não achou por payer+ref+nosso, busca globalmente pelo nosso_numero
+        // Cobre o caso em que o vencimento mudou e o reference_month ficou diferente do DB
+        let foundViaNossoFallback = false;
+        if (existingVariants.length === 0 && billing.nosso_numero) {
+          const nn = billing.nosso_numero.trim();
+          const byNosso = existingBillingsByNosso.get(nn) || [];
+          const samePayerNosso = byNosso.filter((b) => b.payer_id === payerId);
+          const nossoMatches = samePayerNosso.length > 0 ? samePayerNosso : byNosso;
+          if (nossoMatches.length > 0) {
+            existingVariants = nossoMatches;
+            foundViaNossoFallback = true;
+          }
+        }
 
         const billingData = {
           payer_id: payerId,
@@ -644,11 +693,24 @@ export function useOptimizedImportBillings() {
           } as any);
         };
 
+        const sameStatus = existingVariants.find((b) => b.status === billing.status);
+        const hasPaidVariant = existingVariants.some((b) => b.status === "PAID");
+        const openVariant = existingVariants.find((b) => b.status === "OPEN");
+        const cancelVariant = existingVariants.find((b) => b.status === "CANCELADO");
+
+        // Quando encontrado via nosso_numero global (mês diferente) e não há outro registro base:
+        // atualizar o OPEN para PAID diretamente
+        if (foundViaNossoFallback && billing.status === "PAID" && openVariant) {
+          registerPlannedUpdate(openVariant.id, "PAID");
+          continue;
+        }
+
         if (sameStatus) {
           const dueDateChanged = (sameStatus.due_date || null) !== (billingData.due_date || null);
           const nossoChanged = (sameStatus.nosso_numero || null) !== (billingData.nosso_numero || null);
           const seuChanged = (sameStatus.seu_numero || null) !== (billingData.seu_numero || null);
-          if (dueDateChanged || nossoChanged || seuChanged) {
+          const refMonthChanged = (sameStatus.reference_month || null) !== (billingData.reference_month || null);
+          if (dueDateChanged || nossoChanged || seuChanged || refMonthChanged) {
             registerPlannedUpdate(sameStatus.id, billing.status);
           }
         } else if (billing.status === "CANCELADO" && openVariant && !hasPaidVariant) {
@@ -666,6 +728,20 @@ export function useOptimizedImportBillings() {
           registerPlannedInsert(billing.status);
         }
 
+        // Limpar registros OPEN órfãos de outros meses com o mesmo nosso_numero.
+        // Ocorre quando o vencimento mudou e criou um reference_month diferente no DB.
+        if (billing.nosso_numero && billing.status === "PAID") {
+          const nn = billing.nosso_numero.trim();
+          const byNosso = existingBillingsByNosso.get(nn) || [];
+          const existingVariantIds = new Set(existingVariants.map((v) => v.id));
+          const orphanOpens = byNosso.filter(
+            (b) => !existingVariantIds.has(b.id) && b.status === "OPEN" && b.payer_id === payerId
+          );
+          for (const orphanOpen of orphanOpens) {
+            registerPlannedUpdate(orphanOpen.id, "PAID");
+          }
+        }
+
         // Accumulate payer updates
         const needsReview =
           billing.status === "NEEDS_REVIEW" ||
@@ -673,6 +749,7 @@ export function useOptimizedImportBillings() {
 
         const payerUpdate: any = {
           billing_seen_in_month: billing.reference_month,
+          ...(billing.payer_code ? { payer_code: billing.payer_code } : {}),
           last_billing_ref: billing.reference_month,
           status: "ATIVO",
           billing_mode: "BOLETO",
@@ -722,18 +799,35 @@ export function useOptimizedImportBillings() {
 
       setProgress(40);
 
-      // Insert new billings in batches
+      // Insert new billings in batches.
+      // Usa upsert com onConflict nosso_numero para garantir que boletos com
+      // o mesmo nosso_numero nunca sejam duplicados — a constraint única no banco
+      // é a fonte de verdade, e o upsert respeita isso atualizando em vez de duplicar.
       for (let i = 0; i < newBillings.length; i += BATCH_SIZE_BILLINGS) {
         const batch = newBillings.slice(i, i + BATCH_SIZE_BILLINGS);
+        // Separar boletos com e sem nosso_numero: só os que têm podem usar onConflict
+        const withNosso = batch.filter((b) => b.nosso_numero);
+        const withoutNosso = batch.filter((b) => !b.nosso_numero);
         try {
-          const { error } = await supabase.from("billings").insert(batch);
-          if (error) throw error;
-          result.success += batch.length;
+          if (withNosso.length > 0) {
+            const { error } = await supabase
+              .from("billings")
+              .upsert(withNosso, { onConflict: "nosso_numero" });
+            if (error) throw error;
+            result.success += withNosso.length;
+          }
+          if (withoutNosso.length > 0) {
+            const { error } = await supabase.from("billings").insert(withoutNosso);
+            if (error) throw error;
+            result.success += withoutNosso.length;
+          }
         } catch (err: any) {
-          // Fallback to individual inserts
+          // Fallback to individual upserts/inserts
           for (const b of batch) {
             try {
-              const { error } = await supabase.from("billings").insert(b);
+              const { error } = b.nosso_numero
+                ? await supabase.from("billings").upsert(b, { onConflict: "nosso_numero" })
+                : await supabase.from("billings").insert(b);
               if (error) {
                 result.errors++;
                 result.errorDetails.push({ row: 0, error: formatBillingErrorMessage(b, error.message) });
@@ -771,6 +865,15 @@ export function useOptimizedImportBillings() {
         await Promise.all(
           batch.map(([id, update]) =>
             supabase.from("payers").update(update).eq("id", id)
+          )
+        );
+      }
+
+      // Apply approved name updates from user
+      if (nameUpdates && Object.keys(nameUpdates).length > 0) {
+        await Promise.all(
+          Object.entries(nameUpdates).map(([id, name]) =>
+            supabase.from("payers").update({ name }).eq("id", id)
           )
         );
       }
