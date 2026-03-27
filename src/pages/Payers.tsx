@@ -662,7 +662,7 @@ function PayerCardMobile({
         </div>
 
         {isOverdue && (
-          <TrendingDown className="h-3.5 w-3.5 text-destructive shrink-0" title="Boleto vencido" />
+          <TrendingDown className="h-3.5 w-3.5 text-destructive shrink-0" />
         )}
         {payer.needs_review && (
           <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />

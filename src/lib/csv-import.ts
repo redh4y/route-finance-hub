@@ -219,10 +219,10 @@ export function parseCSV<T>(file: File): Promise<T[]> {
     } as const;
 
     // First try UTF-8
-    Papa.parse<T>(file, {
+    Papa.parse(file, {
       ...baseOptions,
       encoding: "UTF-8",
-      complete: (results) => {
+      complete: (results: any) => {
         if (results.errors.length > 0) {
           console.warn("CSV parse warnings:", results.errors);
         }
@@ -231,13 +231,13 @@ export function parseCSV<T>(file: File): Promise<T[]> {
         if (hasGarbledEncoding(sample)) {
           console.log("Detected garbled UTF-8, retrying with Latin-1...");
           // Re-parse with Latin-1
-          Papa.parse<T>(file, {
+          Papa.parse(file, {
             ...baseOptions,
             encoding: "ISO-8859-1",
-            complete: (latin1Results) => {
-              resolve(latin1Results.data);
+            complete: (latin1Results: any) => {
+              resolve(latin1Results.data as T[]);
             },
-            error: (err) => reject(err),
+            error: (err: Error) => reject(err),
           });
         } else {
           resolve(results.data);

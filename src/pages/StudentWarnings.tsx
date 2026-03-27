@@ -72,7 +72,7 @@ export default function StudentWarnings() {
         .order("data_ocorrencia", { ascending: false })
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as StudentWarning[];
+      return data as unknown as StudentWarning[];
     },
   });
 
