@@ -6,6 +6,7 @@ export type DriveProcessorFlags = {
   skip_already_renamed: boolean;
   debug_mode: boolean;
   save_json_on_drive: boolean;
+  skip_already_imported: boolean;
 };
 
 export type BoletoResult = {
@@ -134,7 +135,9 @@ export function useDriveProcessor() {
     skip_already_renamed: false,
     debug_mode: false,
     save_json_on_drive: false,
+    skip_already_imported: true,
   });
+  const [lastSkippedCount, setLastSkippedCount] = useState(0);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -142,56 +145,68 @@ export function useDriveProcessor() {
   const [folderName, setFolderName] = useState("");
   const abortRef = useRef(false);
 
-  // Restore tokens from localStorage
+  // Restore tokens — try Supabase user_metadata first, then localStorage fallback
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_TOKENS);
-      if (saved) {
-        const t = JSON.parse(saved);
-        if (t.access_token) {
-          setAccessToken(t.access_token);
-          setRefreshToken(t.refresh_token || "");
-          setTokenExpiresAt(t.expires_at || 0);
-          // Validate the token
-          fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-            headers: { Authorization: `Bearer ${t.access_token}` },
-          }).then(async (res) => {
-            if (res.ok) {
-              const info = await res.json();
-              setOauthStatus("connected");
-              setConnectedEmail(info.email || null);
-            } else if (t.refresh_token && credentials) {
-              // Try refresh
-              try {
-                const newTokens = await refreshAccessToken(credentials, t.refresh_token);
-                setAccessToken(newTokens.access_token);
-                setTokenExpiresAt(Date.now() + newTokens.expires_in * 1000);
-                localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({
-                  access_token: newTokens.access_token,
-                  refresh_token: t.refresh_token,
-                  expires_at: Date.now() + newTokens.expires_in * 1000,
-                }));
-                setOauthStatus("connected");
-                // Re-fetch email
-                const infoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-                  headers: { Authorization: `Bearer ${newTokens.access_token}` },
-                });
-                if (infoRes.ok) {
-                  const info = await infoRes.json();
-                  setConnectedEmail(info.email || null);
-                }
-              } catch {
-                setOauthStatus("disconnected");
-              }
-            } else {
-              setOauthStatus("disconnected");
-            }
-          }).catch(() => setOauthStatus("disconnected"));
+    async function restoreTokens() {
+      try {
+        let t: { access_token: string; refresh_token?: string; expires_at?: number } | null = null;
+
+        // 1. Try Supabase user_metadata
+        const { data: { user } } = await supabase.auth.getUser();
+        const metaTokens = user?.user_metadata?.drive_tokens;
+        if (metaTokens?.access_token) {
+          t = metaTokens;
         }
+
+        // 2. Fallback to localStorage
+        if (!t) {
+          const saved = localStorage.getItem(STORAGE_KEY_TOKENS);
+          if (saved) t = JSON.parse(saved);
+        }
+
+        if (!t?.access_token) return;
+
+        setAccessToken(t.access_token);
+        setRefreshToken(t.refresh_token || "");
+        setTokenExpiresAt(t.expires_at || 0);
+
+        // Validate
+        const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${t.access_token}` },
+        });
+        if (res.ok) {
+          const info = await res.json();
+          setOauthStatus("connected");
+          setConnectedEmail(info.email || null);
+        } else if (t.refresh_token && credentials) {
+          try {
+            const newTokens = await refreshAccessToken(credentials, t.refresh_token);
+            const expiresAt = Date.now() + newTokens.expires_in * 1000;
+            const saved = { access_token: newTokens.access_token, refresh_token: t.refresh_token, expires_at: expiresAt };
+            setAccessToken(newTokens.access_token);
+            setTokenExpiresAt(expiresAt);
+            localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify(saved));
+            supabase.auth.updateUser({ data: { drive_tokens: saved } }).catch(() => {});
+            setOauthStatus("connected");
+            const infoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+              headers: { Authorization: `Bearer ${newTokens.access_token}` },
+            });
+            if (infoRes.ok) {
+              const info = await infoRes.json();
+              setConnectedEmail(info.email || null);
+            }
+          } catch {
+            setOauthStatus("disconnected");
+          }
+        } else {
+          setOauthStatus("disconnected");
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
+    restoreTokens();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [credentials]);
 
   // Handle OAuth code received from popup via postMessage
@@ -209,11 +224,13 @@ export function useDriveProcessor() {
           setRefreshToken(tokens.refresh_token || "");
           const expiresAt = Date.now() + tokens.expires_in * 1000;
           setTokenExpiresAt(expiresAt);
-          localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({
+          const savedTokens = {
             access_token: tokens.access_token,
             refresh_token: tokens.refresh_token || "",
             expires_at: expiresAt,
-          }));
+          };
+          localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify(savedTokens));
+          supabase.auth.updateUser({ data: { drive_tokens: savedTokens } }).catch(() => {});
 
           const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
             headers: { Authorization: `Bearer ${tokens.access_token}` },
@@ -278,6 +295,7 @@ export function useDriveProcessor() {
     setOauthStatus("disconnected");
     setConnectedEmail(null);
     localStorage.removeItem(STORAGE_KEY_TOKENS);
+    supabase.auth.updateUser({ data: { drive_tokens: null } }).catch(() => {});
   }, []);
 
   // Ensure fresh token before API calls
@@ -319,17 +337,32 @@ export function useDriveProcessor() {
     const BATCH_SIZE = 5;
 
     try {
-      const files = await listFiles();
-      setProgress({ current: 0, total: files.length });
+      const allFiles = await listFiles();
+
+      let filesToProcess = allFiles;
+      let skippedCount = 0;
+
+      if (flags.skip_already_imported) {
+        const { data: existingLinks } = await supabase
+          .from("payer_boleto_links")
+          .select("file_id")
+          .not("file_id", "is", null);
+        const alreadyImported = new Set((existingLinks ?? []).map((l: { file_id: string }) => l.file_id).filter(Boolean));
+        filesToProcess = allFiles.filter((f) => !alreadyImported.has(f.id));
+        skippedCount = allFiles.length - filesToProcess.length;
+      }
+
+      setLastSkippedCount(skippedCount);
+      setProgress({ current: 0, total: filesToProcess.length });
 
       const allResults: BoletoResult[] = [];
       const token = await getValidToken();
 
       // Process in batches of BATCH_SIZE using the process_batch action
-      for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
         if (abortRef.current) break;
 
-        const batch = files.slice(i, i + BATCH_SIZE);
+        const batch = filesToProcess.slice(i, i + BATCH_SIZE);
 
         try {
           const data = await callEdgeFunction("process_batch", {
@@ -372,7 +405,7 @@ export function useDriveProcessor() {
           }
         }
 
-        setProgress({ current: Math.min(i + BATCH_SIZE, files.length), total: files.length });
+        setProgress({ current: Math.min(i + BATCH_SIZE, filesToProcess.length), total: filesToProcess.length });
         setResults([...allResults]);
       }
 
@@ -399,6 +432,22 @@ export function useDriveProcessor() {
   const abort = useCallback(() => {
     abortRef.current = true;
   }, []);
+
+  const processSingleFile = useCallback(async (driveUrl: string): Promise<BoletoResult | null> => {
+    const match = driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/) || driveUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (!match) throw new Error("URL do Drive inválida. Use o link de compartilhamento do arquivo.");
+    const fileId = match[1];
+    const token = await getValidToken();
+    const data = await callEdgeFunction("process_batch", {
+      access_token: token,
+      folder_id: folderId.trim(),
+      files: [{ id: fileId, name: "" }],
+      flags,
+      concurrency: 1,
+    });
+    const res = (data.results ?? [])[0] as BoletoResult | undefined;
+    return res ?? null;
+  }, [getValidToken, folderId, flags]);
 
   const deleteDuplicateFiles = useCallback(
     async (fileIds: string[]) => {
@@ -427,11 +476,13 @@ export function useDriveProcessor() {
     setFlags,
     isProcessing,
     progress,
+    lastSkippedCount,
     results,
     folderName,
     processFiles,
     abort,
     deleteDuplicateFiles,
+    processSingleFile,
   };
 }
 

@@ -65,17 +65,22 @@ export function DriveProcessorTab() {
     setFlags,
     isProcessing,
     progress,
+    lastSkippedCount,
     results,
     folderName,
     processFiles,
     abort,
     deleteDuplicateFiles,
+    processSingleFile,
   } = useDriveProcessor();
 
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDebug, setShowDebug] = useState<string | null>(null);
+  const [singleFileUrl, setSingleFileUrl] = useState("");
+  const [singleFileResult, setSingleFileResult] = useState<import("@/hooks/useDriveProcessor").BoletoResult | null>(null);
+  const [isSingleProcessing, setIsSingleProcessing] = useState(false);
 
   const stats = useMemo(() => {
     const total = results.length;
@@ -119,6 +124,27 @@ export function DriveProcessorTab() {
       toast.success("Processamento concluído");
     } catch (err: any) {
       toast.error(`Erro: ${err.message}`);
+    }
+  };
+
+  const handleSingleFile = async () => {
+    if (oauthStatus !== "connected") {
+      toast.error("Conecte ao Google Drive primeiro");
+      return;
+    }
+    if (!singleFileUrl.trim()) return;
+    setIsSingleProcessing(true);
+    setSingleFileResult(null);
+    try {
+      const result = await processSingleFile(singleFileUrl.trim());
+      setSingleFileResult(result);
+      if (!result) toast.error("Nenhum resultado retornado");
+      else if (!result.success) toast.error(`Falha: ${result.error}`);
+      else toast.success("Arquivo processado com sucesso");
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsSingleProcessing(false);
     }
   };
 
@@ -338,6 +364,11 @@ export function DriveProcessorTab() {
           <CardContent className="space-y-3">
             {[
               {
+                key: "skip_already_imported" as const,
+                label: "Pular já importados",
+                desc: "Ignora arquivos que já estão na base",
+              },
+              {
                 key: "rename_files" as const,
                 label: "Renomear PDFs no Drive",
                 desc: "Padrão: NOME - CPF.pdf",
@@ -404,14 +435,20 @@ export function DriveProcessorTab() {
             <Progress value={progressPct} className="h-2" />
             <p className="text-xs text-muted-foreground">
               {progress.current}/{progress.total} arquivos ({progressPct}%)
+              {lastSkippedCount > 0 && ` · ${lastSkippedCount} já importados (pulados)`}
             </p>
           </div>
+        )}
+        {!isProcessing && lastSkippedCount > 0 && results.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Todos os {lastSkippedCount} arquivo(s) já estavam importados. Nada a processar.
+          </p>
         )}
       </div>
 
       {/* Stats */}
       {results.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <Card className="p-3">
             <div className="flex items-center gap-2">
               <FileText className="h-4 w-4 text-muted-foreground" />
@@ -452,8 +489,85 @@ export function DriveProcessorTab() {
               </div>
             </div>
           </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-2xl font-bold text-muted-foreground">
+                  {lastSkippedCount}
+                </p>
+                <p className="text-xs text-muted-foreground">Já importados</p>
+              </div>
+            </div>
+          </Card>
         </div>
       )}
+
+      {/* Arquivo Avulso */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" />
+            Arquivo Avulso
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Para boletos cancelados e reemitidos: cole o link do Drive do novo PDF e processe apenas ele.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="https://drive.google.com/file/d/..."
+              value={singleFileUrl}
+              onChange={(e) => setSingleFileUrl(e.target.value)}
+              className="font-mono text-xs"
+            />
+            <Button
+              onClick={handleSingleFile}
+              disabled={!singleFileUrl.trim() || isSingleProcessing || oauthStatus !== "connected"}
+              className="shrink-0 gap-2"
+            >
+              {isSingleProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Processar
+            </Button>
+          </div>
+          {singleFileResult && (
+            <div className={`rounded-lg border p-4 space-y-2 text-sm ${singleFileResult.success ? "bg-success/5 border-success/30" : "bg-destructive/5 border-destructive/30"}`}>
+              <div className="flex items-center gap-2 font-medium">
+                {singleFileResult.success
+                  ? <CheckCircle2 className="h-4 w-4 text-success" />
+                  : <XCircle className="h-4 w-4 text-destructive" />}
+                {singleFileResult.success ? "Processado com sucesso" : `Falha: ${singleFileResult.error}`}
+              </div>
+              {singleFileResult.success && (
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                  <span className="text-muted-foreground">Nome</span>
+                  <span className="font-medium">{singleFileResult.payer_name || "—"}</span>
+                  <span className="text-muted-foreground">CPF</span>
+                  <span className="font-mono">{singleFileResult.payer_cpf || "—"}</span>
+                  <span className="text-muted-foreground">Nosso Número</span>
+                  <span className="font-mono">{singleFileResult.our_number || "—"}</span>
+                  <span className="text-muted-foreground">Vencimento</span>
+                  <span>{singleFileResult.due_date || "—"}</span>
+                  <span className="text-muted-foreground">Valor</span>
+                  <span className="font-mono">{singleFileResult.amount || "—"}</span>
+                </div>
+              )}
+              {singleFileResult.success && singleFileResult.view_link && (
+                <a
+                  href={singleFileResult.view_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Abrir no Drive
+                </a>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Results Table */}
       {results.length > 0 && (

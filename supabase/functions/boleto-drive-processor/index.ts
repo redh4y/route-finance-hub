@@ -84,12 +84,22 @@ async function extractTextViaDriveOcr(
   }
   const copy = await copyRes.json();
   try {
-    const textRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${copy.id}/export?mimeType=text/plain`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!textRes.ok) throw new Error("Export as text failed");
-    return await textRes.text();
+    // Retry export up to 4 times with increasing delay — OCR conversion may not be ready immediately
+    const delays = [1500, 3000, 5000, 8000];
+    let lastErr = "Export as text failed";
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, delays[attempt - 1]));
+      }
+      const textRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${copy.id}/export?mimeType=text/plain`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (textRes.ok) return await textRes.text();
+      const errText = await textRes.text().catch(() => "");
+      lastErr = `Export as text failed (attempt ${attempt + 1}): ${textRes.status} ${errText.slice(0, 200)}`;
+    }
+    throw new Error(lastErr);
   } finally {
     await fetch(`https://www.googleapis.com/drive/v3/files/${copy.id}`, {
       method: "DELETE",
