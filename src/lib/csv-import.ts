@@ -219,7 +219,7 @@ export function parseCSV<T>(file: File): Promise<T[]> {
     } as const;
 
     // First try UTF-8
-    Papa.parse(file, {
+    Papa.parse(file as any, {
       ...baseOptions,
       encoding: "UTF-8",
       complete: (results: any) => {
@@ -231,7 +231,7 @@ export function parseCSV<T>(file: File): Promise<T[]> {
         if (hasGarbledEncoding(sample)) {
           console.log("Detected garbled UTF-8, retrying with Latin-1...");
           // Re-parse with Latin-1
-          Papa.parse(file, {
+          Papa.parse(file as any, {
             ...baseOptions,
             encoding: "ISO-8859-1",
             complete: (latin1Results: any) => {
