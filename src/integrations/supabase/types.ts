@@ -340,6 +340,42 @@ export type Database = {
         }
         Relationships: []
       }
+      bairro_aliases: {
+        Row: {
+          ativo: boolean
+          bairro_canonico: string
+          complemento: string | null
+          created_at: string
+          entrada: string
+          id: string
+          match_type: string
+          ordem: number
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          bairro_canonico: string
+          complemento?: string | null
+          created_at?: string
+          entrada: string
+          id?: string
+          match_type?: string
+          ordem?: number
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          bairro_canonico?: string
+          complemento?: string | null
+          created_at?: string
+          entrada?: string
+          id?: string
+          match_type?: string
+          ordem?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       billings: {
         Row: {
           amount_expected_cents: number
@@ -2240,6 +2276,71 @@ export type Database = {
             columns: ["excursion_id"]
             isOneToOne: false
             referencedRelation: "excursions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_warnings: {
+        Row: {
+          aluno_id: string | null
+          aluno_nome: string
+          coordenador_nome: string
+          created_at: string
+          data_ocorrencia: string
+          gravidade: string
+          id: string
+          infracoes: string[]
+          numero_advertencia: number | null
+          observacoes: string | null
+          onibus_cor: string | null
+          outro_motivo: string | null
+          penalidade: string
+          suspensao_data: string | null
+          suspensao_dias: number | null
+          suspensao_motivo: string | null
+        }
+        Insert: {
+          aluno_id?: string | null
+          aluno_nome: string
+          coordenador_nome: string
+          created_at?: string
+          data_ocorrencia?: string
+          gravidade: string
+          id?: string
+          infracoes?: string[]
+          numero_advertencia?: number | null
+          observacoes?: string | null
+          onibus_cor?: string | null
+          outro_motivo?: string | null
+          penalidade: string
+          suspensao_data?: string | null
+          suspensao_dias?: number | null
+          suspensao_motivo?: string | null
+        }
+        Update: {
+          aluno_id?: string | null
+          aluno_nome?: string
+          coordenador_nome?: string
+          created_at?: string
+          data_ocorrencia?: string
+          gravidade?: string
+          id?: string
+          infracoes?: string[]
+          numero_advertencia?: number | null
+          observacoes?: string | null
+          onibus_cor?: string | null
+          outro_motivo?: string | null
+          penalidade?: string
+          suspensao_data?: string | null
+          suspensao_dias?: number | null
+          suspensao_motivo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_warnings_aluno_id_fkey"
+            columns: ["aluno_id"]
+            isOneToOne: false
+            referencedRelation: "payers"
             referencedColumns: ["id"]
           },
         ]
