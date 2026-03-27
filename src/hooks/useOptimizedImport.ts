@@ -578,6 +578,8 @@ export function useOptimizedImportBillings() {
           payerStateById.set(payerId, {
             id: payerId,
             payer_code: codeCandidate,
+            document_digits: docCandidate || "",
+            name: billing.payer_name || `Pagador ${codeCandidate || billing.payer_id}`,
             billing_seen_in_month: null,
             last_billing_ref: null,
             status: "ATIVO",

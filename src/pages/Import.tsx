@@ -478,7 +478,7 @@ function ImportPayersCard() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
-      setLastImportResult(null);
+      // clear previous result
       setPreviewRows([]);
       setPreviewSummary({
         total: 0,
@@ -498,7 +498,7 @@ function ImportPayersCard() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
-      setLastImportResult(null);
+      // clear previous result
       setPreviewRows([]);
       setPreviewSummary({
         total: 0,
@@ -695,7 +695,7 @@ function ImportPayersCard() {
   const handleClear = () => {
     setFile(null);
     setPreviewRows([]);
-    setLastImportResult(null);
+    // clear previous result
     reset();
   };
 
@@ -1663,7 +1663,7 @@ function ImportCEPsCard() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
-      setLastImportResult(null);
+      // clear previous result
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -1673,7 +1673,7 @@ function ImportCEPsCard() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
-      setLastImportResult(null);
+      // clear previous result
     }
   };
 
