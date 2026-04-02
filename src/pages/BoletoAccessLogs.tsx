@@ -39,6 +39,7 @@ import {
   Info,
   Link,
   Clock,
+  Siren,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -184,6 +185,35 @@ function buildDueDateReminderUrl(params: {
   return `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`;
 }
 
+function buildUrgencyWhatsappUrl(params: {
+  phone: string | null | undefined;
+  studentName: string | null | undefined;
+  referenceMonth: string | null | undefined;
+  boletoUrl: string | null | undefined;
+}) {
+  const phoneDigits = normalizePhoneDigits(params.phone);
+  if (!phoneDigits || !params.boletoUrl) return null;
+
+  const monthLabel = formatReferenceMonth(params.referenceMonth);
+  const message = `Olá, *${params.studentName || ""}*!
+
+Identificamos que o boleto da *Tavares Transportes* (*${monthLabel}*) ainda consta em aberto no nosso sistema.
+
+*ALERTA IMPORTANTE:* O não pagamento desta pendência *impossibilita que você continue utilizando o transporte e bloqueia o seu embarque*, conforme previsto na *Cláusula 5, § 3°* do seu contrato.
+
+*Aguardamos seu retorno:* Por favor, responda a esta mensagem confirmando o recebimento dela e informando a previsão de pagamento para regularizarmos sua situação e evitar o bloqueio.
+
+*Acesse seu boleto aqui:* ${params.boletoUrl}
+
+Qualquer dúvida, entre em contato conosco.
+
+_Caso o pagamento já tenha sido efetuado, favor enviar o comprovante._
+
+_Esta é uma mensagem automática. Caso já tenha combinado algo com a administração, favor ignorar._`;
+
+  return `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`;
+}
+
 type AccessLog = {
   id: string;
   created_at: string;
@@ -207,6 +237,7 @@ type CoverageRow = {
   searched: boolean;
   downloaded: boolean;
   is_paid: boolean;
+  is_cancelled: boolean;
   is_active: boolean;
   last_access_at: string | null;
 };
@@ -381,7 +412,7 @@ export default function BoletoAccessLogsPage() {
           boletoMap.set(cpfDigits, {
             student_name: row.student_name || null,
             due_date: row.due_date || null,
-            boleto_url: row.view_url || row.drive_url || null,
+            boleto_url: row.drive_url || row.view_url || null,
             payer_id:
               ((row as Record<string, unknown>).payer_id as string | null) ||
               null,
@@ -419,20 +450,23 @@ export default function BoletoAccessLogsPage() {
         }
       }
 
-      // Fetch paid billings for this month to exclude from pending messages
+      // Fetch paid/cancelled billings for this month to exclude from pending messages
       const allPayerIds = Array.from(boletoMap.values())
         .map((b) => b.payer_id)
         .filter((id): id is string => !!id);
       const paidPayerIds = new Set<string>();
+      const cancelledPayerIds = new Set<string>();
       if (allPayerIds.length > 0) {
-        const { data: paidBillings } = await supabase
+        const { data: resolvedBillings } = await supabase
           .from("billings")
-          .select("payer_id")
+          .select("payer_id,status")
           .in("payer_id", allPayerIds)
           .eq("reference_month", referenceMonth)
-          .eq("status", "PAID");
-        for (const b of (paidBillings || []) as { payer_id: string | null }[]) {
-          if (b.payer_id) paidPayerIds.add(b.payer_id);
+          .in("status", ["PAID", "CANCELADO"]);
+        for (const b of (resolvedBillings || []) as { payer_id: string | null; status: string }[]) {
+          if (!b.payer_id) continue;
+          if (b.status === "PAID") paidPayerIds.add(b.payer_id);
+          if (b.status === "CANCELADO") cancelledPayerIds.add(b.payer_id);
         }
       }
 
@@ -450,9 +484,8 @@ export default function BoletoAccessLogsPage() {
             logsForCpf.find((row: any) => row.student_name)?.student_name ||
             boleto.student_name ||
             null;
-          const isPaid = !!(
-            boleto.payer_id && paidPayerIds.has(boleto.payer_id)
-          );
+          const isPaid = !!(boleto.payer_id && paidPayerIds.has(boleto.payer_id));
+          const isCancelled = !!(boleto.payer_id && cancelledPayerIds.has(boleto.payer_id));
           const isActive = activePayerCpfs.has(cpfDigits);
 
           return {
@@ -464,6 +497,7 @@ export default function BoletoAccessLogsPage() {
             searched,
             downloaded,
             is_paid: isPaid,
+            is_cancelled: isCancelled,
             is_active: isActive,
             last_access_at: lastAccessAt,
           };
@@ -501,8 +535,8 @@ export default function BoletoAccessLogsPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const activeRows = (coverage?.rows || []).filter((row) => row.is_active);
-  // Apenas alunos ativos com boleto não pago (base para WhatsApp e ações em lote)
-  const unpaidRows = activeRows.filter((row) => !row.is_paid);
+  // Apenas alunos ativos com boleto não pago e não cancelado (base para WhatsApp e ações em lote)
+  const unpaidRows = activeRows.filter((row) => !row.is_paid && !row.is_cancelled);
 
   const filteredPendingRows = (
     pendingStatusFilter === "all" ? activeRows : unpaidRows
@@ -986,6 +1020,12 @@ export default function BoletoAccessLogsPage() {
                             dueDate: row.due_date,
                             boletoUrl: row.boleto_url,
                           });
+                          const urgencyUrl = buildUrgencyWhatsappUrl({
+                            phone: row.phone,
+                            studentName: row.student_name,
+                            referenceMonth: coverage?.referenceMonth,
+                            boletoUrl: row.boleto_url,
+                          });
                           const isHighlighted =
                             lastWhatsappCpf === row.cpf_digits;
 
@@ -1018,6 +1058,13 @@ export default function BoletoAccessLogsPage() {
                                   >
                                     Pago
                                   </Badge>
+                                ) : row.is_cancelled ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="whitespace-nowrap text-[11px] text-slate-600 border-slate-300 bg-slate-50"
+                                  >
+                                    Baixado
+                                  </Badge>
                                 ) : row.searched ? (
                                   <Badge
                                     variant="outline"
@@ -1042,7 +1089,7 @@ export default function BoletoAccessLogsPage() {
                                 )}
                               </td>
                               <td className="px-3 py-2.5">
-                                {row.is_paid ? null : (
+                                {row.is_paid || row.is_cancelled ? null : (
                                   <div className="flex items-center justify-end gap-1">
                                     {whatsappUrl ? (
                                       <Tooltip>
@@ -1120,6 +1167,31 @@ export default function BoletoAccessLogsPage() {
                                         </TooltipTrigger>
                                         <TooltipContent>
                                           Avisar vencimento
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {urgencyUrl && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setLastWhatsappCpf(
+                                                row.cpf_digits,
+                                              );
+                                              window.open(
+                                                urgencyUrl,
+                                                "tavares-whatsapp-urgency",
+                                                "noopener,noreferrer",
+                                              );
+                                            }}
+                                            className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-700 hover:bg-rose-100 transition-colors"
+                                          >
+                                            <Siren className="h-3.5 w-3.5" />
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Aviso urgente de pendência
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
