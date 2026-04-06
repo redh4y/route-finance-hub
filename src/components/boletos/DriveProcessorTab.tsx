@@ -100,14 +100,16 @@ export function DriveProcessorTab() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    if (!q) return results;
-    return results.filter(
-      (r) =>
-        (r.payer_name || "").toLowerCase().includes(q) ||
-        (r.payer_cpf || "").includes(q) ||
-        (r.original_file_name || "").toLowerCase().includes(q) ||
-        (r.our_number || "").includes(q)
-    );
+    const base = !q
+      ? results
+      : results.filter(
+          (r) =>
+            (r.payer_name || "").toLowerCase().includes(q) ||
+            (r.payer_cpf || "").includes(q) ||
+            (r.original_file_name || "").toLowerCase().includes(q) ||
+            (r.our_number || "").includes(q)
+        );
+    return [...base].sort((a, b) => Number(a.success) - Number(b.success));
   }, [results, search]);
 
   const handleProcess = async () => {

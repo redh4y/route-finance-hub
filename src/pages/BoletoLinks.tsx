@@ -186,6 +186,8 @@ export default function BoletoLinksPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [lines, setLines] = useState<ParsedLine[]>([]);
+  const [failedRows, setFailedRows] = useState<BoletoJsonRow[]>([]);
+  const [showFailed, setShowFailed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [searchPreview, setSearchPreview] = useState("");
 
@@ -249,15 +251,26 @@ export default function BoletoLinksPage() {
 
   const { data: existingMonthLinks = [] } = useQuery({
     queryKey: ["boleto-links-existing-month", referenceMonth],
-    queryFn: async (): Promise<Array<{ payer_id: string | null; cpf_digits: string | null }>> => {
+    queryFn: async (): Promise<Array<{ payer_id: string | null; cpf_digits: string | null; our_number: string | null; drive_url: string | null }>> => {
       const { data, error } = await (supabase as any)
         .from("payer_boleto_links")
-        .select("payer_id,cpf_digits")
+        .select("payer_id,cpf_digits,our_number,drive_url")
         .eq("reference_month", referenceMonth);
       if (error) throw error;
-      return (data || []) as Array<{ payer_id: string | null; cpf_digits: string | null }>;
+      return (data || []) as Array<{ payer_id: string | null; cpf_digits: string | null; our_number: string | null; drive_url: string | null }>;
     },
   });
+
+  const existingKeys = useMemo(() => {
+    const ourNumbers = new Set<string>();
+    const cpfDriveUrls = new Set<string>();
+    for (const row of existingMonthLinks) {
+      if (row.our_number) ourNumbers.add(row.our_number);
+      const cpf = normalizeDigits(row.cpf_digits || "");
+      if (cpf && row.drive_url) cpfDriveUrls.add(`${cpf}|${row.drive_url}`);
+    }
+    return { ourNumbers, cpfDriveUrls };
+  }, [existingMonthLinks]);
 
 
   const stats = useMemo(() => {
@@ -337,7 +350,10 @@ export default function BoletoLinksPage() {
 
       if (ext === "json") {
         const text = await f.text();
-        const rows = parseBoletoJsonRows(text).filter((r) => r && r.success !== false && !r.error);
+        const allRows = parseBoletoJsonRows(text);
+        const failed = allRows.filter((r) => r.success === false || !!r.error);
+        setFailedRows(failed);
+        const rows = allRows.filter((r) => r.success !== false && !r.error);
 
         parsed = rows.map((row, idx): ParsedLine => {
           const studentName = String(row.payer_name || "").trim() || null;
@@ -603,6 +619,13 @@ export default function BoletoLinksPage() {
       const dedupedValid = Array.from(uniqueByKey.values());
       const repeatedInFile = valid.length - dedupedValid.length;
 
+      const alreadyImportedCount = dedupedValid.filter((l) =>
+        l.our_number
+          ? existingKeys.ourNumbers.has(l.our_number)
+          : !!(l.cpf_digits && l.drive_url && existingKeys.cpfDriveUrls.has(`${l.cpf_digits}|${l.drive_url}`))
+      ).length;
+      const newCount = dedupedValid.length - alreadyImportedCount;
+
       const payload = dedupedValid.map((l) => ({
         reference_month: l.reference_month || referenceMonth,
         payer_id: l.payer_id,
@@ -636,7 +659,10 @@ export default function BoletoLinksPage() {
         if (upsertByCpfUrlError) throw upsertByCpfUrlError;
       }
 
-      toast.success(`Importacao concluida: ${dedupedValid.length} linhas processadas${repeatedInFile > 0 ? `, ${repeatedInFile} repetidas no arquivo consolidadas` : ""}.`);
+      const parts = [`${newCount} nova${newCount !== 1 ? "s" : ""}`];
+      if (alreadyImportedCount > 0) parts.push(`${alreadyImportedCount} atualizad${alreadyImportedCount !== 1 ? "as" : "a"}`);
+      if (repeatedInFile > 0) parts.push(`${repeatedInFile} repetida${repeatedInFile !== 1 ? "s" : ""} no arquivo consolidadas`);
+      toast.success(`Importação concluída: ${dedupedValid.length} link${dedupedValid.length !== 1 ? "s" : ""} · ${parts.join(" · ")}`);
     } catch (error: any) {
       toast.error(`Erro na importacao: ${error?.message || "falha"}`);
     } finally {
@@ -675,8 +701,8 @@ export default function BoletoLinksPage() {
             <TabsContent value="import" className="mt-4 space-y-6">
 
           {/* Stats Cards */}
-          {lines.length > 0 && (
-            <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+          {(lines.length > 0 || failedRows.length > 0) && (
+            <div className="grid gap-4 grid-cols-2 lg:grid-cols-6">
               <Card>
                 <CardContent className="pt-4 pb-3 flex items-center gap-3">
                   <div className="rounded-lg bg-primary/10 p-2.5">
@@ -729,6 +755,20 @@ export default function BoletoLinksPage() {
                   <div>
                     <p className="text-xs text-muted-foreground">Sem link/CPF</p>
                     <p className="text-xl font-bold">{stats.missingUrl + stats.missingData}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card
+                className={failedRows.length > 0 ? "cursor-pointer border-destructive/50 hover:bg-destructive/5" : ""}
+                onClick={() => failedRows.length > 0 && setShowFailed((v) => !v)}
+              >
+                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+                  <div className="rounded-lg bg-destructive/10 p-2.5">
+                    <AlertTriangle className="h-5 w-5 text-destructive" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Falhas OCR</p>
+                    <p className={`text-xl font-bold ${failedRows.length > 0 ? "text-destructive" : ""}`}>{failedRows.length}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -839,7 +879,7 @@ export default function BoletoLinksPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => { setFile(null); setLines([]); }}
+                  onClick={() => { setFile(null); setLines([]); setFailedRows([]); setShowFailed(false); }}
                   disabled={isParsing || isSaving}
                 >
                   Limpar
@@ -847,6 +887,53 @@ export default function BoletoLinksPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Failures Table */}
+          {showFailed && failedRows.length > 0 && (
+            <Card className="border-destructive/40">
+              <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+                <CardTitle className="text-base text-destructive flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  Falhas na leitura OCR
+                </CardTitle>
+                <Badge variant="destructive" className="font-mono text-xs">
+                  {failedRows.length}
+                </Badge>
+              </CardHeader>
+              <CardContent className="px-0">
+                <ScrollArea className="h-[320px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="pl-6">Nome</TableHead>
+                        <TableHead>CPF</TableHead>
+                        <TableHead>Nosso Nº</TableHead>
+                        <TableHead className="pr-6">Erro</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {failedRows.map((row, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell className="pl-6 text-sm font-medium max-w-[180px] truncate">
+                            {row.payer_name || "–"}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.payer_cpf ? normalizeDigits(row.payer_cpf) : "–"}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.our_number || "–"}
+                          </TableCell>
+                          <TableCell className="pr-6 text-xs text-destructive max-w-[300px] truncate" title={row.error || undefined}>
+                            {row.error || "success: false"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Preview Table */}
           <Card>
@@ -917,12 +1004,22 @@ export default function BoletoLinksPage() {
                           )}
                         </TableCell>
                         <TableCell className="pr-6">
-                          {line.match_status === "MATCH" && (
-                            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-0 gap-1 text-[11px]">
-                              <CheckCircle2 className="h-3 w-3" />
-                              Match
-                            </Badge>
-                          )}
+                          {line.match_status === "MATCH" && (() => {
+                            const alreadyImported = line.our_number
+                              ? existingKeys.ourNumbers.has(line.our_number)
+                              : !!(line.cpf_digits && line.drive_url && existingKeys.cpfDriveUrls.has(`${line.cpf_digits}|${line.drive_url}`));
+                            return alreadyImported ? (
+                              <Badge variant="outline" className="text-slate-500 border-slate-400/50 gap-1 text-[11px]">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Já importado
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-0 gap-1 text-[11px]">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Match
+                              </Badge>
+                            );
+                          })()}
                           {line.match_status === "NO_MATCH" && (
                             <Badge variant="outline" className="text-destructive border-destructive/50 gap-1 text-[11px]">
                               <AlertTriangle className="h-3 w-3" />

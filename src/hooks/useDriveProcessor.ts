@@ -332,9 +332,11 @@ export function useDriveProcessor() {
   const processFiles = useCallback(async () => {
     setIsProcessing(true);
     setResults([]);
+    setLastSkippedCount(0);
+    setProgress({ current: 0, total: 0 });
     abortRef.current = false;
 
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = 15;
 
     try {
       const allFiles = await listFiles();

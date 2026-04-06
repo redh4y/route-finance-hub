@@ -85,7 +85,7 @@ async function extractTextViaDriveOcr(
   const copy = await copyRes.json();
   try {
     // Retry export up to 4 times with increasing delay — OCR conversion may not be ready immediately
-    const delays = [1500, 3000, 5000, 8000];
+    const delays = [800, 2000, 4000, 7000];
     let lastErr = "Export as text failed";
     for (let attempt = 0; attempt <= delays.length; attempt++) {
       if (attempt > 0) {
@@ -792,7 +792,7 @@ serve(async (req: Request) => {
       /* ─── Processar lote de arquivos em paralelo ─── */
       case "process_batch": {
         const files = body.files as { id: string; name: string }[];
-        const concurrency = Math.min(body.concurrency || 5, 8);
+        const concurrency = Math.min(body.concurrency || 15, 15);
         const batchResults: unknown[] = [];
 
         // Process in chunks of `concurrency`
