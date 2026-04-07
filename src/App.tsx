@@ -42,6 +42,7 @@ import BoletoLinksPage from "./pages/BoletoLinks";
 import PublicBoletoLinksPage from "./pages/PublicBoletoLinks";
 import BoletoAccessLogsPage from "./pages/BoletoAccessLogs";
 import AddressMatch from "./pages/AddressMatch";
+import PayerGroups from "./pages/PayerGroups";
 import OAuthCallback from "./pages/OAuthCallback";
 import Reconciliation from "./pages/Reconciliation";
 import AffiliatePortal from "./pages/AffiliatePortal";
@@ -301,6 +302,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AddressMatch />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/grupos-viagem"
+                element={
+                  <ProtectedRoute>
+                    <PayerGroups />
                   </ProtectedRoute>
                 }
               />

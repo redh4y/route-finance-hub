@@ -66,6 +66,7 @@ const navItems = [
       { label: "Logs 2a via", path: "/logs/2via-boletos", icon: FileText },
       { label: "Rotas", path: "/rotas", icon: MapPin },
       { label: "Match Endereços", path: "/match-enderecos", icon: MapPin },
+      { label: "Grupos de Viagem", path: "/grupos-viagem", icon: Users2 },
     ],
   },
   {
