@@ -8,6 +8,7 @@ export type PayerGroup = {
   active: boolean;
   created_at: string;
   member_count?: number;
+  unmatched_count?: number;
 };
 
 export type GroupMember = {
@@ -59,6 +60,13 @@ export type ImportLogEntry = {
   best_candidate_score: number | null;
 };
 
+export type IgnoreEntry = {
+  id: string;
+  wa_name: string;
+  reason: string | null;
+  created_at: string;
+};
+
 export type ImportQueueItem = {
   id: string;
   fileName: string;
@@ -66,6 +74,7 @@ export type ImportQueueItem = {
   parseError: string | null;
   routeConfig: string;
   matchResults: MatchResult[];
+  skippedCount: number;
   analyzed: boolean;
   isAnalyzing: boolean;
   existingMembers: GroupMember[];

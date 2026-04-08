@@ -12,6 +12,7 @@ import { RoutePricingCard } from "@/components/payer-groups/RoutePricingCard";
 import { CreateGroupDialog } from "@/components/payer-groups/CreateGroupDialog";
 import { ManageGroupDialog } from "@/components/payer-groups/ManageGroupDialog";
 import { RouteManagerDialog } from "@/components/payer-groups/RouteManagerDialog";
+import { IgnoreListCard } from "@/components/payer-groups/IgnoreListCard";
 import type { PayerGroup, PayerLite } from "@/components/payer-groups/types";
 
 export default function PayerGroupsPage() {
@@ -84,6 +85,7 @@ export default function PayerGroupsPage() {
             <aside className="xl:col-span-4 space-y-6 sticky top-[120px]">
               <JsonImportSidebar />
               <RoutePricingCard onManageRoutes={() => setShowRouteManager(true)} />
+              <IgnoreListCard />
             </aside>
           </div>
         </div>

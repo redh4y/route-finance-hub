@@ -30,21 +30,22 @@ export function RoutePricingCard({ onManageRoutes }: RoutePricingCardProps) {
   });
 
   useEffect(() => {
-    const init: Record<string, string> = {};
-    for (const r of routes) {
-      if (r.monthly_amount_cents != null) {
-        init[r.route] = (r.monthly_amount_cents / 100).toFixed(2).replace(".", ",");
-      } else {
-        init[r.route] = init[r.route] ?? "";
-      }
-    }
     setInputs((prev) => {
-      const merged = { ...init };
-      for (const key of Object.keys(prev)) {
-        if (prev[key] !== "") merged[key] = prev[key];
+      const next: Record<string, string> = {};
+      for (const r of routes) {
+        // Keep user's in-progress edit if they've typed something
+        if (prev[r.route] !== undefined) {
+          next[r.route] = prev[r.route];
+        } else if (r.monthly_amount_cents != null) {
+          next[r.route] = (r.monthly_amount_cents / 100).toFixed(2).replace(".", ",");
+        } else {
+          next[r.route] = "";
+        }
       }
-      return merged;
+      return next;
     });
+  // Only re-run when the fetched route data changes (reference-stable from React Query)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes]);
 
   const handleSave = async () => {

@@ -1,4 +1,4 @@
-import { User, Settings2, Trash2 } from "lucide-react";
+import { User, Settings2, Trash2, AlertTriangle } from "lucide-react";
 import { colorBorderClass, formatCents } from "./utils";
 import type { PayerGroup } from "./types";
 
@@ -21,7 +21,15 @@ export function GroupRow({ group, routePricing, onManage, onDelete }: GroupRowPr
 
       {/* Name + description */}
       <td className="px-4 py-3">
-        <p className="font-semibold text-[#001e40] leading-snug">{group.name}</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="font-semibold text-[#001e40] leading-snug">{group.name}</p>
+          {(group.unmatched_count ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+              <AlertTriangle className="w-3 h-3" />
+              {group.unmatched_count} sem vínculo
+            </span>
+          )}
+        </div>
         {group.description && (
           <p className="text-xs text-[#94a3b8] truncate max-w-[240px]">{group.description}</p>
         )}
@@ -44,7 +52,7 @@ export function GroupRow({ group, routePricing, onManage, onDelete }: GroupRowPr
 
       {/* Actions */}
       <td className="px-4 py-3 text-right">
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center justify-end gap-1">
           <button
             onClick={() => onManage(group)}
             className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#e5eeff] text-[#001e40] rounded-lg hover:bg-[#001e40] hover:text-white transition-all"

@@ -69,6 +69,16 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
     [currentMembers]
   );
 
+  const sortedMembers = useMemo(
+    () =>
+      [...currentMembers].sort((a, b) => {
+        const aUnlinked = a.match_status !== "ok" ? 0 : 1;
+        const bUnlinked = b.match_status !== "ok" ? 0 : 1;
+        return aUnlinked - bUnlinked;
+      }),
+    [currentMembers]
+  );
+
   const handleLinkPayer = async (memberId: string, payerId: string) => {
     const { error } = await (supabase as any)
       .from("payer_group_members")
@@ -234,7 +244,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {currentMembers.map((m) => {
+                  {sortedMembers.map((m) => {
                     const isUnlinked = m.match_status !== "ok";
                     return (
                       <TableRow key={m.id} className={isUnlinked ? "bg-amber-50/60" : undefined}>

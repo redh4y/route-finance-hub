@@ -17,7 +17,7 @@ export function RouteSection({ onManage }: RouteSectionProps) {
   const [auditRoute, setAuditRoute] = useState<string | null>(null);
 
   const { data: groups = [], isLoading } = useQuery<PayerGroup[]>({
-    queryKey: ["payer_groups"],
+    queryKey: ["payer_groups", "with_counts"],
     queryFn: async () => {
       const { data: groupRows, error } = await (supabase as any)
         .from("payer_groups")
@@ -35,9 +35,26 @@ export function RouteSection({ onManage }: RouteSectionProps) {
       for (const row of counts ?? []) {
         countMap[row.group_id] = (countMap[row.group_id] ?? 0) + 1;
       }
+
+      // Unmatched count is best-effort — column may not exist yet
+      const unmatchedMap: Record<string, number> = {};
+      try {
+        const { data: unmatched } = await (supabase as any)
+          .from("payer_group_members")
+          .select("group_id,match_status")
+          .eq("active", true)
+          .neq("match_status", "ok");
+        for (const row of unmatched ?? []) {
+          unmatchedMap[row.group_id] = (unmatchedMap[row.group_id] ?? 0) + 1;
+        }
+      } catch {
+        // column doesn't exist yet — ignore
+      }
+
       return (groupRows ?? []).map((g: PayerGroup) => ({
         ...g,
         member_count: countMap[g.id] ?? 0,
+        unmatched_count: unmatchedMap[g.id] ?? 0,
       }));
     },
   });
@@ -73,7 +90,7 @@ export function RouteSection({ onManage }: RouteSectionProps) {
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["payer_groups"] });
+      qc.invalidateQueries({ queryKey: ["payer_groups"] }); // invalidates both base + "with_counts"
       qc.invalidateQueries({ queryKey: ["payer_group_members_all"] });
       toast.success("Grupo removido.");
     },

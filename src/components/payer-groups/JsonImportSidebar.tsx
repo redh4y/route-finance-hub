@@ -2,7 +2,7 @@ import { useRef, useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   UploadCloud, FileJson, CheckCircle2, AlertTriangle, XCircle,
-  RefreshCw, ChevronDown, ChevronUp, Trash2,
+  RefreshCw, ChevronDown, ChevronUp, Trash2, ShieldOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { scoreNamePhone } from "@/lib/phone-match-engine";
-import type { ImportQueueItem, PayerLite, MatchResult, GroupMember, RouteConfig } from "./types";
+import type { ImportQueueItem, PayerLite, MatchResult, GroupMember, RouteConfig, IgnoreEntry } from "./types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -79,20 +79,39 @@ export function JsonImportSidebar() {
     [routeConfigRows]
   );
 
+  const { data: ignoreEntries = [] } = useQuery<IgnoreEntry[]>({
+    queryKey: ["payer_import_ignore_list"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("payer_import_ignore_list")
+        .select("*");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const ignoreSet = useMemo(
+    () => new Set(ignoreEntries.map((e) => e.wa_name.trim().toLowerCase())),
+    [ignoreEntries]
+  );
+
   // ── Analysis ───────────────────────────────────────────────────────────────
 
   const runAnalysisForItem = async (id: string, membros: string[]) => {
+    const toProcess = membros.filter((n) => !ignoreSet.has(n.trim().toLowerCase()));
+    const skippedCount = membros.length - toProcess.length;
+
     setQueue((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, isAnalyzing: true, analyzed: false, matchResults: [] } : item
+        item.id === id ? { ...item, isAnalyzing: true, analyzed: false, matchResults: [], skippedCount } : item
       )
     );
 
     const CHUNK = 8;
     const results: MatchResult[] = [];
 
-    for (let i = 0; i < membros.length; i += CHUNK) {
-      const chunk = membros.slice(i, i + CHUNK);
+    for (let i = 0; i < toProcess.length; i += CHUNK) {
+      const chunk = toProcess.slice(i, i + CHUNK);
       for (const waName of chunk) {
         const scored = allPayers
           .map((p) => ({ payer: p, score: scoreNamePhone(waName, p.name) }))
@@ -115,7 +134,7 @@ export function JsonImportSidebar() {
 
     setQueue((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, isAnalyzing: false, analyzed: true, matchResults: results } : item
+        item.id === id ? { ...item, isAnalyzing: false, analyzed: true, matchResults: results, skippedCount } : item
       )
     );
   };
@@ -154,6 +173,7 @@ export function JsonImportSidebar() {
         parseError: error,
         routeConfig: existingGroup?.route ?? "__none__",
         matchResults: [],
+        skippedCount: 0,
         analyzed: false,
         isAnalyzing: false,
         existingMembers: [],
@@ -363,6 +383,7 @@ export function JsonImportSidebar() {
                 item={item}
                 expanded={!!expanded[item.id]}
                 routeOptions={routeOptions}
+                allPayers={allPayers}
                 existingGroupName={existingGroups.find(
                   (g) => g.name.trim().toLowerCase() === item.parsed?.grupo.trim().toLowerCase()
                 )?.name}
@@ -396,6 +417,7 @@ interface QueueCardProps {
   expanded: boolean;
   routeOptions: string[];
   existingGroupName?: string;
+  allPayers: PayerLite[];
   onToggle: () => void;
   onRouteChange: (v: string) => void;
   onSelectPayer: (idx: number, payerId: string) => void;
@@ -404,7 +426,7 @@ interface QueueCardProps {
 }
 
 function QueueCard({
-  item, expanded, routeOptions, existingGroupName,
+  item, expanded, routeOptions, existingGroupName, allPayers,
   onToggle, onRouteChange, onSelectPayer, onSave, onRemove,
 }: QueueCardProps) {
   const existingPayerIds = useMemo(
@@ -421,7 +443,7 @@ function QueueCard({
   }, [item.analyzed, item.matchResults, item.existingMembers, existingPayerIds]);
 
   const reviewItems = item.matchResults.filter(
-    (r) => r.status === "review" && !(r.selected && existingPayerIds.has(r.selected.id))
+    (r) => (r.status === "review" || r.status === "none") && !(r.selected && existingPayerIds.has(r.selected.id))
   );
   const hasReview = reviewItems.length > 0;
 
@@ -480,7 +502,14 @@ function QueueCard({
           {item.isAnalyzing && (
             <div className="flex items-center gap-2 text-xs text-[#001e40] font-medium bg-[#eff4ff] p-2 rounded-lg">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              Analisando… {item.matchResults.length}/{item.parsed?.membros.length ?? 0}
+              Analisando… {item.matchResults.length}/{(item.parsed?.membros.length ?? 0) - item.skippedCount}
+            </div>
+          )}
+
+          {item.skippedCount > 0 && (
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+              <ShieldOff className="w-3 h-3 shrink-0" />
+              {item.skippedCount} nome(s) ignorado(s) pela lista de ignorados
             </div>
           )}
 
@@ -520,13 +549,18 @@ function QueueCard({
                         </td>
                         <td className="px-3 py-1.5">
                           {alreadyIn ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="text-[10px] text-slate-400 font-medium">Mantido</span>
                           ) : r.status === "match" ? (
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                           ) : r.status === "review" ? (
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                            <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-600">
+                              <AlertTriangle className="w-3 h-3" />
+                              {r.selected ? `${r.topCandidates[0] ? (r.topCandidates.find(c => c.payer.id === r.selected?.id)?.score ?? 0) * 100 | 0 : 0}%` : "Rev."}
+                            </span>
                           ) : (
-                            <XCircle className="w-3.5 h-3.5 text-red-400" />
+                            <span className="text-[10px] font-semibold text-red-500 flex items-center gap-1">
+                              <XCircle className="w-3 h-3" /> Sem match
+                            </span>
                           )}
                         </td>
                       </tr>
@@ -546,33 +580,35 @@ function QueueCard({
 
           {/* Review selects */}
           {hasReview && (
-            <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 space-y-2">
-              <p className="text-xs font-bold text-amber-800 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Revisar matches
-              </p>
-              {reviewItems.map((r) => {
-                const idx = item.matchResults.indexOf(r);
-                return (
-                  <div key={idx} className="flex gap-2 items-center">
-                    <span className="text-[10px] font-bold text-slate-600 truncate w-20" title={r.waName}>
-                      {r.waName}
-                    </span>
-                    <Select value={r.selected?.id ?? "__none__"} onValueChange={(v) => onSelectPayer(idx, v)}>
-                      <SelectTrigger className="h-7 text-[10px] flex-1 bg-white">
-                        <SelectValue placeholder="Conectar..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">— Ignorar —</SelectItem>
-                        {r.topCandidates.map(({ payer, score }) => (
-                          <SelectItem key={payer.id} value={payer.id}>
-                            {payer.name} ({(score * 100).toFixed(0)}%)
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                );
-              })}
+            <div className="space-y-1">
+              {/* review group (score 60–84) */}
+              {reviewItems.filter((r) => r.status === "review").length > 0 && (
+                <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 space-y-2">
+                  <p className="text-xs font-bold text-amber-800 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> Match incerto — confirme
+                  </p>
+                  {reviewItems.filter((r) => r.status === "review").map((r) => {
+                    const idx = item.matchResults.indexOf(r);
+                    return (
+                      <ReviewRow key={idx} r={r} idx={idx} allPayers={allPayers} onSelectPayer={onSelectPayer} />
+                    );
+                  })}
+                </div>
+              )}
+              {/* none group (score < 60) */}
+              {reviewItems.filter((r) => r.status === "none").length > 0 && (
+                <div className="bg-red-50 p-3 rounded-xl border border-red-100 space-y-2">
+                  <p className="text-xs font-bold text-red-700 flex items-center gap-1">
+                    <XCircle className="w-3 h-3" /> Sem match — vincule manualmente
+                  </p>
+                  {reviewItems.filter((r) => r.status === "none").map((r) => {
+                    const idx = item.matchResults.indexOf(r);
+                    return (
+                      <ReviewRow key={idx} r={r} idx={idx} allPayers={allPayers} onSelectPayer={onSelectPayer} showAll />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -598,6 +634,45 @@ function QueueCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── ReviewRow ─────────────────────────────────────────────────────────────────
+
+function ReviewRow({
+  r, idx, allPayers, onSelectPayer, showAll = false,
+}: {
+  r: MatchResult;
+  idx: number;
+  allPayers: PayerLite[];
+  onSelectPayer: (idx: number, payerId: string) => void;
+  showAll?: boolean;
+}) {
+  const options = showAll ? allPayers : r.topCandidates.map((c) => c.payer);
+  const scoreMap = new Map(r.topCandidates.map((c) => [c.payer.id, c.score]));
+
+  return (
+    <div className="flex gap-2 items-center">
+      <span className="text-[10px] font-bold text-slate-600 truncate w-24 shrink-0" title={r.waName}>
+        {r.waName}
+      </span>
+      <Select value={r.selected?.id ?? "__none__"} onValueChange={(v) => onSelectPayer(idx, v)}>
+        <SelectTrigger className="h-7 text-[10px] flex-1 bg-white">
+          <SelectValue placeholder="Vincular pagador…" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">— Ignorar —</SelectItem>
+          {options.map((payer) => {
+            const score = scoreMap.get(payer.id);
+            return (
+              <SelectItem key={payer.id} value={payer.id}>
+                {payer.name}{score != null ? ` (${(score * 100).toFixed(0)}%)` : ""}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
