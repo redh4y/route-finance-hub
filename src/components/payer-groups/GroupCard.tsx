@@ -13,7 +13,10 @@ export function GroupRow({ group, routePricing, onManage, onDelete }: GroupRowPr
   const priceForRoute = group.route != null ? routePricing[group.route] : undefined;
 
   return (
-    <tr className="hover:bg-[#f8faff] transition-colors group">
+    <tr
+      className="hover:bg-[#f8faff] transition-colors cursor-pointer"
+      onClick={() => onManage(group)}
+    >
       {/* Color stripe */}
       <td className="px-4 py-3">
         <div className={`w-1 h-8 rounded-full ${colorBorderClass(group.color).replace("border-", "bg-")}`} />
@@ -50,8 +53,8 @@ export function GroupRow({ group, routePricing, onManage, onDelete }: GroupRowPr
         </span>
       </td>
 
-      {/* Actions */}
-      <td className="px-4 py-3 text-right">
+      {/* Actions — always visible, stop propagation so row click doesn't fire */}
+      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={() => onManage(group)}
@@ -61,7 +64,7 @@ export function GroupRow({ group, routePricing, onManage, onDelete }: GroupRowPr
           </button>
           <button
             onClick={() => onDelete(group)}
-            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
             title="Excluir grupo"
           >
             <Trash2 className="w-3.5 h-3.5" />

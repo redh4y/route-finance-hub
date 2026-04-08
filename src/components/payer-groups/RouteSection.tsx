@@ -1,8 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Map as MapIcon, Bus, BarChart3 } from "lucide-react";
+import { Map as MapIcon, Bus, BarChart3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { GroupRow } from "./GroupCard";
 import { RouteAuditDialog } from "./RouteAuditDialog";
 import { toTitleCase } from "./utils";
@@ -15,6 +19,7 @@ interface RouteSectionProps {
 export function RouteSection({ onManage }: RouteSectionProps) {
   const qc = useQueryClient();
   const [auditRoute, setAuditRoute] = useState<string | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<PayerGroup | null>(null);
 
   const { data: groups = [], isLoading } = useQuery<PayerGroup[]>({
     queryKey: ["payer_groups", "with_counts"],
@@ -36,19 +41,14 @@ export function RouteSection({ onManage }: RouteSectionProps) {
         countMap[row.group_id] = (countMap[row.group_id] ?? 0) + 1;
       }
 
-      // Unmatched count is best-effort — column may not exist yet
       const unmatchedMap: Record<string, number> = {};
-      try {
-        const { data: unmatched } = await (supabase as any)
-          .from("payer_group_members")
-          .select("group_id,match_status")
-          .eq("active", true)
-          .neq("match_status", "ok");
-        for (const row of unmatched ?? []) {
-          unmatchedMap[row.group_id] = (unmatchedMap[row.group_id] ?? 0) + 1;
-        }
-      } catch {
-        // column doesn't exist yet — ignore
+      const { data: unmatched } = await (supabase as any)
+        .from("payer_group_members")
+        .select("group_id,match_status")
+        .eq("active", true)
+        .in("match_status", ["unmatched", "review_ignored"]);
+      for (const row of unmatched ?? []) {
+        unmatchedMap[row.group_id] = (unmatchedMap[row.group_id] ?? 0) + 1;
       }
 
       return (groupRows ?? []).map((g: PayerGroup) => ({
@@ -178,9 +178,7 @@ export function RouteSection({ onManage }: RouteSectionProps) {
                       group={group}
                       routePricing={routePricing}
                       onManage={onManage}
-                      onDelete={(g) => {
-                        if (confirm(`Remover grupo "${g.name}"?`)) deleteGroup.mutate(g.id);
-                      }}
+                      onDelete={(g) => setDeletingGroup(g)}
                     />
                   ))}
                 </tbody>
@@ -197,6 +195,40 @@ export function RouteSection({ onManage }: RouteSectionProps) {
           onClose={() => setAuditRoute(null)}
         />
       )}
+
+      <Dialog open={!!deletingGroup} onOpenChange={(v) => !v && setDeletingGroup(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Trash2 className="h-4 w-4 text-red-500" />
+              Excluir grupo
+            </DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir o grupo{" "}
+              <span className="font-semibold text-foreground">"{deletingGroup?.name}"</span>?
+              <br />
+              Todos os membros serão desvinculados. Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setDeletingGroup(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteGroup.isPending}
+              onClick={() => {
+                if (deletingGroup) {
+                  deleteGroup.mutate(deletingGroup.id);
+                  setDeletingGroup(null);
+                }
+              }}
+            >
+              {deleteGroup.isPending ? "Excluindo…" : "Excluir"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

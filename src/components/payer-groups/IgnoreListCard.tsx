@@ -2,15 +2,21 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldOff, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import type { IgnoreEntry } from "./types";
+import type { IgnoreEntry, IgnoreCategory } from "./types";
 
 export function IgnoreListCard() {
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState("");
-  const [reason, setReason] = useState("");
+  const [categoryId, setCategoryId] = useState<string>("__none__");
+  const [newCatName, setNewCatName] = useState("");
+  const [showNewCat, setShowNewCat] = useState(false);
   const [adding, setAdding] = useState(false);
 
   const { data: entries = [] } = useQuery<IgnoreEntry[]>({
@@ -18,25 +24,54 @@ export function IgnoreListCard() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("payer_import_ignore_list")
-        .select("*")
+        .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
   });
 
+  const { data: categories = [], refetch: refetchCats } = useQuery<IgnoreCategory[]>({
+    queryKey: ["payer_ignore_categories"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("payer_ignore_categories")
+        .select("*")
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const handleCreateCategory = async () => {
+    const trimmed = newCatName.trim();
+    if (!trimmed) return;
+    const { data, error } = await (supabase as any)
+      .from("payer_ignore_categories")
+      .insert({ name: trimmed })
+      .select("id")
+      .single();
+    if (error) { toast.error(error.message); return; }
+    await refetchCats();
+    setCategoryId(data.id);
+    setNewCatName("");
+    setShowNewCat(false);
+    qc.invalidateQueries({ queryKey: ["payer_ignore_categories"] });
+  };
+
   const handleAdd = async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     setAdding(true);
     try {
+      const catId = categoryId === "__none__" ? null : categoryId;
       const { error } = await (supabase as any)
         .from("payer_import_ignore_list")
-        .insert({ wa_name: trimmed, reason: reason.trim() || null });
+        .insert({ wa_name: trimmed, category_id: catId });
       if (error) throw error;
       toast.success(`"${trimmed}" adicionado à lista de ignorados.`);
       setName("");
-      setReason("");
+      setCategoryId("__none__");
       qc.invalidateQueries({ queryKey: ["payer_import_ignore_list"] });
     } catch (e: any) {
       toast.error(e.message);
@@ -95,12 +130,42 @@ export function IgnoreListCard() {
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAdd()}
             />
-            <Input
-              placeholder="Motivo (ex: motorista, paga por Pix…)"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            />
+
+            <Select value={categoryId} onValueChange={setCategoryId}>
+              <SelectTrigger className="text-sm">
+                <SelectValue placeholder="Categoria (opcional)…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Sem categoria —</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {!showNewCat ? (
+              <button
+                type="button"
+                onClick={() => setShowNewCat(true)}
+                className="flex items-center gap-1 text-xs text-[#001e40] font-semibold hover:underline"
+              >
+                <Plus className="w-3 h-3" /> Nova categoria
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <Input
+                  autoFocus
+                  placeholder="Nome da categoria"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateCategory(); if (e.key === "Escape") setShowNewCat(false); }}
+                />
+                <Button size="sm" onClick={handleCreateCategory} disabled={!newCatName.trim()}>
+                  Criar
+                </Button>
+              </div>
+            )}
+
             <button
               onClick={handleAdd}
               disabled={adding || !name.trim()}
@@ -124,9 +189,13 @@ export function IgnoreListCard() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-[#001e40] truncate">{e.wa_name}</p>
-                    {e.reason && (
+                    {e.category?.name ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 mt-0.5">
+                        {e.category.name}
+                      </span>
+                    ) : e.reason ? (
                       <p className="text-[11px] text-[#94a3b8] truncate">{e.reason}</p>
-                    )}
+                    ) : null}
                   </div>
                   <button
                     onClick={() => handleDelete(e)}

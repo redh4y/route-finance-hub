@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Users, UserPlus, Search, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Trash2, Users, UserPlus, Search, CheckCircle2, AlertTriangle, ShieldOff, Plus } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -20,7 +20,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { scoreNamePhone } from "@/lib/phone-match-engine";
 import { colorBadgeClass } from "./utils";
-import type { PayerGroup, PayerLite, GroupMember, MatchResult, RouteConfig } from "./types";
+import type { PayerGroup, PayerLite, GroupMember, MatchResult, RouteConfig, IgnoreCategory, IgnoreEntry } from "./types";
 
 interface ManageGroupDialogProps {
   group: PayerGroup;
@@ -37,6 +37,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
   const [saving, setSaving] = useState(false);
   const [editRoute, setEditRoute] = useState(group.route ?? "__none__");
   const [savingSettings, setSavingSettings] = useState(false);
+  const [ignoringMember, setIgnoringMember] = useState<GroupMember | null>(null);
 
   const { data: routeConfigRows = [] } = useQuery<RouteConfig[]>({
     queryKey: ["route_config"],
@@ -64,6 +65,22 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
     },
   });
 
+  const { data: ignoreList = [] } = useQuery<{ wa_name: string }[]>({
+    queryKey: ["payer_import_ignore_list", "names"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("payer_import_ignore_list")
+        .select("wa_name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const ignoreSet = useMemo(
+    () => new Set(ignoreList.map((e) => e.wa_name.trim().toLowerCase())),
+    [ignoreList]
+  );
+
   const existingPayerIds = useMemo(
     () => new Set(currentMembers.filter((m) => m.payer_id).map((m) => m.payer_id!)),
     [currentMembers]
@@ -71,12 +88,17 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
 
   const sortedMembers = useMemo(
     () =>
-      [...currentMembers].sort((a, b) => {
-        const aUnlinked = a.match_status !== "ok" ? 0 : 1;
-        const bUnlinked = b.match_status !== "ok" ? 0 : 1;
-        return aUnlinked - bUnlinked;
-      }),
-    [currentMembers]
+      [...currentMembers]
+        .filter((m) => {
+          const name = (m.wa_display_name ?? (m.payer as any)?.name ?? "").trim().toLowerCase();
+          return !ignoreSet.has(name);
+        })
+        .sort((a, b) => {
+          const aUnlinked = a.match_status !== "ok" ? 0 : 1;
+          const bUnlinked = b.match_status !== "ok" ? 0 : 1;
+          return aUnlinked - bUnlinked;
+        }),
+    [currentMembers, ignoreSet]
   );
 
   const handleLinkPayer = async (memberId: string, payerId: string) => {
@@ -178,6 +200,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
   ).length;
 
   return (
+    <>
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-[780px] max-h-[90vh] flex flex-col">
         <DialogHeader>
@@ -221,7 +244,10 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
             <TabsTrigger value="members" className="gap-2">
               <Users className="h-3.5 w-3.5" /> Membros Atuais
             </TabsTrigger>
-<TabsTrigger value="import" className="gap-2">
+            <TabsTrigger value="ignored" className="gap-2">
+              <ShieldOff className="h-3.5 w-3.5" /> Ignorados
+            </TabsTrigger>
+            <TabsTrigger value="import" className="gap-2">
               <UserPlus className="h-3.5 w-3.5" /> Adicionar Manual
             </TabsTrigger>
           </TabsList>
@@ -295,14 +321,23 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
                           )}
                         </TableCell>
                         <TableCell className="pr-4">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => handleRemoveMember(m.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              onClick={() => setIgnoringMember(m)}
+                              title="Adicionar à lista de ignorados"
+                              className="p-1.5 text-slate-300 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition-colors"
+                            >
+                              <ShieldOff className="h-3.5 w-3.5" />
+                            </button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={() => handleRemoveMember(m.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -317,6 +352,10 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
                 </TableBody>
               </Table>
             </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="ignored" className="flex-1 min-h-0 mt-3">
+            <IgnoredMembersTab groupId={group.id} />
           </TabsContent>
 
           <TabsContent value="import" className="flex-1 flex flex-col min-h-0 space-y-3 mt-3">
@@ -392,6 +431,269 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
           </TabsContent>
 
         </Tabs>
+      </DialogContent>
+    </Dialog>
+
+    {ignoringMember && (
+      <IgnoreMemberDialog
+        member={ignoringMember}
+        onClose={() => setIgnoringMember(null)}
+        onConfirmed={() => {
+          setIgnoringMember(null);
+          refetchMembers();
+          qc.invalidateQueries({ queryKey: ["payer_import_ignore_list"] });
+          qc.invalidateQueries({ queryKey: ["payer_groups"] });
+          qc.invalidateQueries({ queryKey: ["payer_group_members_all"] });
+          qc.invalidateQueries({ queryKey: ["payer_groups", "with_counts"] });
+        }}
+      />
+    )}
+    </>
+  );
+}
+
+// ── IgnoredMembersTab ─────────────────────────────────────────────────────────
+
+function IgnoredMembersTab({ groupId }: { groupId: string }) {
+  const qc = useQueryClient();
+
+  const { data: ignored = [], isLoading } = useQuery<IgnoreEntry[]>({
+    queryKey: ["payer_import_ignore_list", "group", groupId],
+    queryFn: async () => {
+      // Get all wa_display_names linked to this group (active or inactive, including ignored placeholders)
+      const { data: members } = await (supabase as any)
+        .from("payer_group_members")
+        .select("wa_display_name")
+        .eq("group_id", groupId);
+
+      const names = [
+        ...new Set(
+          (members ?? [])
+            .map((m: { wa_display_name: string | null }) => m.wa_display_name)
+            .filter(Boolean) as string[]
+        ),
+      ];
+
+      if (names.length === 0) return [];
+
+      const { data, error } = await (supabase as any)
+        .from("payer_import_ignore_list")
+        .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
+        .in("wa_name", names)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const handleRemove = async (entry: IgnoreEntry) => {
+    const { error } = await (supabase as any)
+      .from("payer_import_ignore_list")
+      .delete()
+      .eq("id", entry.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`"${entry.wa_name}" removido da lista de ignorados.`);
+    qc.invalidateQueries({ queryKey: ["payer_import_ignore_list"] });
+  };
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-4 text-center">Carregando…</p>;
+
+  if (ignored.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground">
+        <ShieldOff className="h-8 w-8 mb-2 opacity-30" />
+        <p className="text-sm">Nenhum membro ignorado neste grupo.</p>
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-[340px] border rounded-md">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="pl-4">Nome no WhatsApp</TableHead>
+            <TableHead>Categoria</TableHead>
+            <TableHead className="pr-4 w-16">Remover</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {ignored.map((e) => (
+            <TableRow key={e.id}>
+              <TableCell className="pl-4 font-medium text-sm">{e.wa_name}</TableCell>
+              <TableCell>
+                {e.category?.name ? (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                    {e.category.name}
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="pr-4">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 text-destructive hover:text-destructive"
+                  title="Remover da lista de ignorados"
+                  onClick={() => handleRemove(e)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </ScrollArea>
+  );
+}
+
+// ── IgnoreMemberDialog ────────────────────────────────────────────────────────
+
+function IgnoreMemberDialog({
+  member,
+  onClose,
+  onConfirmed,
+}: {
+  member: GroupMember;
+  onClose: () => void;
+  onConfirmed: () => void;
+}) {
+  const [categoryId, setCategoryId] = useState<string>("__none__");
+  const [newCatName, setNewCatName] = useState("");
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const { data: categories = [], refetch: refetchCats } = useQuery<IgnoreCategory[]>({
+    queryKey: ["payer_ignore_categories"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("payer_ignore_categories")
+        .select("*")
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const displayName = member.wa_display_name ?? (member.payer as any)?.name ?? "—";
+
+  const handleCreateCategory = async () => {
+    const trimmed = newCatName.trim();
+    if (!trimmed) return;
+    const { data, error } = await (supabase as any)
+      .from("payer_ignore_categories")
+      .insert({ name: trimmed })
+      .select("id")
+      .single();
+    if (error) { toast.error(error.message); return; }
+    await refetchCats();
+    setCategoryId(data.id);
+    setNewCatName("");
+    setShowNewCat(false);
+  };
+
+  const handleConfirm = async () => {
+    setSaving(true);
+    try {
+      const catId = categoryId === "__none__" ? null : categoryId;
+
+      // Add to ignore list
+      const { error: ignErr } = await (supabase as any)
+        .from("payer_import_ignore_list")
+        .insert({
+          wa_name: displayName,
+          category_id: catId,
+        });
+      if (ignErr) throw ignErr;
+
+      // Soft-delete from ALL groups where wa_display_name matches
+      const { error: delErr } = await (supabase as any)
+        .from("payer_group_members")
+        .update({ active: false })
+        .eq("wa_display_name", displayName)
+        .eq("active", true);
+      if (delErr) throw delErr;
+
+      toast.success(`"${displayName}" ignorado e removido de todos os grupos.`);
+      onConfirmed();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ShieldOff className="h-4 w-4 text-amber-500" />
+            Ignorar membro
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="px-3 py-2 bg-slate-50 rounded-lg border text-sm font-medium text-[#001e40]">
+            {displayName}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-bold text-[#64748b] uppercase tracking-wider">Categoria</Label>
+            <Select value={categoryId} onValueChange={setCategoryId}>
+              <SelectTrigger className="text-sm">
+                <SelectValue placeholder="Selecionar categoria…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Sem categoria —</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {!showNewCat ? (
+              <button
+                type="button"
+                onClick={() => setShowNewCat(true)}
+                className="flex items-center gap-1 text-xs text-[#001e40] font-semibold hover:underline"
+              >
+                <Plus className="h-3 w-3" /> Nova categoria
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  autoFocus
+                  className="flex-1 h-8 px-3 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-[#001e40]"
+                  placeholder="Nome da categoria"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateCategory(); if (e.key === "Escape") setShowNewCat(false); }}
+                />
+                <Button size="sm" onClick={handleCreateCategory} disabled={!newCatName.trim()}>
+                  Criar
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-[#94a3b8]">
+            O membro será removido do grupo e adicionado à lista de ignorados. Futuras importações desse JSON irão ignorar este nome automaticamente.
+          </p>
+        </div>
+
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button
+            onClick={handleConfirm}
+            disabled={saving}
+            className="bg-amber-500 hover:bg-amber-600 text-white"
+          >
+            {saving ? "Salvando…" : "Confirmar"}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

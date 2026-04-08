@@ -18,7 +18,7 @@ export type GroupMember = {
   wa_display_name: string | null;
   active: boolean;
   created_at: string;
-  match_status: "ok" | "unmatched" | "review_ignored";
+  match_status: "ok" | "unmatched" | "review_ignored" | "ignored";
   best_candidate_name: string | null;
   best_candidate_score: number | null;
   payer?: { id: string; name: string; document_digits: string | null } | null;
@@ -60,10 +60,19 @@ export type ImportLogEntry = {
   best_candidate_score: number | null;
 };
 
+export type IgnoreCategory = {
+  id: string;
+  name: string;
+  created_at: string;
+};
+
 export type IgnoreEntry = {
   id: string;
   wa_name: string;
   reason: string | null;
+  category_id: string | null;
+  category?: IgnoreCategory | null;
+  source_group_id: string | null;
   created_at: string;
 };
 
@@ -75,6 +84,7 @@ export type ImportQueueItem = {
   routeConfig: string;
   matchResults: MatchResult[];
   skippedCount: number;
+  skippedNames: string[];
   analyzed: boolean;
   isAnalyzing: boolean;
   existingMembers: GroupMember[];

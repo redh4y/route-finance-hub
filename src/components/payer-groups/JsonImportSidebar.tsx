@@ -98,12 +98,13 @@ export function JsonImportSidebar() {
   // ── Analysis ───────────────────────────────────────────────────────────────
 
   const runAnalysisForItem = async (id: string, membros: string[]) => {
+    const skippedNames = membros.filter((n) => ignoreSet.has(n.trim().toLowerCase()));
     const toProcess = membros.filter((n) => !ignoreSet.has(n.trim().toLowerCase()));
-    const skippedCount = membros.length - toProcess.length;
+    const skippedCount = skippedNames.length;
 
     setQueue((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, isAnalyzing: true, analyzed: false, matchResults: [], skippedCount } : item
+        item.id === id ? { ...item, isAnalyzing: true, analyzed: false, matchResults: [], skippedCount, skippedNames } : item
       )
     );
 
@@ -134,7 +135,7 @@ export function JsonImportSidebar() {
 
     setQueue((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, isAnalyzing: false, analyzed: true, matchResults: results, skippedCount } : item
+        item.id === id ? { ...item, isAnalyzing: false, analyzed: true, matchResults: results, skippedCount, skippedNames } : item
       )
     );
   };
@@ -174,6 +175,7 @@ export function JsonImportSidebar() {
         routeConfig: existingGroup?.route ?? "__none__",
         matchResults: [],
         skippedCount: 0,
+        skippedNames: [],
         analyzed: false,
         isAnalyzing: false,
         existingMembers: [],
@@ -222,6 +224,25 @@ export function JsonImportSidebar() {
         .single();
       if (groupErr) throw groupErr;
       const groupId = groupData.id;
+
+      // Insert placeholder rows for skipped (ignored) names so the Ignorados tab can find them
+      if (item.skippedNames.length > 0) {
+        // Remove existing ignored placeholders first, then reinsert
+        await (supabase as any)
+          .from("payer_group_members")
+          .delete()
+          .eq("group_id", groupId)
+          .eq("match_status", "ignored");
+
+        const ignoredRows = item.skippedNames.map((name) => ({
+          group_id: groupId,
+          payer_id: null,
+          wa_display_name: name,
+          match_status: "ignored",
+          active: false,
+        }));
+        await (supabase as any).from("payer_group_members").insert(ignoredRows);
+      }
 
       const existingPayerIds = new Set(item.existingMembers.filter((m) => m.payer_id).map((m) => m.payer_id!));
 
