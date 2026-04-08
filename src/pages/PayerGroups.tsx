@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, MapPin } from "lucide-react";
+import { Plus, MapPin, Upload, Users, BarChart3 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageTransition } from "@/components/ui/page-transition";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 
 import { DashboardStats } from "@/components/payer-groups/DashboardStats";
 import { RouteSection } from "@/components/payer-groups/RouteSection";
 import { JsonImportSidebar } from "@/components/payer-groups/JsonImportSidebar";
-import { RoutePricingCard } from "@/components/payer-groups/RoutePricingCard";
 import { CreateGroupDialog } from "@/components/payer-groups/CreateGroupDialog";
 import { ManageGroupDialog } from "@/components/payer-groups/ManageGroupDialog";
 import { RouteManagerDialog } from "@/components/payer-groups/RouteManagerDialog";
@@ -20,6 +20,7 @@ export default function PayerGroupsPage() {
   const [managingGroup, setManagingGroup] = useState<PayerGroup | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showRouteManager, setShowRouteManager] = useState(false);
+  const [activeTab, setActiveTab] = useState("groups");
 
   const { data: allPayers = [] } = useQuery<PayerLite[]>({
     queryKey: ["payers-lite-groups"],
@@ -42,52 +43,66 @@ export default function PayerGroupsPage() {
   return (
     <MainLayout>
       <PageTransition>
-        <div
-          style={{ fontFamily: "Inter, sans-serif" }}
-          className="p-2 sm:p-4 max-w-[1600px] mx-auto bg-[#f8f9ff] text-[#0b1c30] min-h-screen"
-        >
+        <div className="p-3 sm:p-6 max-w-[1400px] mx-auto min-h-screen">
           {/* Header */}
-          <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <h1
-                style={{ fontFamily: "Manrope, sans-serif" }}
-                className="text-3xl md:text-[3.5rem] font-extrabold leading-tight text-[#001e40] tracking-tight"
-              >
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
                 Grupos de Viagem
               </h1>
-              <p className="text-lg text-[#515f74] font-medium max-w-2xl mt-2">
-                Organize grupos operacionais, rotas e listas de cobrança de alunos.
+              <p className="text-sm text-muted-foreground mt-1">
+                Organize grupos, rotas e vincule alunos automaticamente.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setShowRouteManager(true)}
-                className="px-5 py-2.5 border-2 border-[#dce9ff] text-[#515f74] rounded-xl font-semibold flex items-center gap-2 hover:bg-[#eff4ff] transition-colors"
+                className="px-4 py-2 border border-border text-muted-foreground rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-muted transition-colors"
               >
-                <MapPin className="h-4 w-4" /> Gerenciar Rotas
+                <MapPin className="h-4 w-4" /> Rotas
               </button>
               <button
                 onClick={() => setShowCreate(true)}
-                className="px-5 py-2.5 bg-[#001e40] text-[#ffffff] rounded-xl font-semibold flex items-center gap-2 hover:opacity-90 transition-opacity"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors"
               >
-                <Plus className="h-5 w-5" /> Novo Grupo
+                <Plus className="h-4 w-4" /> Novo Grupo
               </button>
             </div>
           </header>
 
           <DashboardStats />
 
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-            <div className="xl:col-span-8">
-              <RouteSection onManage={setManagingGroup} />
-            </div>
+          {/* Main Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-6 bg-muted/50">
+              <TabsTrigger value="groups" className="gap-2 data-[state=active]:bg-background">
+                <Users className="h-4 w-4" /> Grupos & Rotas
+              </TabsTrigger>
+              <TabsTrigger value="import" className="gap-2 data-[state=active]:bg-background">
+                <Upload className="h-4 w-4" /> Importar JSON
+              </TabsTrigger>
+              <TabsTrigger value="ignore" className="gap-2 data-[state=active]:bg-background">
+                <BarChart3 className="h-4 w-4" /> Ignorados
+              </TabsTrigger>
+            </TabsList>
 
-            <aside className="xl:col-span-4 space-y-6 sticky top-[120px]">
+            <TabsContent value="groups" className="mt-0">
+              <RouteSection
+                onManage={setManagingGroup}
+                onManageRoutes={() => setShowRouteManager(true)}
+              />
+            </TabsContent>
+
+            <TabsContent value="import" className="mt-0">
               <JsonImportSidebar />
-              <RoutePricingCard onManageRoutes={() => setShowRouteManager(true)} />
-              <IgnoreListCard />
-            </aside>
-          </div>
+            </TabsContent>
+
+            <TabsContent value="ignore" className="mt-0">
+              <div className="max-w-2xl">
+                <IgnoreListCard />
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
 
         <CreateGroupDialog

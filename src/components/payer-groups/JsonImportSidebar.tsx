@@ -225,9 +225,7 @@ export function JsonImportSidebar() {
       if (groupErr) throw groupErr;
       const groupId = groupData.id;
 
-      // Insert placeholder rows for skipped (ignored) names so the Ignorados tab can find them
       if (item.skippedNames.length > 0) {
-        // Remove existing ignored placeholders first, then reinsert
         await (supabase as any)
           .from("payer_group_members")
           .delete()
@@ -246,7 +244,6 @@ export function JsonImportSidebar() {
 
       const existingPayerIds = new Set(item.existingMembers.filter((m) => m.payer_id).map((m) => m.payer_id!));
 
-      // 1. Upsert matched members (payer_id set)
       const matched = item.matchResults.filter((r) => r.selected);
       if (matched.length > 0) {
         const rows = matched.map((r) => ({
@@ -264,7 +261,6 @@ export function JsonImportSidebar() {
         if (membErr) throw membErr;
       }
 
-      // 2. Replace unmatched/ignored members for this group (clear old, insert new)
       const unmatched = item.matchResults.filter((r) => !r.selected);
       await (supabase as any)
         .from("payer_group_members")
@@ -290,7 +286,6 @@ export function JsonImportSidebar() {
         if (unmatchErr) throw unmatchErr;
       }
 
-      // 3. Deactivate matched members removed from the JSON
       const incomingIds = new Set(matched.map((r) => r.selected!.id));
       const toRemove = item.existingMembers.filter(
         (m) => m.payer_id && !incomingIds.has(m.payer_id)
@@ -365,68 +360,61 @@ export function JsonImportSidebar() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="bg-[#dce9ff] rounded-2xl overflow-hidden shadow-xl">
-      {/* Header */}
-      <div className="p-6 bg-[#001e40] text-[#ffffff]">
-        <h3 className="text-xl font-bold flex items-center gap-2">
-          <FileJson className="w-5 h-5" /> Importar Dados JSON
-        </h3>
-        <p className="text-sm opacity-80 mt-1">Selecione um ou mais arquivos .json</p>
+    <div className="space-y-6">
+      {/* Drop zone - full width */}
+      <div
+        className="border-2 border-dashed border-primary/20 bg-primary/5 rounded-xl p-10 text-center flex flex-col items-center justify-center cursor-pointer hover:bg-primary/10 hover:border-primary/40 transition-all"
+        onClick={() => fileRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) addFilesToQueue(e.dataTransfer.files); }}
+      >
+        <UploadCloud className="w-10 h-10 text-primary/40 mb-3" />
+        <p className="text-sm font-semibold text-foreground">Arraste arquivos JSON aqui</p>
+        <p className="text-xs text-muted-foreground mt-1">ou clique para selecionar (múltiplos permitidos)</p>
+        <p className="text-[10px] text-muted-foreground mt-3 bg-muted px-3 py-1 rounded-full">
+          Formato: {'{ "grupo": "Nome", "membros": ["Nome1", "Nome2", ...] }'}
+        </p>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".json"
+          multiple
+          className="hidden"
+          onChange={(e) => { if (e.target.files?.length) { addFilesToQueue(e.target.files); e.target.value = ""; } }}
+        />
       </div>
 
-      <div className="p-6 space-y-5">
-        {/* Drop zone */}
-        <div
-          className="border-2 border-dashed border-[#003366]/30 bg-[#eff4ff] rounded-xl p-8 text-center flex flex-col items-center justify-center group cursor-pointer hover:bg-[#e5eeff] transition-colors"
-          onClick={() => fileRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) addFilesToQueue(e.dataTransfer.files); }}
-        >
-          <UploadCloud className="w-8 h-8 text-[#001e40]/40 group-hover:text-[#001e40] mb-2 transition-colors" />
-          <p className="text-sm font-bold text-[#001e40]">Arraste arquivos JSON</p>
-          <p className="text-xs text-slate-500">ou clique para selecionar (múltiplos permitidos)</p>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".json"
-            multiple
-            className="hidden"
-            onChange={(e) => { if (e.target.files?.length) { addFilesToQueue(e.target.files); e.target.value = ""; } }}
-          />
+      {/* Queue */}
+      {queue.length > 0 && (
+        <div className="space-y-3">
+          {queue.map((item) => (
+            <QueueCard
+              key={item.id}
+              item={item}
+              expanded={!!expanded[item.id]}
+              routeOptions={routeOptions}
+              allPayers={allPayers}
+              existingGroupName={existingGroups.find(
+                (g) => g.name.trim().toLowerCase() === item.parsed?.grupo.trim().toLowerCase()
+              )?.name}
+              onToggle={() => setExpanded((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+              onRouteChange={(v) => updateRoute(item.id, v)}
+              onSelectPayer={(idx, pid) => updateSelected(item.id, idx, pid)}
+              onSave={() => saveItem(item.id)}
+              onRemove={() => removeItem(item.id)}
+            />
+          ))}
+
+          {pendingCount > 1 && (
+            <button
+              onClick={saveAll}
+              className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all"
+            >
+              <CheckCircle2 className="w-4 h-4" /> Importar Todos ({pendingCount})
+            </button>
+          )}
         </div>
-
-        {/* Queue */}
-        {queue.length > 0 && (
-          <div className="space-y-3">
-            {queue.map((item) => (
-              <QueueCard
-                key={item.id}
-                item={item}
-                expanded={!!expanded[item.id]}
-                routeOptions={routeOptions}
-                allPayers={allPayers}
-                existingGroupName={existingGroups.find(
-                  (g) => g.name.trim().toLowerCase() === item.parsed?.grupo.trim().toLowerCase()
-                )?.name}
-                onToggle={() => setExpanded((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
-                onRouteChange={(v) => updateRoute(item.id, v)}
-                onSelectPayer={(idx, pid) => updateSelected(item.id, idx, pid)}
-                onSave={() => saveItem(item.id)}
-                onRemove={() => removeItem(item.id)}
-              />
-            ))}
-
-            {pendingCount > 1 && (
-              <button
-                onClick={saveAll}
-                className="w-full py-3 bg-[#001e40] text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#003366] transition-all"
-              >
-                <CheckCircle2 className="w-4 h-4" /> Importar Todos ({pendingCount})
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -469,45 +457,45 @@ function QueueCard({
   const hasReview = reviewItems.length > 0;
 
   const statusIcon = item.saved
-    ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+    ? <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
     : item.isAnalyzing
-    ? <RefreshCw className="w-4 h-4 text-[#001e40] animate-spin shrink-0" />
+    ? <RefreshCw className="w-5 h-5 text-primary animate-spin shrink-0" />
     : hasReview
-    ? <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+    ? <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
     : item.analyzed
-    ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-    : <XCircle className="w-4 h-4 text-slate-400 shrink-0" />;
+    ? <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+    : <FileJson className="w-5 h-5 text-muted-foreground shrink-0" />;
 
   return (
-    <div className={`rounded-xl border overflow-hidden ${item.saved ? "border-emerald-200 bg-emerald-50/50" : "border-[#e5eeff] bg-white"}`}>
+    <div className={`rounded-xl border overflow-hidden ${item.saved ? "border-emerald-200 bg-emerald-50/30" : "border-border bg-card"}`}>
       {/* Card header */}
       <div
-        className="flex items-center gap-2 px-4 py-3 cursor-pointer select-none"
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none hover:bg-muted/30 transition-colors"
         onClick={onToggle}
       >
         {statusIcon}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-[#001e40] truncate">{item.parsed?.grupo ?? item.fileName}</p>
-          <p className="text-[10px] text-slate-400 truncate">{item.fileName} · {item.parsed?.membros.length ?? 0} membros</p>
+          <p className="text-sm font-semibold text-foreground truncate">{item.parsed?.grupo ?? item.fileName}</p>
+          <p className="text-xs text-muted-foreground truncate">{item.fileName} · {item.parsed?.membros.length ?? 0} membros</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {existingGroupName
-            ? <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 shadow-none text-[10px]">Atualizar</Badge>
-            : <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 shadow-none text-[10px]">Novo</Badge>
+            ? <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-50 text-amber-700">Atualizar</Badge>
+            : <Badge variant="outline" className="text-[10px] border-emerald-300 bg-emerald-50 text-emerald-700">Novo</Badge>
           }
-          {item.saved && <Badge className="bg-emerald-200 text-emerald-900 hover:bg-emerald-200 shadow-none text-[10px]">Importado ✓</Badge>}
-          {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          {item.saved && <Badge variant="outline" className="text-[10px] border-emerald-300 bg-emerald-100 text-emerald-800">Importado ✓</Badge>}
+          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         </div>
       </div>
 
       {/* Card body */}
       {expanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-[#eff4ff] pt-3">
+        <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
           {/* Route select */}
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Rota</Label>
+            <Label className="text-xs font-medium text-muted-foreground">Rota</Label>
             <Select value={item.routeConfig} onValueChange={onRouteChange}>
-              <SelectTrigger className="h-8 text-xs bg-white border-slate-200">
+              <SelectTrigger className="h-8 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -521,29 +509,29 @@ function QueueCard({
 
           {/* Analyzing indicator */}
           {item.isAnalyzing && (
-            <div className="flex items-center gap-2 text-xs text-[#001e40] font-medium bg-[#eff4ff] p-2 rounded-lg">
+            <div className="flex items-center gap-2 text-xs text-primary font-medium bg-primary/5 p-2.5 rounded-lg">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               Analisando… {item.matchResults.length}/{(item.parsed?.membros.length ?? 0) - item.skippedCount}
             </div>
           )}
 
           {item.skippedCount > 0 && (
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
-              <ShieldOff className="w-3 h-3 shrink-0" />
-              {item.skippedCount} nome(s) ignorado(s) pela lista de ignorados
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted p-2.5 rounded-lg">
+              <ShieldOff className="w-3.5 h-3.5 shrink-0" />
+              {item.skippedCount} nome(s) ignorado(s) pela lista
             </div>
           )}
 
           {/* Diff stats */}
           {diffStats && (
-            <div className="flex gap-1.5 flex-wrap">
+            <div className="flex gap-2 flex-wrap">
               {diffStats.toAdd.length > 0 && (
-                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">
                   +{diffStats.toAdd.length} novos
                 </span>
               )}
               {diffStats.toRemove.length > 0 && (
-                <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100">
+                <span className="text-xs font-medium text-destructive bg-destructive/10 px-2.5 py-1 rounded-md border border-destructive/20">
                   -{diffStats.toRemove.length} remover
                 </span>
               )}
@@ -552,34 +540,34 @@ function QueueCard({
 
           {/* Match preview table */}
           {item.matchResults.length > 0 && (
-            <div className="overflow-hidden rounded-lg border border-[#e5eeff] max-h-48 overflow-y-auto">
+            <div className="overflow-hidden rounded-lg border border-border max-h-48 overflow-y-auto">
               <table className="w-full text-xs text-left">
-                <thead className="bg-[#eff4ff] text-slate-500 font-bold uppercase sticky top-0">
+                <thead className="bg-muted text-muted-foreground font-medium sticky top-0">
                   <tr>
-                    <th className="px-3 py-1.5">Nome</th>
-                    <th className="px-3 py-1.5">Status</th>
+                    <th className="px-3 py-2">Nome</th>
+                    <th className="px-3 py-2">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#eff4ff]">
+                <tbody className="divide-y divide-border">
                   {item.matchResults.slice(0, 50).map((r, i) => {
                     const alreadyIn = r.selected && existingPayerIds.has(r.selected.id);
                     return (
-                      <tr key={i} className={alreadyIn ? "bg-slate-50/50" : ""}>
-                        <td className="px-3 py-1.5 font-medium text-[#001e40] truncate max-w-[140px]" title={r.waName}>
+                      <tr key={i} className={alreadyIn ? "bg-muted/30" : ""}>
+                        <td className="px-3 py-1.5 font-medium text-foreground truncate max-w-[200px]" title={r.waName}>
                           {r.waName}
                         </td>
                         <td className="px-3 py-1.5">
                           {alreadyIn ? (
-                            <span className="text-[10px] text-slate-400 font-medium">Mantido</span>
+                            <span className="text-[10px] text-muted-foreground">Mantido</span>
                           ) : r.status === "match" ? (
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                           ) : r.status === "review" ? (
-                            <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-600">
+                            <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600">
                               <AlertTriangle className="w-3 h-3" />
-                              {r.selected ? `${r.topCandidates[0] ? (r.topCandidates.find(c => c.payer.id === r.selected?.id)?.score ?? 0) * 100 | 0 : 0}%` : "Rev."}
+                              {r.topCandidates[0] ? `${((r.topCandidates.find(c => c.payer.id === r.selected?.id)?.score ?? 0) * 100) | 0}%` : "Rev."}
                             </span>
                           ) : (
-                            <span className="text-[10px] font-semibold text-red-500 flex items-center gap-1">
+                            <span className="text-[10px] font-medium text-destructive flex items-center gap-1">
                               <XCircle className="w-3 h-3" /> Sem match
                             </span>
                           )}
@@ -589,7 +577,7 @@ function QueueCard({
                   })}
                   {item.matchResults.length > 50 && (
                     <tr>
-                      <td colSpan={2} className="text-center py-2 italic text-slate-400 text-[10px]">
+                      <td colSpan={2} className="text-center py-2 italic text-muted-foreground text-[10px]">
                         … e mais {item.matchResults.length - 50} membros
                       </td>
                     </tr>
@@ -601,11 +589,10 @@ function QueueCard({
 
           {/* Review selects */}
           {hasReview && (
-            <div className="space-y-1">
-              {/* review group (score 60–84) */}
+            <div className="space-y-2">
               {reviewItems.filter((r) => r.status === "review").length > 0 && (
-                <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 space-y-2">
-                  <p className="text-xs font-bold text-amber-800 flex items-center gap-1">
+                <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 space-y-2">
+                  <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> Match incerto — confirme
                   </p>
                   {reviewItems.filter((r) => r.status === "review").map((r) => {
@@ -616,10 +603,9 @@ function QueueCard({
                   })}
                 </div>
               )}
-              {/* none group (score < 60) */}
               {reviewItems.filter((r) => r.status === "none").length > 0 && (
-                <div className="bg-red-50 p-3 rounded-xl border border-red-100 space-y-2">
-                  <p className="text-xs font-bold text-red-700 flex items-center gap-1">
+                <div className="bg-destructive/5 p-3 rounded-lg border border-destructive/20 space-y-2">
+                  <p className="text-xs font-semibold text-destructive flex items-center gap-1">
                     <XCircle className="w-3 h-3" /> Sem match — vincule manualmente
                   </p>
                   {reviewItems.filter((r) => r.status === "none").map((r) => {
@@ -639,15 +625,18 @@ function QueueCard({
               <button
                 onClick={onSave}
                 disabled={!item.analyzed || item.saving || item.isAnalyzing}
-                className="flex-1 py-2.5 bg-[#001e40] text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-[#003366] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm flex items-center justify-center gap-1.5 hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${item.saving ? "animate-spin" : ""}`} />
-                {item.saving ? "Salvando…" : "Importar"}
+                {item.saving ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Salvando…</>
+                ) : (
+                  <><CheckCircle2 className="w-3.5 h-3.5" /> Importar</>
+                )}
               </button>
             )}
             <button
               onClick={onRemove}
-              className="p-2.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              className="p-2.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
               title="Remover da fila"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -675,11 +664,11 @@ function ReviewRow({
 
   return (
     <div className="flex gap-2 items-center">
-      <span className="text-[10px] font-bold text-slate-600 truncate w-24 shrink-0" title={r.waName}>
+      <span className="text-xs font-medium text-foreground truncate w-28 shrink-0" title={r.waName}>
         {r.waName}
       </span>
       <Select value={r.selected?.id ?? "__none__"} onValueChange={(v) => onSelectPayer(idx, v)}>
-        <SelectTrigger className="h-7 text-[10px] flex-1 bg-white">
+        <SelectTrigger className="h-7 text-xs flex-1">
           <SelectValue placeholder="Vincular pagador…" />
         </SelectTrigger>
         <SelectContent>

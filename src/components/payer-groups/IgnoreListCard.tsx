@@ -1,23 +1,24 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShieldOff, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { ShieldOff, Plus, Trash2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { IgnoreEntry, IgnoreCategory } from "./types";
 
 export function IgnoreListCard() {
   const qc = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState<string>("__none__");
   const [newCatName, setNewCatName] = useState("");
   const [showNewCat, setShowNewCat] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
 
   const { data: entries = [] } = useQuery<IgnoreEntry[]>({
     queryKey: ["payer_import_ignore_list"],
@@ -42,6 +43,10 @@ export function IgnoreListCard() {
       return data ?? [];
     },
   });
+
+  const filtered = search
+    ? entries.filter((e) => e.wa_name.toLowerCase().includes(search.toLowerCase()))
+    : entries;
 
   const handleCreateCategory = async () => {
     const trimmed = newCatName.trim();
@@ -91,123 +96,124 @@ export function IgnoreListCard() {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-[#eff4ff] shadow-sm p-6">
-      {/* Header */}
-      <button
-        className="w-full flex items-center justify-between"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-[#64748b] flex items-center justify-center shrink-0">
-            <ShieldOff className="w-5 h-5 text-white" />
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+          <ShieldOff className="h-5 w-5 text-muted-foreground" />
+          Lista de Nomes Ignorados
+        </h3>
+        <p className="text-sm text-muted-foreground mt-1">
+          Nomes nesta lista serão automaticamente ignorados durante importações JSON.
+        </p>
+      </div>
+
+      {/* Add form */}
+      <div className="p-4 border border-border rounded-xl bg-card space-y-3">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Adicionar novo</p>
+        <Input
+          placeholder="Nome exato como aparece no WhatsApp"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+        />
+
+        <div className="flex gap-2">
+          <Select value={categoryId} onValueChange={setCategoryId}>
+            <SelectTrigger className="text-sm flex-1">
+              <SelectValue placeholder="Categoria (opcional)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— Sem categoria —</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {!showNewCat ? (
+            <Button variant="outline" size="sm" onClick={() => setShowNewCat(true)} className="gap-1 shrink-0">
+              <Plus className="w-3 h-3" /> Categoria
+            </Button>
+          ) : (
+            <div className="flex gap-1">
+              <Input
+                autoFocus
+                placeholder="Nome"
+                className="w-32"
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateCategory(); if (e.key === "Escape") setShowNewCat(false); }}
+              />
+              <Button size="sm" onClick={handleCreateCategory} disabled={!newCatName.trim()}>
+                OK
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <Button
+          onClick={handleAdd}
+          disabled={adding || !name.trim()}
+          className="w-full gap-1.5"
+        >
+          <Plus className="w-3.5 h-3.5" /> Adicionar à Lista
+        </Button>
+      </div>
+
+      {/* Existing entries */}
+      {entries.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar nome..."
+                className="pl-9"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <Badge variant="secondary" className="shrink-0">
+              {entries.length} total
+            </Badge>
           </div>
-          <div className="text-left">
-            <h3
-              style={{ fontFamily: "Manrope, sans-serif" }}
-              className="text-base font-bold text-[#001e40]"
-            >
-              Nomes Ignorados
-            </h3>
-            <p className="text-xs text-[#64748b]">
-              {entries.length} entrada(s) · ignorados na importação
-            </p>
+
+          <div className="border border-border rounded-xl overflow-hidden divide-y divide-border max-h-96 overflow-y-auto">
+            {filtered.map((e) => (
+              <div
+                key={e.id}
+                className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground truncate">{e.wa_name}</p>
+                  {e.category?.name && (
+                    <Badge variant="outline" className="text-[10px] mt-0.5 border-amber-200 bg-amber-50 text-amber-700">
+                      {e.category.name}
+                    </Badge>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDelete(e)}
+                  className="shrink-0 p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                  title="Remover"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                Nenhum resultado encontrado.
+              </p>
+            )}
           </div>
         </div>
-        {expanded ? (
-          <ChevronUp className="w-4 h-4 text-[#64748b]" />
-        ) : (
-          <ChevronDown className="w-4 h-4 text-[#64748b]" />
-        )}
-      </button>
+      )}
 
-      {expanded && (
-        <div className="mt-4 space-y-4">
-          {/* Add form */}
-          <div className="space-y-2">
-            <Input
-              placeholder="Nome exato como aparece no WhatsApp"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            />
-
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger className="text-sm">
-                <SelectValue placeholder="Categoria (opcional)…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">— Sem categoria —</SelectItem>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {!showNewCat ? (
-              <button
-                type="button"
-                onClick={() => setShowNewCat(true)}
-                className="flex items-center gap-1 text-xs text-[#001e40] font-semibold hover:underline"
-              >
-                <Plus className="w-3 h-3" /> Nova categoria
-              </button>
-            ) : (
-              <div className="flex gap-2">
-                <Input
-                  autoFocus
-                  placeholder="Nome da categoria"
-                  value={newCatName}
-                  onChange={(e) => setNewCatName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateCategory(); if (e.key === "Escape") setShowNewCat(false); }}
-                />
-                <Button size="sm" onClick={handleCreateCategory} disabled={!newCatName.trim()}>
-                  Criar
-                </Button>
-              </div>
-            )}
-
-            <button
-              onClick={handleAdd}
-              disabled={adding || !name.trim()}
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-bold bg-[#001e40] text-white hover:bg-[#003366] disabled:opacity-50 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" /> Adicionar
-            </button>
-          </div>
-
-          {/* List */}
-          {entries.length === 0 ? (
-            <p className="text-xs text-center text-[#94a3b8] py-2">
-              Nenhum nome ignorado ainda.
-            </p>
-          ) : (
-            <ul className="space-y-1.5 max-h-48 overflow-y-auto">
-              {entries.map((e) => (
-                <li
-                  key={e.id}
-                  className="flex items-start justify-between gap-2 px-3 py-2 rounded-lg bg-[#f8faff] border border-[#eff4ff]"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#001e40] truncate">{e.wa_name}</p>
-                    {e.category?.name ? (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 mt-0.5">
-                        {e.category.name}
-                      </span>
-                    ) : e.reason ? (
-                      <p className="text-[11px] text-[#94a3b8] truncate">{e.reason}</p>
-                    ) : null}
-                  </div>
-                  <button
-                    onClick={() => handleDelete(e)}
-                    className="shrink-0 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                    title="Remover"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+      {entries.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground">
+          <ShieldOff className="h-8 w-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">Nenhum nome ignorado ainda.</p>
         </div>
       )}
     </div>

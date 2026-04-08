@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Users, Layers, AlertTriangle, GitBranch } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { GroupMember, PayerGroup } from "./types";
 
@@ -39,47 +40,35 @@ export function DashboardStats() {
   }
   const duplicates = Object.values(payerCountMap).filter((v) => v > 1).length;
 
-  return (
-    <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
-      <StatCard label="Total Grupos" value={totalGroups} />
-      <StatCard label="Alunos Vinculados" value={linkedStudents} />
-      <StatCard label="Alunos Únicos" value={uniqueStudents} />
-      <StatCard
-        label="Duplicados"
-        value={duplicates}
-        badge={duplicates > 0 ? { text: "Atenção", className: "bg-[#ffdad6] text-[#93000a]" } : undefined}
-      />
-      <StatCard
-        label="Sem Boleto (Mês)"
-        value={0}
-        badge={{ text: "Pendente", className: "bg-[#ffdbca] text-[#723610]" }}
-      />
-    </section>
-  );
-}
+  const stats = [
+    { label: "Grupos", value: totalGroups, icon: Layers, color: "text-primary" },
+    { label: "Vínculos", value: linkedStudents, icon: Users, color: "text-blue-600" },
+    { label: "Alunos Únicos", value: uniqueStudents, icon: GitBranch, color: "text-emerald-600" },
+    {
+      label: "Duplicados",
+      value: duplicates,
+      icon: AlertTriangle,
+      color: duplicates > 0 ? "text-amber-600" : "text-muted-foreground",
+      alert: duplicates > 0,
+    },
+  ];
 
-function StatCard({
-  label,
-  value,
-  badge,
-}: {
-  label: string;
-  value: number;
-  badge?: { text: string; className: string };
-}) {
   return (
-    <div className="bg-[#ffffff] p-6 rounded-xl border border-[#eff4ff] shadow-sm flex flex-col justify-between">
-      <div>
-        <p className="text-xs font-bold text-[#64748b] uppercase tracking-widest mb-1">{label}</p>
-        <p className="text-4xl font-black text-[#001e40]">{value}</p>
-      </div>
-      {badge && (
-        <span
-          className={`mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold w-fit uppercase ${badge.className}`}
+    <section className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+      {stats.map((s) => (
+        <div
+          key={s.label}
+          className={`flex items-center gap-3 p-4 rounded-xl border bg-card ${s.alert ? "border-amber-200 bg-amber-50/30" : "border-border"}`}
         >
-          {badge.text}
-        </span>
-      )}
-    </div>
+          <div className={`shrink-0 ${s.color}`}>
+            <s.icon className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-foreground leading-none">{s.value}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
