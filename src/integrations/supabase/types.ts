@@ -1451,6 +1451,131 @@ export type Database = {
           },
         ]
       }
+      payer_group_import_logs: {
+        Row: {
+          batch_id: string
+          best_candidate_name: string | null
+          best_candidate_score: number | null
+          group_id: string
+          id: string
+          imported_at: string
+          status: string
+          wa_display_name: string
+        }
+        Insert: {
+          batch_id: string
+          best_candidate_name?: string | null
+          best_candidate_score?: number | null
+          group_id: string
+          id?: string
+          imported_at?: string
+          status: string
+          wa_display_name: string
+        }
+        Update: {
+          batch_id?: string
+          best_candidate_name?: string | null
+          best_candidate_score?: number | null
+          group_id?: string
+          id?: string
+          imported_at?: string
+          status?: string
+          wa_display_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payer_group_import_logs_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "payer_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payer_group_members: {
+        Row: {
+          active: boolean
+          best_candidate_name: string | null
+          best_candidate_score: number | null
+          created_at: string
+          group_id: string
+          id: string
+          match_status: string
+          payer_id: string | null
+          wa_display_name: string | null
+        }
+        Insert: {
+          active?: boolean
+          best_candidate_name?: string | null
+          best_candidate_score?: number | null
+          created_at?: string
+          group_id: string
+          id?: string
+          match_status?: string
+          payer_id?: string | null
+          wa_display_name?: string | null
+        }
+        Update: {
+          active?: boolean
+          best_candidate_name?: string | null
+          best_candidate_score?: number | null
+          created_at?: string
+          group_id?: string
+          id?: string
+          match_status?: string
+          payer_id?: string | null
+          wa_display_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payer_group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "payer_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payer_group_members_payer_id_fkey"
+            columns: ["payer_id"]
+            isOneToOne: false
+            referencedRelation: "payers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payer_groups: {
+        Row: {
+          active: boolean
+          color: string
+          created_at: string
+          description: string | null
+          id: string
+          monthly_amount_cents: number | null
+          name: string
+          route: string | null
+        }
+        Insert: {
+          active?: boolean
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          monthly_amount_cents?: number | null
+          name: string
+          route?: string | null
+        }
+        Update: {
+          active?: boolean
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          monthly_amount_cents?: number | null
+          name?: string
+          route?: string | null
+        }
+        Relationships: []
+      }
       payers: {
         Row: {
           address_base: string | null
@@ -2279,6 +2404,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      route_config: {
+        Row: {
+          monthly_amount_cents: number | null
+          route: string
+          updated_at: string
+        }
+        Insert: {
+          monthly_amount_cents?: number | null
+          route: string
+          updated_at?: string
+        }
+        Update: {
+          monthly_amount_cents?: number | null
+          route?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       student_warnings: {
         Row: {
