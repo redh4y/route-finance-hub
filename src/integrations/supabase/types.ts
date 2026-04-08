@@ -1576,6 +1576,66 @@ export type Database = {
         }
         Relationships: []
       }
+      payer_ignore_categories: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      payer_import_ignore_list: {
+        Row: {
+          category_id: string | null
+          created_at: string
+          id: string
+          reason: string | null
+          source_group_id: string | null
+          wa_name: string
+        }
+        Insert: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          reason?: string | null
+          source_group_id?: string | null
+          wa_name: string
+        }
+        Update: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          reason?: string | null
+          source_group_id?: string | null
+          wa_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payer_import_ignore_list_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "payer_ignore_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payer_import_ignore_list_source_group_id_fkey"
+            columns: ["source_group_id"]
+            isOneToOne: false
+            referencedRelation: "payer_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payers: {
         Row: {
           address_base: string | null
