@@ -642,6 +642,7 @@ function IgnoreMemberDialog({
         .insert({
           wa_name: displayName,
           category_id: catId,
+          source_group_id: groupId,
         });
       if (ignErr) throw ignErr;
 
