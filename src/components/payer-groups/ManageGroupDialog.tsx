@@ -587,10 +587,12 @@ function IgnoredMembersTab({ groupId }: { groupId: string }) {
 
 function IgnoreMemberDialog({
   member,
+  groupId,
   onClose,
   onConfirmed,
 }: {
   member: GroupMember;
+  groupId: string;
   onClose: () => void;
   onConfirmed: () => void;
 }) {
