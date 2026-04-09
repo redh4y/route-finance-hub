@@ -437,6 +437,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
     {ignoringMember && (
       <IgnoreMemberDialog
         member={ignoringMember}
+        groupId={group.id}
         onClose={() => setIgnoringMember(null)}
         onConfirmed={() => {
           setIgnoringMember(null);
@@ -460,13 +461,13 @@ function IgnoredMembersTab({ groupId }: { groupId: string }) {
   const { data: ignored = [], isLoading } = useQuery<IgnoreEntry[]>({
     queryKey: ["payer_import_ignore_list", "group", groupId],
     queryFn: async () => {
-      // Get all wa_display_names linked to this group (active or inactive, including ignored placeholders)
+      // 1. Get wa_display_names from group members
       const { data: members } = await (supabase as any)
         .from("payer_group_members")
         .select("wa_display_name")
         .eq("group_id", groupId);
 
-      const names = [
+      const memberNames = [
         ...new Set(
           (members ?? [])
             .map((m: { wa_display_name: string | null }) => m.wa_display_name)
@@ -474,15 +475,49 @@ function IgnoredMembersTab({ groupId }: { groupId: string }) {
         ),
       ];
 
-      if (names.length === 0) return [];
+      // 2. Get ignored entries that match member names OR belong to this group
+      const results: IgnoreEntry[] = [];
+      const seenIds = new Set<string>();
 
-      const { data, error } = await (supabase as any)
+      // Entries linked to this group via source_group_id
+      const { data: byGroup } = await (supabase as any)
         .from("payer_import_ignore_list")
         .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
-        .in("wa_name", names)
+        .eq("source_group_id", groupId)
         .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+      for (const e of byGroup ?? []) {
+        if (!seenIds.has(e.id)) { seenIds.add(e.id); results.push(e); }
+      }
+
+      // Entries matching member names (may not have source_group_id set)
+      if (memberNames.length > 0) {
+        const { data: byName } = await (supabase as any)
+          .from("payer_import_ignore_list")
+          .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
+          .in("wa_name", memberNames)
+          .order("created_at", { ascending: false });
+        for (const e of byName ?? []) {
+          if (!seenIds.has(e.id)) { seenIds.add(e.id); results.push(e); }
+        }
+      }
+
+      // Also match ignore list entries against the full ignore set used to filter the members tab
+      // This catches names that were filtered out and never became payer_group_members
+      const { data: allIgnored } = await (supabase as any)
+        .from("payer_import_ignore_list")
+        .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
+        .order("created_at", { ascending: false });
+
+      // Check which ignored names would match names present in the group's raw member list
+      const memberNamesLower = new Set(memberNames.map(n => n.toLowerCase()));
+      for (const e of allIgnored ?? []) {
+        if (!seenIds.has(e.id) && memberNamesLower.has(e.wa_name.trim().toLowerCase())) {
+          seenIds.add(e.id);
+          results.push(e);
+        }
+      }
+
+      return results;
     },
   });
 
@@ -553,10 +588,12 @@ function IgnoredMembersTab({ groupId }: { groupId: string }) {
 
 function IgnoreMemberDialog({
   member,
+  groupId,
   onClose,
   onConfirmed,
 }: {
   member: GroupMember;
+  groupId: string;
   onClose: () => void;
   onConfirmed: () => void;
 }) {
@@ -605,6 +642,7 @@ function IgnoreMemberDialog({
         .insert({
           wa_name: displayName,
           category_id: catId,
+          source_group_id: groupId,
         });
       if (ignErr) throw ignErr;
 
