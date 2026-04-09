@@ -437,6 +437,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
     {ignoringMember && (
       <IgnoreMemberDialog
         member={ignoringMember}
+        groupId={group.id}
         onClose={() => setIgnoringMember(null)}
         onConfirmed={() => {
           setIgnoringMember(null);
