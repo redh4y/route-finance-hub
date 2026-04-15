@@ -37,6 +37,7 @@ export function JsonImportSidebar() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<ImportQueueItem[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [defaultRoute, setDefaultRoute] = useState<string>("__none__");
 
   const { data: allPayers = [] } = useQuery<PayerLite[]>({
     queryKey: ["payers-lite-groups"],
@@ -172,7 +173,7 @@ export function JsonImportSidebar() {
         fileName: file.name,
         parsed,
         parseError: error,
-        routeConfig: existingGroup?.route ?? "__none__",
+        routeConfig: existingGroup?.route ?? defaultRoute,
         matchResults: [],
         skippedCount: 0,
         skippedNames: [],
@@ -361,6 +362,32 @@ export function JsonImportSidebar() {
 
   return (
     <div className="space-y-6">
+      {/* Default route selector */}
+      <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border">
+        <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider shrink-0">
+          Rota padrão
+        </Label>
+        <Select value={defaultRoute} onValueChange={(v) => {
+          setDefaultRoute(v);
+          // Apply to all queue items that still have no route set
+          setQueue((prev) =>
+            prev.map((item) =>
+              item.routeConfig === "__none__" ? { ...item, routeConfig: v } : item
+            )
+          );
+        }}>
+          <SelectTrigger className="h-8 text-sm flex-1">
+            <SelectValue placeholder="— Nenhuma —" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">— Nenhuma —</SelectItem>
+            {routeOptions.map((r) => (
+              <SelectItem key={r} value={r}>{r}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Drop zone - full width */}
       <div
         className="border-2 border-dashed border-primary/20 bg-primary/5 rounded-xl p-10 text-center flex flex-col items-center justify-center cursor-pointer hover:bg-primary/10 hover:border-primary/40 transition-all"

@@ -31,6 +31,7 @@ import { DashboardCommercialBlock } from "@/components/dashboard/DashboardCommer
 import { DashboardAlerts } from "@/components/dashboard/DashboardAlerts";
 import { DashboardMaintenanceBlock } from "@/components/dashboard/DashboardMaintenanceBlock";
 import { MobileExecutiveSummary } from "@/components/dashboard/MobileExecutiveSummary";
+import { DashboardDuplicateBillings } from "@/components/dashboard/DashboardDuplicateBillings";
 
 function DashboardSkeleton() {
   return (
@@ -228,6 +229,9 @@ export default function Dashboard() {
 
                   {/* Billing Block */}
                   <DashboardBillingBlock billingKPIs={enhanced.billingKPIs} />
+
+                  {/* Duplicate billings alert */}
+                  <DashboardDuplicateBillings />
 
                   {/* Operation + Commercial + Alerts */}
                    <div className="grid gap-6 grid-cols-1 lg:grid-cols-2 xl:grid-cols-4">

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Users, UserPlus, Search, CheckCircle2, AlertTriangle, ShieldOff, Plus } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -38,6 +38,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
   const [editRoute, setEditRoute] = useState(group.route ?? "__none__");
   const [savingSettings, setSavingSettings] = useState(false);
   const [ignoringMember, setIgnoringMember] = useState<GroupMember | null>(null);
+  const [linkPending, setLinkPending] = useState<{ member: GroupMember; payer: PayerLite } | null>(null);
 
   const { data: routeConfigRows = [] } = useQuery<RouteConfig[]>({
     queryKey: ["route_config"],
@@ -278,7 +279,10 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
                           {isUnlinked ? (
                             <div className="space-y-1">
                               <p className="text-sm font-medium text-amber-800">{m.wa_display_name ?? "—"}</p>
-                              <Select onValueChange={(v) => handleLinkPayer(m.id, v)}>
+                              <Select onValueChange={(payerId) => {
+                                const payer = allPayers.find((p) => p.id === payerId);
+                                if (payer) setLinkPending({ member: m, payer });
+                              }}>
                                 <SelectTrigger className="h-7 text-xs w-48 bg-white border-amber-200">
                                   <SelectValue placeholder="Vincular pagador…" />
                                 </SelectTrigger>
@@ -433,6 +437,43 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
         </Tabs>
       </DialogContent>
     </Dialog>
+
+    {linkPending && (
+      <Dialog open onOpenChange={(v) => !v && setLinkPending(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-base">Confirmar vínculo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Nome no WhatsApp</p>
+              <p className="text-sm font-semibold text-foreground">{linkPending.member.wa_display_name ?? "—"}</p>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <span className="text-lg">→</span>
+            </div>
+            <div className="p-3 rounded-lg border bg-muted/30 space-y-1">
+              <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Pagador selecionado</p>
+              <p className="text-sm font-bold text-foreground">{linkPending.payer.name}</p>
+              {linkPending.payer.document_digits && (
+                <p className="text-xs font-mono text-muted-foreground">CPF: {linkPending.payer.document_digits}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <Button variant="outline" onClick={() => setLinkPending(null)}>Cancelar</Button>
+            <Button
+              onClick={async () => {
+                await handleLinkPayer(linkPending.member.id, linkPending.payer.id);
+                setLinkPending(null);
+              }}
+            >
+              Confirmar vínculo
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )}
 
     {ignoringMember && (
       <IgnoreMemberDialog

@@ -52,7 +52,7 @@ export function GroupRow({ group, onManage, onDelete }: GroupRowProps) {
 
       {/* Actions */}
       <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+        <div className="flex items-center justify-end gap-1">
           <button
             onClick={() => onManage(group)}
             className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-muted text-foreground rounded-md hover:bg-primary hover:text-primary-foreground transition-all"
