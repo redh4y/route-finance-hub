@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -15,12 +16,17 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 import {
+  CalendarDays,
   CheckCircle2,
+  ClipboardList,
   Copy,
   Download,
   Eye,
+  ExternalLink,
   FileText,
+  Info,
   Loader2,
+  Mail,
   Search,
   Shield,
 } from "lucide-react";
@@ -28,6 +34,8 @@ import {
 const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-boleto-links`;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const LAST_CPF_STORAGE_KEY = "public-boleto-links:last-cpf";
+const AUXILIO_EMAIL = "auxiliotransporteguairasp@gmail.com";
+const ANEXO_IV_URL = "/docs/anexo-iv-auxilio-transporte.pdf";
 
 /* ───── Types ───── */
 
@@ -77,6 +85,24 @@ function formatMonth(ref: string) {
     date,
   );
   return `${label.charAt(0).toUpperCase() + label.slice(1)}/${y}`;
+}
+
+function formatMonthName(date: Date) {
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
+    date,
+  );
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function getAuxilioMonthInfo() {
+  const now = new Date();
+  const current = new Date(now.getFullYear(), now.getMonth(), 1);
+  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  return {
+    currentMonth: formatMonthName(current),
+    previousMonth: formatMonthName(previous),
+  };
 }
 
 function formatDateBR(value: string | null | undefined) {
@@ -146,6 +172,7 @@ export default function PublicBoletoLinksPage() {
   const cpfDigits = useMemo(() => onlyDigits(cpf), [cpf]);
   const canSearch = cpfDigits.length === 11;
   const welcomeName = items[0]?.student_name || "";
+  const auxilioMonthInfo = useMemo(() => getAuxilioMonthInfo(), []);
 
   const logDownload = async (params: {
     driveUrl: string;
@@ -319,10 +346,10 @@ export default function PublicBoletoLinksPage() {
             <FileText className="h-8 w-8" />
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-            2ª via de boletos
+            Portal do aluno
           </h1>
           <p className="text-primary-foreground/70 text-sm md:text-base max-w-md mx-auto">
-            Consulte e baixe seus boletos de forma rápida e segura.
+            Consulte boletos, documentos e avisos importantes em um só lugar.
           </p>
         </div>
       </div>
@@ -376,7 +403,7 @@ export default function PublicBoletoLinksPage() {
                 ) : (
                   <>
                     <Search className="h-4 w-4 mr-2" />
-                    Buscar boletos
+                    Acessar portal
                   </>
                 )}
               </Button>
@@ -384,18 +411,25 @@ export default function PublicBoletoLinksPage() {
           </CardContent>
         </Card>
 
-        {/* Warning */}
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
-          <Shield className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-          <p className="text-sm text-amber-900">
-            Antes de pagar, confira atentamente os dados: <strong>nome</strong>,{" "}
-            <strong>CPF</strong>, <strong>vencimento</strong> e{" "}
-            <strong>valor</strong>.
-          </p>
-        </div>
+        {/* Portal */}
+        <Tabs defaultValue="boletos" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-2 h-11">
+            <TabsTrigger value="boletos">Boletos</TabsTrigger>
+            <TabsTrigger value="auxilio">Auxílio transporte</TabsTrigger>
+          </TabsList>
 
-        {/* Results */}
-        <Card className="shadow-sm">
+          <TabsContent value="boletos" className="space-y-4 mt-0">
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
+              <Shield className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-900">
+                Antes de pagar, confira atentamente os dados: <strong>nome</strong>,{" "}
+                <strong>CPF</strong>, <strong>vencimento</strong> e{" "}
+                <strong>valor</strong>.
+              </p>
+            </div>
+
+            {/* Results */}
+            <Card className="shadow-sm">
           <CardContent className="pt-5 pb-4">
             {isLoading ? (
               <div className="space-y-3">
@@ -631,6 +665,140 @@ export default function PublicBoletoLinksPage() {
             )}
           </CardContent>
         </Card>
+
+          </TabsContent>
+
+          <TabsContent value="auxilio" className="mt-0">
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <ClipboardList className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <CardTitle className="text-lg">Auxílio transporte</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Documentos para envio mensal à secretaria.
+                    </p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <CalendarDays className="h-4 w-4 text-primary" />
+                      Período de envio
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      De 01 a 08 de abril.
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Mail className="h-4 w-4 text-primary" />
+                      E-mail da secretaria
+                    </div>
+                    <a
+                      href={`mailto:${AUXILIO_EMAIL}`}
+                      className="mt-2 block break-all text-sm font-medium text-primary hover:underline"
+                    >
+                      {AUXILIO_EMAIL}
+                    </a>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border p-4">
+                  <div className="flex items-start gap-3">
+                    <Info className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                    <div className="space-y-2 text-sm">
+                      <p className="font-semibold">Mês de referência</p>
+                      <p className="text-muted-foreground">
+                        A solicitação de {auxilioMonthInfo.currentMonth} usa
+                        sempre os documentos de{" "}
+                        <strong className="text-foreground">
+                          {auxilioMonthInfo.previousMonth}
+                        </strong>
+                        .
+                        Exemplo: em abril, envie os boletos e comprovantes de
+                        março.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border p-4">
+                  <p className="text-sm font-semibold">
+                    Documentos para enviar
+                  </p>
+                  <ul className="mt-3 space-y-3 text-sm">
+                    <li className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                        <span>Anexo IV preenchido.</span>
+                      </div>
+                      <div className="flex shrink-0 gap-1.5">
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs"
+                        >
+                          <a
+                            href={ANEXO_IV_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Abrir
+                          </a>
+                        </Button>
+                        <Button asChild size="sm" className="h-7 gap-1 px-2 text-xs">
+                          <a href={ANEXO_IV_URL} download>
+                            <Download className="h-3.5 w-3.5" />
+                            Baixar
+                          </a>
+                        </Button>
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      <span>
+                        Boleto e comprovante de pagamento do ônibus referente ao
+                        mês de{" "}
+                        <strong>{auxilioMonthInfo.previousMonth}</strong>.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      <span>
+                        Boleto e comprovante da faculdade referente ao mês de{" "}
+                        <strong>{auxilioMonthInfo.previousMonth}</strong>.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <span>
+                        Se não tiver boleto da faculdade, pode enviar o
+                        comprovante de frequência.
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                {hasSearched && items.length > 0 && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+                    <p className="text-sm text-emerald-900">
+                      Seus boletos disponíveis estão na aba Boletos. Use o boleto
+                      de {auxilioMonthInfo.previousMonth} junto com os
+                      comprovantes de pagamento.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         {/* Footer / Contact */}
         <div className="text-center space-y-3 pt-2">
