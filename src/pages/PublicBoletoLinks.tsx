@@ -2,8 +2,6 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Table,
@@ -17,9 +15,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 import {
-  AlertTriangle,
   CheckCircle2,
-  Clock,
   Copy,
   Download,
   Eye,
@@ -27,7 +23,6 @@ import {
   Loader2,
   Search,
   Shield,
-  XCircle,
 } from "lucide-react";
 
 const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-boleto-links`;
@@ -96,45 +91,6 @@ function formatCurrency(cents: number | null | undefined) {
     style: "currency",
     currency: "BRL",
   }).format(cents / 100);
-}
-
-function getStatusInfo(status: string | null | undefined) {
-  const s = String(status || "").toUpperCase();
-  if (s === "PAGO")
-    return {
-      label: "Pago",
-      icon: CheckCircle2,
-      cls: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30",
-    };
-  if (s === "EM_ABERTO")
-    return {
-      label: "Em aberto",
-      icon: Clock,
-      cls: "bg-amber-500/15 text-amber-700 border-amber-500/30",
-    };
-  if (s === "VENCIDO")
-    return {
-      label: "Vencido",
-      icon: AlertTriangle,
-      cls: "bg-destructive/15 text-destructive border-destructive/30",
-    };
-  if (s === "CANCELADO")
-    return {
-      label: "Cancelado",
-      icon: XCircle,
-      cls: "bg-muted text-muted-foreground border-border",
-    };
-  if (s === "REVISAO")
-    return {
-      label: "Em revisão",
-      icon: AlertTriangle,
-      cls: "bg-purple-500/15 text-purple-700 border-purple-500/30",
-    };
-  return {
-    label: "Sem status",
-    icon: FileText,
-    cls: "bg-muted text-muted-foreground border-border",
-  };
 }
 
 function canShowDigitableLine(status: string | null | undefined) {
@@ -487,14 +443,11 @@ export default function PublicBoletoLinksPage() {
                         <TableHead>Competência</TableHead>
                         <TableHead>Vencimento</TableHead>
                         <TableHead>Valor</TableHead>
-                        <TableHead>Status</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {items.map((item, idx) => {
-                        const st = getStatusInfo(item.public_status);
-                        const StIcon = st.icon;
                         const showBarcode =
                           canShowDigitableLine(item.public_status) &&
                           item.digitable_line;
@@ -502,9 +455,7 @@ export default function PublicBoletoLinksPage() {
                           <Fragment
                             key={`${item.reference_month}-${item.our_number || idx}`}
                           >
-                            <TableRow
-                              className={cn("border-b-0", showBarcode && "")}
-                            >
+                            <TableRow className="border-b-0">
                               <TableCell className="font-medium">
                                 {formatMonth(item.reference_month)}
                               </TableCell>
@@ -513,18 +464,6 @@ export default function PublicBoletoLinksPage() {
                               </TableCell>
                               <TableCell className="font-semibold tabular-nums">
                                 {formatCurrency(item.amount_cents)}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    "gap-1 text-[11px] border",
-                                    st.cls,
-                                  )}
-                                >
-                                  <StIcon className="h-3 w-3" />
-                                  {st.label}
-                                </Badge>
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="inline-flex items-center gap-1.5">
@@ -556,7 +495,7 @@ export default function PublicBoletoLinksPage() {
                             </TableRow>
                             {showBarcode && (
                               <TableRow className="bg-muted/30">
-                                <TableCell colSpan={5} className="pt-1 pb-2">
+                                <TableCell colSpan={4} className="pt-1 pb-2">
                                   <div className="flex items-center gap-2">
                                     <span
                                       className="text-[11px] font-mono rounded-md border bg-card px-2.5 py-1 break-all cursor-copy hover:bg-muted/50 transition-colors"
@@ -596,8 +535,6 @@ export default function PublicBoletoLinksPage() {
                 {/* Mobile Cards */}
                 <div className="md:hidden space-y-3">
                   {items.map((item, idx) => {
-                    const st = getStatusInfo(item.public_status);
-                    const StIcon = st.icon;
                     const showBarcode =
                       canShowDigitableLine(item.public_status) &&
                       item.digitable_line;
@@ -607,20 +544,10 @@ export default function PublicBoletoLinksPage() {
                         className="rounded-xl border bg-card p-4 space-y-3"
                       >
                         {/* Header */}
-                        <div className="flex items-center justify-between gap-2">
+                        <div>
                           <p className="font-semibold text-lg">
                             {formatMonth(item.reference_month)}
                           </p>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "gap-1 text-[11px] border shrink-0",
-                              st.cls,
-                            )}
-                          >
-                            <StIcon className="h-3 w-3" />
-                            {st.label}
-                          </Badge>
                         </div>
 
                         {/* Info */}
