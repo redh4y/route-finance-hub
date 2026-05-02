@@ -530,6 +530,37 @@ export default function BoletoAccessLogsPage() {
     staleTime: 30_000,
   });
 
+  const resolvedCoverageMonth = coverage?.referenceMonth ?? null;
+
+  const { data: contactCounts, refetch: refetchContacts } = useQuery({
+    queryKey: ["boleto-contact-log-counts", resolvedCoverageMonth],
+    queryFn: async () => {
+      if (!resolvedCoverageMonth) return new Map<string, number>();
+      const { data, error } = await supabase
+        .from("boleto_contact_log")
+        .select("cpf_digits")
+        .eq("reference_month", resolvedCoverageMonth);
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const row of data || []) {
+        counts.set(row.cpf_digits, (counts.get(row.cpf_digits) ?? 0) + 1);
+      }
+      return counts;
+    },
+    enabled: !!resolvedCoverageMonth,
+    staleTime: 10_000,
+  });
+
+  const logContact = async (cpf_digits: string, message_type: string) => {
+    if (!resolvedCoverageMonth) return;
+    await supabase.from("boleto_contact_log").insert({
+      reference_month: resolvedCoverageMonth,
+      cpf_digits,
+      message_type,
+    });
+    refetchContacts();
+  };
+
   const rows = result?.rows || [];
   const total = result?.count || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -646,10 +677,16 @@ export default function BoletoAccessLogsPage() {
       return;
     }
     toast.info(`Abrindo ${urls.length} conversa(s) no WhatsApp...`);
+    const messageType =
+      windowName === "tavares-whatsapp-emissao" ? "emissao"
+      : windowName === "tavares-whatsapp-link" ? "link"
+      : windowName === "tavares-whatsapp-venc" ? "vencimento"
+      : "urgente";
     urls.forEach((row, index) => {
       window.setTimeout(() => {
         setLastWhatsappCpf(row.cpf_digits);
         window.open(row.whatsappUrl!, windowName, "noopener,noreferrer");
+        logContact(row.cpf_digits, messageType);
       }, index * 900);
     });
   };
@@ -990,10 +1027,13 @@ export default function BoletoAccessLogsPage() {
                           <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-[12%]">
                             Status
                           </th>
-                          <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-[18%]">
+                          <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-[10%]">
+                            Vencimento
+                          </th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-[13%]">
                             Último acesso
                           </th>
-                          <th className="text-right px-3 py-2 text-xs font-medium text-muted-foreground w-[25%]">
+                          <th className="text-right px-3 py-2 text-xs font-medium text-muted-foreground w-[20%]">
                             Contato
                           </th>
                         </tr>
@@ -1082,6 +1122,13 @@ export default function BoletoAccessLogsPage() {
                                 )}
                               </td>
                               <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                                {row.due_date ? (
+                                  new Date(row.due_date + "T12:00:00").toLocaleDateString("pt-BR")
+                                ) : (
+                                  <span className="italic">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                                 {row.last_access_at ? (
                                   formatDateTime(row.last_access_at)
                                 ) : (
@@ -1090,6 +1137,12 @@ export default function BoletoAccessLogsPage() {
                               </td>
                               <td className="px-3 py-2.5">
                                 {row.is_paid || row.is_cancelled ? null : (
+                                  <div className="flex flex-col items-end gap-1">
+                                    {(contactCounts?.get(row.cpf_digits) ?? 0) > 0 && (
+                                      <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
+                                        {contactCounts!.get(row.cpf_digits)}× contatado
+                                      </span>
+                                    )}
                                   <div className="flex items-center justify-end gap-1">
                                     {whatsappUrl ? (
                                       <Tooltip>
@@ -1097,23 +1150,16 @@ export default function BoletoAccessLogsPage() {
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              setLastWhatsappCpf(
-                                                row.cpf_digits,
-                                              );
-                                              window.open(
-                                                whatsappUrl,
-                                                "tavares-whatsapp",
-                                                "noopener,noreferrer",
-                                              );
+                                              setLastWhatsappCpf(row.cpf_digits);
+                                              window.open(whatsappUrl, "tavares-whatsapp", "noopener,noreferrer");
+                                              logContact(row.cpf_digits, "emissao");
                                             }}
                                             className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
                                           >
                                             <Info className="h-3.5 w-3.5" />
                                           </button>
                                         </TooltipTrigger>
-                                        <TooltipContent>
-                                          Aviso de emissão
-                                        </TooltipContent>
+                                        <TooltipContent>Aviso de emissão</TooltipContent>
                                       </Tooltip>
                                     ) : (
                                       <span className="text-[11px] text-muted-foreground">
@@ -1126,23 +1172,16 @@ export default function BoletoAccessLogsPage() {
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              setLastWhatsappCpf(
-                                                row.cpf_digits,
-                                              );
-                                              window.open(
-                                                sendLinkUrl,
-                                                "tavares-whatsapp-link",
-                                                "noopener,noreferrer",
-                                              );
+                                              setLastWhatsappCpf(row.cpf_digits);
+                                              window.open(sendLinkUrl, "tavares-whatsapp-link", "noopener,noreferrer");
+                                              logContact(row.cpf_digits, "link");
                                             }}
                                             className="inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 p-1.5 text-blue-700 hover:bg-blue-100 transition-colors"
                                           >
                                             <Link className="h-3.5 w-3.5" />
                                           </button>
                                         </TooltipTrigger>
-                                        <TooltipContent>
-                                          Enviar link do boleto
-                                        </TooltipContent>
+                                        <TooltipContent>Enviar link do boleto</TooltipContent>
                                       </Tooltip>
                                     )}
                                     {vencimentoUrl && (
@@ -1151,23 +1190,16 @@ export default function BoletoAccessLogsPage() {
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              setLastWhatsappCpf(
-                                                row.cpf_digits,
-                                              );
-                                              window.open(
-                                                vencimentoUrl,
-                                                "tavares-whatsapp-venc",
-                                                "noopener,noreferrer",
-                                              );
+                                              setLastWhatsappCpf(row.cpf_digits);
+                                              window.open(vencimentoUrl, "tavares-whatsapp-venc", "noopener,noreferrer");
+                                              logContact(row.cpf_digits, "vencimento");
                                             }}
                                             className="inline-flex items-center justify-center rounded-md border border-amber-200 bg-amber-50 p-1.5 text-amber-700 hover:bg-amber-100 transition-colors"
                                           >
                                             <Clock className="h-3.5 w-3.5" />
                                           </button>
                                         </TooltipTrigger>
-                                        <TooltipContent>
-                                          Avisar vencimento
-                                        </TooltipContent>
+                                        <TooltipContent>Avisar vencimento</TooltipContent>
                                       </Tooltip>
                                     )}
                                     {urgencyUrl && (
@@ -1176,25 +1208,19 @@ export default function BoletoAccessLogsPage() {
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              setLastWhatsappCpf(
-                                                row.cpf_digits,
-                                              );
-                                              window.open(
-                                                urgencyUrl,
-                                                "tavares-whatsapp-urgency",
-                                                "noopener,noreferrer",
-                                              );
+                                              setLastWhatsappCpf(row.cpf_digits);
+                                              window.open(urgencyUrl, "tavares-whatsapp-urgency", "noopener,noreferrer");
+                                              logContact(row.cpf_digits, "urgente");
                                             }}
                                             className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-700 hover:bg-rose-100 transition-colors"
                                           >
                                             <Siren className="h-3.5 w-3.5" />
                                           </button>
                                         </TooltipTrigger>
-                                        <TooltipContent>
-                                          Aviso urgente de pendência
-                                        </TooltipContent>
+                                        <TooltipContent>Aviso urgente de pendência</TooltipContent>
                                       </Tooltip>
                                     )}
+                                  </div>
                                   </div>
                                 )}
                               </td>

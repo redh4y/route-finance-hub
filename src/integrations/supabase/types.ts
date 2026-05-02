@@ -340,6 +340,30 @@ export type Database = {
         }
         Relationships: []
       }
+      boleto_contact_log: {
+        Row: {
+          id: string
+          reference_month: string
+          cpf_digits: string
+          message_type: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          reference_month: string
+          cpf_digits: string
+          message_type: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          reference_month?: string
+          cpf_digits?: string
+          message_type?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       bairro_aliases: {
         Row: {
           ativo: boolean
@@ -383,6 +407,7 @@ export type Database = {
           created_at: string
           due_date: string | null
           id: string
+          issued_at: string | null
           liquidation_at: string | null
           nosso_numero: string | null
           payer_code: string | null
@@ -404,6 +429,7 @@ export type Database = {
           created_at?: string
           due_date?: string | null
           id?: string
+          issued_at?: string | null
           liquidation_at?: string | null
           nosso_numero?: string | null
           payer_code?: string | null
@@ -425,6 +451,7 @@ export type Database = {
           created_at?: string
           due_date?: string | null
           id?: string
+          issued_at?: string | null
           liquidation_at?: string | null
           nosso_numero?: string | null
           payer_code?: string | null

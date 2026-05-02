@@ -35,12 +35,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
 import { 
-  Upload, 
-  FileText, 
-  Users, 
-  MapPin, 
-  CreditCard, 
-  AlertCircle, 
+  Upload,
+  FileText,
+  Users,
+  MapPin,
+  CreditCard,
+  AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Loader2,
   X,
@@ -52,12 +53,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
-import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow } from "@/lib/csv-import";
+import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow, isPreviousMonthReissue } from "@/lib/csv-import";
 import { format } from "date-fns";
 
 
 
-type BillingPreviewType = "NEW" | "UPDATE_DUE_DATE" | "NO_CHANGE" | "MISSING_PAYER" | "NEW_STATUS_VARIANT";
+type BillingPreviewType = "NEW" | "UPDATE_DUE_DATE" | "NO_CHANGE" | "MISSING_PAYER" | "NEW_STATUS_VARIANT" | "DUPLICATE_OPEN_PAID";
 
 
 type PayerPreviewType = "NEW" | "UPDATE" | "NO_CHANGE" | "AMBIGUOUS" | "CONFLICT";
@@ -133,6 +134,37 @@ const getBillingPreviewStatusKey = (billing: {
   status: string;
 }) => `${getBillingPreviewBaseKey(billing)}|ST|${(billing.status || "").trim().toUpperCase()}`;
 
+async function fetchAllBillingsForPreview(
+  column: "payer_id" | "nosso_numero",
+  values: string[],
+) {
+  const uniqueValues = Array.from(new Set(values.filter(Boolean)));
+  const rows: any[] = [];
+  const chunkSize = 300;
+  const pageSize = 1000;
+
+  for (let i = 0; i < uniqueValues.length; i += chunkSize) {
+    const chunk = uniqueValues.slice(i, i + chunkSize);
+    let from = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("billings")
+        .select("id, payer_id, reference_month, nosso_numero, seu_numero, due_date, status")
+        .in(column, chunk)
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+      rows.push(...(data || []));
+
+      if (!data || data.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  return rows;
+}
+
 async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreviewRow[]; nameConflicts: BillingNameConflict[] }> {
   const csvRows = await parseCSV<BillingCSVRow>(file);
   const transformed = csvRows.map(transformBillingRow).filter(Boolean) as NonNullable<ReturnType<typeof transformBillingRow>>[];
@@ -175,10 +207,21 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
   const resolvedIncoming = incoming.map((b) => {
     const docCandidate = /^\d{11}$/.test(b.payer_id || "") ? b.payer_id : null;
     const codeCandidate = b.payer_code || (!/^\d{11}$/.test(b.payer_id || "") ? b.payer_id : null);
-    const resolvedPayerId =
-      (docCandidate ? payerIdByDoc.get(docCandidate) : null) ||
-      (codeCandidate ? payerIdByCode.get(codeCandidate) : null) ||
+    
+    // First try to resolve by document (CPF)
+    let resolvedPayerId = docCandidate ? payerIdByDoc.get(docCandidate) : null;
+    
+    // If document didn't resolve, try code as fallback
+    if (!resolvedPayerId && codeCandidate) {
+      resolvedPayerId = payerIdByCode.get(codeCandidate) || null;
+    }
+    
+    // Final fallback to any existing resolution
+    resolvedPayerId = resolvedPayerId || 
+      (docCandidate ? payerIdByDoc.get(docCandidate) : null) || 
+      (codeCandidate ? payerIdByCode.get(codeCandidate) : null) || 
       null;
+      
     const payerMatch = resolvedPayerId ? payerById.get(resolvedPayerId) : null;
     const csvName = b.payer_name?.trim() || null;
     const dbName = payerMatch?.name?.trim() || null;
@@ -203,16 +246,31 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
         .filter((id): id is string => !!id && UUID_REGEX.test(id))
     )
   );
-  const { data: existingBillings, error: billingErr } = resolvedPayerIds.length > 0
-    ? await supabase
-        .from("billings")
-        .select("payer_id, reference_month, nosso_numero, seu_numero, due_date, status")
-        .in("payer_id", resolvedPayerIds)
-    : { data: [], error: null as any };
-  if (billingErr) throw billingErr;
+
+  const nossoNumeros = Array.from(
+    new Set(
+      resolvedIncoming
+        .map((b) => b.nosso_numero)
+        .filter((nn): nn is string => !!nn)
+    )
+  );
+
+  let existingBillings: any[] = [];
+
+  if (resolvedPayerIds.length > 0) {
+    existingBillings = await fetchAllBillingsForPreview("payer_id", resolvedPayerIds);
+  }
+
+  if (nossoNumeros.length > 0) {
+    const data = await fetchAllBillingsForPreview("nosso_numero", nossoNumeros);
+    const existingByIdMap = new Map(existingBillings.map((b) => [b.id || `${b.payer_id}|${b.reference_month}|${b.nosso_numero}|${b.status}`, b]));
+    data.forEach((b) => existingByIdMap.set(b.id, b));
+    existingBillings = Array.from(existingByIdMap.values());
+  }
 
   const existingByStatusKey = new Map<string, (typeof existingBillings)[number]>();
-  const existingByBaseKey = new Set<string>();
+  const existingByBase = new Map<string, (typeof existingBillings)[number][]>();
+  const existingByNosso = new Map<string, (typeof existingBillings)[number][]>();
 
   (existingBillings || []).forEach((b) => {
     const statusKey = getBillingPreviewStatusKey({
@@ -224,7 +282,7 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
       status: b.status,
     });
     existingByStatusKey.set(statusKey, b);
-    existingByBaseKey.add(
+    const baseKeysToRegister = [
       getBillingPreviewBaseKey({
         payer_id: b.payer_id,
         reference_month: b.reference_month,
@@ -232,7 +290,34 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
         seu_numero: b.seu_numero,
         due_date: b.due_date,
       })
-    );
+    ];
+
+    if (b.nosso_numero) {
+      baseKeysToRegister.push(
+        getBillingPreviewBaseKey({
+          payer_id: b.payer_id,
+          reference_month: b.reference_month,
+          nosso_numero: null,
+          seu_numero: b.seu_numero,
+          due_date: b.due_date,
+        })
+      );
+    }
+
+    for (const baseKey of baseKeysToRegister) {
+      const list = existingByBase.get(baseKey) || [];
+      if (!list.some((item) => item.id === b.id)) {
+        list.push(b);
+      }
+      existingByBase.set(baseKey, list);
+    }
+
+    if (b.nosso_numero) {
+      const key = b.nosso_numero.trim();
+      const list = existingByNosso.get(key) || [];
+      list.push(b);
+      existingByNosso.set(key, list);
+    }
   });
 
   const rows = resolvedIncoming.map((b) => {
@@ -250,6 +335,13 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
     const existing = statusKeys
       .map((k) => existingByStatusKey.get(k))
       .find((v) => !!v);
+    const baseVariants = Array.from(
+      new Map(
+        baseKeys
+          .flatMap((k) => existingByBase.get(k) || [])
+          .map((variant) => [variant.id, variant])
+      ).values()
+    );
 
     if (!b._payerFound) {
       return {
@@ -308,7 +400,28 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
       };
     }
 
-    if (baseKeys.some((k) => existingByBaseKey.has(k))) {
+    if (baseVariants.length > 0) {
+      const hasPaidVariant = baseVariants.some((variant) => variant.status === "PAID");
+      const isReissue = isPreviousMonthReissue(b.seu_numero);
+      const openOverPaidDuplicate = b.status === "OPEN" && hasPaidVariant && !isReissue;
+
+      if (openOverPaidDuplicate) {
+        const paidVariant = baseVariants.find((variant) => variant.status === "PAID");
+        return {
+          type: "DUPLICATE_OPEN_PAID" as const,
+          payerName: b._payerName,
+          payerId: b.payer_id,
+          payerCode: b._payerCode,
+          referenceMonth: b.reference_month,
+          status: b.status,
+          dueDate: b.due_date,
+          nossoNumero: b.nosso_numero,
+          seuNumero: b.seu_numero,
+          amountExpectedCents: b.amount_expected_cents,
+          note: `Duplicidade ignorada: boleto em aberto equivale ao boleto pago ${paidVariant?.nosso_numero || "-"} nesta competencia.`,
+        };
+      }
+
       return {
         type: "NEW_STATUS_VARIANT" as const,
         payerName: b._payerName,
@@ -322,6 +435,121 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
         amountExpectedCents: b.amount_expected_cents,
         note: "Mesmo boleto base com status diferente. Historico sera mantido.",
       };
+    }
+
+    if (b.nosso_numero) {
+      const variants = existingByNosso.get(b.nosso_numero.trim()) || [];
+      if (variants.length > 0) {
+        const sameStatus = variants.find((v) => v.status === b.status);
+        const hasPaidVariant = variants.some((v) => v.status === "PAID");
+        const openVariant = variants.find((v) => v.status === "OPEN");
+        const isReissue = isPreviousMonthReissue(b.seu_numero);
+
+        if (sameStatus) {
+          const dueDateChanged = (sameStatus.due_date || null) !== (b.due_date || null);
+          const nossoChanged = (sameStatus.nosso_numero || null) !== (b.nosso_numero || null);
+          const seuChanged = (sameStatus.seu_numero || null) !== (b.seu_numero || null);
+          const refMonthChanged = (sameStatus.reference_month || null) !== (b.reference_month || null);
+
+          if (dueDateChanged || nossoChanged || seuChanged || refMonthChanged) {
+            const changes: string[] = [];
+            if (dueDateChanged) changes.push(`vencimento ${sameStatus.due_date || "-"} -> ${b.due_date || "-"}`);
+            if (nossoChanged) changes.push(`nosso numero ${sameStatus.nosso_numero || "-"} -> ${b.nosso_numero || "-"}`);
+            if (seuChanged) changes.push(`seu numero ${sameStatus.seu_numero || "-"} -> ${b.seu_numero || "-"}`);
+            if (refMonthChanged) changes.push(`referencia ${sameStatus.reference_month || "-"} -> ${b.reference_month || "-"}`);
+
+            return {
+              type: "UPDATE_DUE_DATE" as const,
+              payerName: b._payerName,
+              payerId: b.payer_id,
+              payerCode: b._payerCode,
+              referenceMonth: b.reference_month,
+              status: b.status,
+              dueDate: b.due_date,
+              nossoNumero: b.nosso_numero,
+              seuNumero: b.seu_numero,
+              amountExpectedCents: b.amount_expected_cents,
+              note: `Atualizacoes: ${changes.join("; ")}.`,
+            };
+          }
+
+          if (b.status === "OPEN" && hasPaidVariant && !isReissue) {
+            return {
+              type: "NO_CHANGE" as const,
+              payerName: b._payerName,
+              payerId: b.payer_id,
+              payerCode: b._payerCode,
+              referenceMonth: b.reference_month,
+              status: b.status,
+              dueDate: b.due_date,
+              nossoNumero: b.nosso_numero,
+              seuNumero: b.seu_numero,
+              amountExpectedCents: b.amount_expected_cents,
+              note: "Sem alteracoes em relacao ao banco.",
+            };
+          }
+
+          return {
+            type: "NO_CHANGE" as const,
+            payerName: b._payerName,
+            payerId: b.payer_id,
+            payerCode: b._payerCode,
+            referenceMonth: b.reference_month,
+            status: b.status,
+            dueDate: b.due_date,
+            nossoNumero: b.nosso_numero,
+            seuNumero: b.seu_numero,
+            amountExpectedCents: b.amount_expected_cents,
+            note: "Sem alteracoes em relacao ao banco.",
+          };
+        }
+
+        if (b.status === "PAID" && openVariant) {
+          return {
+            type: "UPDATE_DUE_DATE" as const,
+            payerName: b._payerName,
+            payerId: b.payer_id,
+            payerCode: b._payerCode,
+            referenceMonth: b.reference_month,
+            status: b.status,
+            dueDate: b.due_date,
+            nossoNumero: b.nosso_numero,
+            seuNumero: b.seu_numero,
+            amountExpectedCents: b.amount_expected_cents,
+            note: "Atualizacoes: status OPEN -> PAID.",
+          };
+        }
+
+        if (b.status === "OPEN" && hasPaidVariant && !isReissue) {
+          return {
+            type: "NO_CHANGE" as const,
+            payerName: b._payerName,
+            payerId: b.payer_id,
+            payerCode: b._payerCode,
+            referenceMonth: b.reference_month,
+            status: b.status,
+            dueDate: b.due_date,
+            nossoNumero: b.nosso_numero,
+            seuNumero: b.seu_numero,
+            amountExpectedCents: b.amount_expected_cents,
+            note: "Sem alteracoes em relacao ao banco.",
+          };
+        }
+
+        return {
+          type: "NEW_STATUS_VARIANT" as const,
+          payerName: b._payerName,
+          payerId: b.payer_id,
+          payerCode: b._payerCode,
+          referenceMonth: b.reference_month,
+          status: b.status,
+          dueDate: b.due_date,
+          nossoNumero: b.nosso_numero,
+          seuNumero: b.seu_numero,
+          amountExpectedCents: b.amount_expected_cents,
+          note: "Mesmo nosso_numero ja existe no banco. Historico sera mantido.",
+        };
+      }
     }
 
     return {
@@ -805,7 +1033,13 @@ function ImportPayersCard() {
                   {previewRows.map((row) => (
                     <TableRow key={`${row.rowNumber}-${row.name}-${row.type}`}>
                       <TableCell>{row.rowNumber}</TableCell>
-                      <TableCell><Badge variant="outline">{row.type}</Badge></TableCell>
+                      <TableCell><Badge variant="outline">{{
+                        NEW: "Novo",
+                        UPDATE: "Atualização",
+                        NO_CHANGE: "Sem mudança",
+                        AMBIGUOUS: "Ambíguo",
+                        CONFLICT: "Conflito",
+                      }[row.type] ?? row.type}</Badge></TableCell>
                       <TableCell>{row.name}</TableCell>
                       <TableCell className="font-mono text-xs">{row.documentDigits || "-"}</TableCell>
                       <TableCell className="font-mono text-xs">{row.payerCode || "-"}</TableCell>
@@ -815,7 +1049,11 @@ function ImportPayersCard() {
                 </TableBody>
               </Table>
               {previewRows.length === 0 && (
-                <div className="p-4 text-sm text-muted-foreground">Nenhum usuario com alteracao detectada.</div>
+                <div className="p-4 text-sm text-muted-foreground">
+                  {previewSummary.NO_CHANGE > 0
+                    ? "Nenhum pagador com alteração detectada. Registros sem alteração não aparecem no preview."
+                    : "Nenhum pagador com alteração detectada."}
+                </div>
               )}
             </div>
           </CardContent>
@@ -840,6 +1078,7 @@ function ImportBillingsCard() {
     NEW: previewRows.filter((r) => r.type === "NEW").length,
     UPDATE_DUE_DATE: previewRows.filter((r) => r.type === "UPDATE_DUE_DATE").length,
     NEW_STATUS_VARIANT: previewRows.filter((r) => r.type === "NEW_STATUS_VARIANT").length,
+    DUPLICATE_OPEN_PAID: previewRows.filter((r) => r.type === "DUPLICATE_OPEN_PAID").length,
     NO_CHANGE: previewRows.filter((r) => r.type === "NO_CHANGE").length,
     MISSING_PAYER: previewRows.filter((r) => r.type === "MISSING_PAYER").length,
   }), [previewRows]);
@@ -1098,9 +1337,9 @@ function ImportBillingsCard() {
               <div className="flex gap-2">
                 <FileWarning className="h-5 w-5 text-accent shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-accent">Reemisses</p>
+                  <p className="text-sm font-medium text-accent">Reemissões</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Se "Seu Nmero" contiver ANT ou ANTERIOR, ser considerado ms anterior.
+                    Se "Seu Número" contiver ANT ou ANTERIOR, será considerado mês anterior.
                   </p>
                 </div>
               </div>
@@ -1156,7 +1395,7 @@ function ImportBillingsCard() {
       {lastImportResult && (lastImportResult.errors > 0 || lastImportResult.success > 0) && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Resultado da importa??o</CardTitle>
+            <CardTitle className="text-lg">Resultado da importação</CardTitle>
             <CardDescription>
               Veja quantos boletos foram importados com sucesso e quais linhas falharam.
             </CardDescription>
@@ -1199,7 +1438,7 @@ function ImportBillingsCard() {
               </div>
             ) : (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                Nenhum erro encontrado nesta importa??o.
+                Nenhum erro encontrado nesta importação.
               </div>
             )}
           </CardContent>
@@ -1224,9 +1463,10 @@ function ImportBillingsCard() {
                   <SelectItem value="ALL">Todos</SelectItem>
                   <SelectItem value="NEW">Novos</SelectItem>
                   <SelectItem value="UPDATE_DUE_DATE">Vencimento alterado</SelectItem>
-                  <SelectItem value="NEW_STATUS_VARIANT">Novo status (hist?rico)</SelectItem>
+                  <SelectItem value="NEW_STATUS_VARIANT">Novo status (histórico)</SelectItem>
+                  <SelectItem value="DUPLICATE_OPEN_PAID">Duplicidade</SelectItem>
                   <SelectItem value="MISSING_PAYER">Sem cadastro</SelectItem>
-                  <SelectItem value="NO_CHANGE">Sem mudan?as</SelectItem>
+                  <SelectItem value="NO_CHANGE">Sem mudanças</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1236,9 +1476,24 @@ function ImportBillingsCard() {
               <Badge variant="secondary">Novos: {summary.NEW}</Badge>
               <Badge variant="secondary">Vencimento: {summary.UPDATE_DUE_DATE}</Badge>
               <Badge variant="secondary">Novo status: {summary.NEW_STATUS_VARIANT}</Badge>
+              <Badge variant="outline" className="text-warning border-warning/50">Duplicidade: {summary.DUPLICATE_OPEN_PAID}</Badge>
               <Badge variant="secondary">Sem cadastro: {summary.MISSING_PAYER}</Badge>
-              <Badge variant="outline">Sem mudan?as: {summary.NO_CHANGE}</Badge>
+              <Badge variant="outline">Sem mudanças: {summary.NO_CHANGE}</Badge>
             </div>
+
+            {summary.DUPLICATE_OPEN_PAID > 0 && (
+              <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
+                <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-warning">
+                    {summary.DUPLICATE_OPEN_PAID} boleto{summary.DUPLICATE_OPEN_PAID > 1 ? "s" : ""} aberto{summary.DUPLICATE_OPEN_PAID > 1 ? "s" : ""} ignorado{summary.DUPLICATE_OPEN_PAID > 1 ? "s" : ""} por já existir boleto pago na mesma competência
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    Esses registros não serão importados. Filtre por "Duplicidade" para revisar.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="max-h-[380px] overflow-auto rounded border">
               <table className="w-full text-sm">
@@ -1257,7 +1512,14 @@ function ImportBillingsCard() {
                 <tbody>
                   {filteredPreviewRows.map((row, idx) => (
                     <tr key={`${row.payerId}-${row.nossoNumero || row.seuNumero || idx}`} className="border-t">
-                      <td className="p-2"><Badge variant="outline">{row.type}</Badge></td>
+                      <td className="p-2"><Badge variant="outline">{{
+                        NEW: "Novo",
+                        UPDATE_DUE_DATE: "Atualização",
+                        NEW_STATUS_VARIANT: "Novo status",
+                        DUPLICATE_OPEN_PAID: "Duplicidade",
+                        NO_CHANGE: "Sem mudança",
+                        MISSING_PAYER: "Sem cadastro",
+                      }[row.type] ?? row.type}</Badge></td>
                       <td className="p-2">{row.payerName}</td>
                       <td className="p-2">{row.referenceMonth}</td>
                       <td className="p-2">{row.status}</td>
@@ -1332,11 +1594,11 @@ function ImportInvoicesCard() {
       return;
     }
     if (!invoiceMonthOverride) {
-      toast.error("Informe o ms da fatura");
+      toast.error("Informe o mês da fatura");
       return;
     }
     if (parsedLines.length === 0) {
-      toast.error("Arquivo no processado ou sem linhas vlidas");
+      toast.error("Arquivo não processado ou sem linhas válidas");
       return;
     }
 
@@ -1560,16 +1822,16 @@ function ImportInvoicesCard() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Prvia</CardTitle>
+          <CardTitle className="text-lg">Prévia</CardTitle>
           <CardDescription>
-            Primeiras 50 linhas vlidas do arquivo
+            Primeiras 50 linhas válidas do arquivo
           </CardDescription>
         </CardHeader>
         <CardContent>
           {preview.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <CreditCard className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>Sem prvia disponvel</p>
+              <p>Sem prévia disponível</p>
             </div>
           ) : (
             <div className="space-y-3 max-h-[520px] overflow-auto">
@@ -2177,4 +2439,3 @@ function FieldsCard({
     </Card>
   );
 }
-

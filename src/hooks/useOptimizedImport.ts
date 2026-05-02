@@ -11,6 +11,7 @@ import {
   CEPCSVRow,
   getHigherPriorityStatus,
   isQuickCancellation,
+  isPreviousMonthReissue,
 } from "@/lib/csv-import";
 import { toast } from "sonner";
 
@@ -108,6 +109,47 @@ function getExistingBillingLookupKeys(billing: Pick<TransformedBilling, "payer_i
   keys.push(`${payer}|${ref}|FALLBACK|ST|${status}`);
 
   return keys;
+}
+
+type ExistingBillingLookupRow = {
+  id: string;
+  payer_id: string;
+  status: string;
+  reference_month: string;
+  due_date: string | null;
+  nosso_numero: string | null;
+  seu_numero: string | null;
+};
+
+async function fetchAllExistingBillingsByColumn(
+  column: "payer_id" | "nosso_numero",
+  values: string[],
+): Promise<ExistingBillingLookupRow[]> {
+  const uniqueValues = Array.from(new Set(values.filter(Boolean)));
+  const rows: ExistingBillingLookupRow[] = [];
+  const chunkSize = 300;
+  const pageSize = 1000;
+
+  for (let i = 0; i < uniqueValues.length; i += chunkSize) {
+    const chunk = uniqueValues.slice(i, i + chunkSize);
+    let from = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("billings")
+        .select("id, payer_id, status, reference_month, due_date, nosso_numero, seu_numero")
+        .in(column, chunk)
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+      rows.push(...((data || []) as ExistingBillingLookupRow[]));
+
+      if (!data || data.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  return rows;
 }
 
 
@@ -425,6 +467,12 @@ export function useOptimizedImportBillings() {
       }
 
       const billings = Array.from(billingMap.values());
+      // Sort ascending so the most recent month's billing always overwrites payer state last
+      billings.sort((a, b) => (a.reference_month || "").localeCompare(b.reference_month || ""));
+      const maxReferenceMonth = billings.reduce(
+        (max, b) => (!max || (b.reference_month || "") > max ? b.reference_month || "" : max),
+        ""
+      ) || null;
 
       // Pre-fetch existing payers in one query using import identifiers (CPF/Cod Pagador)
       const importedDocs = Array.from(
@@ -435,8 +483,15 @@ export function useOptimizedImportBillings() {
       const importedCodes = Array.from(
         new Set(
           billings
-            .filter((b) => !/^\d{11}$/.test(b.payer_id || ""))
             .map((b) => b.payer_code || b.payer_id)
+            .filter((v) => !/^\d{11}$/.test(v || ""))
+            .filter((v): v is string => !!v)
+        )
+      );
+      const importedNossoNumeros = Array.from(
+        new Set(
+          billings
+            .map((b) => b.nosso_numero?.trim())
             .filter((v): v is string => !!v)
         )
       );
@@ -467,15 +522,19 @@ export function useOptimizedImportBillings() {
 
       const payerIds = Array.from(existingPayerIds);
 
-      // Pre-fetch existing billings for imported payers (across reference months)
-      const existingBillingsQuery = payerIds.length > 0
-        ? await supabase
-            .from("billings")
-            .select("id, payer_id, status, reference_month, due_date, nosso_numero, seu_numero")
-            .in("payer_id", payerIds)
-        : { data: [] as { id: string; payer_id: string; status: string; reference_month: string; due_date: string | null; nosso_numero: string | null; seu_numero: string | null }[] };
+      const existingBillingsById = new Map(
+        (payerIds.length > 0
+          ? await fetchAllExistingBillingsByColumn("payer_id", payerIds)
+          : []
+        ).map((billing) => [billing.id, billing])
+      );
 
-      const existingBillings = existingBillingsQuery.data || [];
+      if (importedNossoNumeros.length > 0) {
+        const billingsByNosso = await fetchAllExistingBillingsByColumn("nosso_numero", importedNossoNumeros);
+        billingsByNosso.forEach((billing) => existingBillingsById.set(billing.id, billing));
+      }
+
+      const existingBillings = Array.from(existingBillingsById.values());
 
       const existingBillingsMap = new Map<string, (typeof existingBillings)[number]>();
       const existingBillingsByBase = new Map<string, (typeof existingBillings)[number][]>();
@@ -653,6 +712,7 @@ export function useOptimizedImportBillings() {
           payer_code: billing.payer_code,
           nosso_numero: billing.nosso_numero,
           seu_numero: billing.seu_numero,
+          issued_at: billing.issued_at,
           due_date: billing.due_date,
           liquidation_at: billing.liquidation_at,
           settlement_at: billing.settlement_at,
@@ -724,8 +784,9 @@ export function useOptimizedImportBillings() {
           } else {
             registerPlannedInsert(billing.status);
           }
-        } else if (billing.status === "OPEN" && hasPaidVariant) {
-          // Ignore OPEN if already paid in the same billing base
+        } else if (billing.status === "OPEN" && hasPaidVariant && !isPreviousMonthReissue(billing.seu_numero)) {
+          // Ignore OPEN if already paid in the same billing base.
+          // ANT/ANTERIOR boletos are reissues of a prior debt and must always be processed.
         } else {
           registerPlannedInsert(billing.status);
         }
@@ -753,9 +814,9 @@ export function useOptimizedImportBillings() {
           billing_seen_in_month: billing.reference_month,
           ...(billing.payer_code ? { payer_code: billing.payer_code } : {}),
           last_billing_ref: billing.reference_month,
-          status: "ATIVO",
           billing_mode: "BOLETO",
           default_route: payerRoute,
+          ...(billing.reference_month === maxReferenceMonth ? { status: "ATIVO" } : {}),
         };
 
         if (billing.status === "PAID") {

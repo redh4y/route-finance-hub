@@ -385,6 +385,8 @@ export interface BillingCSVRow {
   Identificacao?: string;
   
   // Dates
+  "Data Emissao"?: string;
+  "Data Emissão"?: string;
   "Data Vencimento"?: string;
   "Data Baixa"?: string;      // liquidationAt - indicates cancellation
   "Data Pagamento"?: string;  // settlementAt - indicates payment
@@ -481,7 +483,14 @@ export function transformPayerRow(row: PayerCSVRow) {
 export function transformBillingRow(row: BillingCSVRow) {
   // Try to get payer identification from multiple fields
   const documentDigits = normalizeCPF(row["Cpf/Cnpj Pagador"] || row.Identif || row.Identificacao);
-  const payerCode = row["Cod Pagador"]?.trim() || null;
+  
+  // Try multiple fields for payer code as fallback
+  const payerCode = row["Cod Pagador"]?.trim() || 
+                   row["Codigo Pagador"]?.trim() || 
+                   row["Cod. Pagador"]?.trim() || 
+                   row.Codigo?.trim() || 
+                   row.Cod?.trim() || null;
+  
   const payerId = documentDigits || payerCode;
   
   if (!payerId) {
@@ -490,7 +499,8 @@ export function transformBillingRow(row: BillingCSVRow) {
 
   const nossoNumero = row["Nosso Numero"]?.trim() || null;
   const seuNumero = row["Seu Numero"]?.trim() || null;
-  
+
+  const issuedAt = parseCSVDate(row["Data Emissão"] || row["Data Emissao"]);
   const dueDate = parseCSVDate(row["Data Vencimento"]);
   const liquidationAt = parseCSVDate(row["Data Baixa"]);
   const settlementAt = parseCSVDate(row["Data Pagamento"]);
@@ -513,6 +523,7 @@ export function transformBillingRow(row: BillingCSVRow) {
     payer_name: payerName, // Used for creating placeholder payers
     nosso_numero: nossoNumero,
     seu_numero: seuNumero,
+    issued_at: issuedAt,
     due_date: dueDate,
     liquidation_at: liquidationAt,
     settlement_at: settlementAt,
