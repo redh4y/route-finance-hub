@@ -340,30 +340,6 @@ export type Database = {
         }
         Relationships: []
       }
-      boleto_contact_log: {
-        Row: {
-          id: string
-          reference_month: string
-          cpf_digits: string
-          message_type: string
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          reference_month: string
-          cpf_digits: string
-          message_type: string
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          reference_month?: string
-          cpf_digits?: string
-          message_type?: string
-          created_at?: string
-        }
-        Relationships: []
-      }
       bairro_aliases: {
         Row: {
           ativo: boolean
@@ -476,6 +452,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      boleto_contact_log: {
+        Row: {
+          cpf_digits: string
+          created_at: string
+          id: string
+          message_type: string
+          reference_month: string
+        }
+        Insert: {
+          cpf_digits: string
+          created_at?: string
+          id?: string
+          message_type: string
+          reference_month: string
+        }
+        Update: {
+          cpf_digits?: string
+          created_at?: string
+          id?: string
+          message_type?: string
+          reference_month?: string
+        }
+        Relationships: []
       }
       bus_assignments: {
         Row: {
