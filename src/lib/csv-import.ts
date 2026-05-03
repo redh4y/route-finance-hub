@@ -380,6 +380,10 @@ export interface BillingCSVRow {
   "Nosso Numero"?: string;
   "Seu Numero"?: string;
   "Cod Pagador"?: string;
+  "Codigo Pagador"?: string;
+  "Cod. Pagador"?: string;
+  Codigo?: string;
+  Cod?: string;
   "Cpf/Cnpj Pagador"?: string;
   Identif?: string;
   Identificacao?: string;
