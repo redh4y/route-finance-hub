@@ -238,6 +238,7 @@ type CoverageRow = {
   downloaded: boolean;
   is_paid: boolean;
   is_cancelled: boolean;
+  is_open: boolean;
   is_active: boolean;
   last_access_at: string | null;
 };
