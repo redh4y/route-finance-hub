@@ -1422,9 +1422,11 @@ export type Database = {
           cpf_digits: string
           created_at: string
           digitable_line: string | null
+          document_date: string | null
           drive_url: string
           due_date: string | null
           file_id: string | null
+          file_name: string | null
           id: string
           our_number: string | null
           payer_id: string | null
@@ -1439,9 +1441,11 @@ export type Database = {
           cpf_digits: string
           created_at?: string
           digitable_line?: string | null
+          document_date?: string | null
           drive_url: string
           due_date?: string | null
           file_id?: string | null
+          file_name?: string | null
           id?: string
           our_number?: string | null
           payer_id?: string | null
@@ -1456,9 +1460,11 @@ export type Database = {
           cpf_digits?: string
           created_at?: string
           digitable_line?: string | null
+          document_date?: string | null
           drive_url?: string
           due_date?: string | null
           file_id?: string | null
+          file_name?: string | null
           id?: string
           our_number?: string | null
           payer_id?: string | null
