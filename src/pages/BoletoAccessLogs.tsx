@@ -570,8 +570,8 @@ export default function BoletoAccessLogsPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const activeRows = (coverage?.rows || []).filter((row) => row.is_active);
-  // Apenas alunos ativos com boleto não pago e não cancelado (base para WhatsApp e ações em lote)
-  const unpaidRows = activeRows.filter((row) => !row.is_paid && !row.is_cancelled);
+  // Apenas alunos ativos com boleto OPEN no mês selecionado (base para WhatsApp e ações em lote)
+  const unpaidRows = activeRows.filter((row) => row.is_open);
 
   const filteredPendingRows = (
     pendingStatusFilter === "all" ? activeRows : unpaidRows
