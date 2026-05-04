@@ -137,6 +137,18 @@ interface JsonPhoneChange {
   existing_secondary: string;
 }
 
+interface DbAddressChange {
+  payer_id: string;
+  payer_name: string;
+  address_original: string;
+  match_ok: boolean;
+  review_reason: string;
+  changes: { field: string; old_value: string; new_value: string }[];
+  update_data: Record<string, unknown>;
+}
+
+type DbAddressMatchStatus = "idle" | "loading" | "done";
+
 const DEFAULT_CONFIG: MatchConfig = {
   bairro_fuzzy_threshold: 0.405,
   min_score_logradouro: 0.50,
@@ -212,6 +224,17 @@ export default function AddressMatch() {
   const [resultsFilter, setResultsFilter] = useState<"all" | "ok" | "review" | "fail">("all");
   const [resultsPage, setResultsPage] = useState(1);
   const [failuresPage, setFailuresPage] = useState(1);
+
+  // DB address verify (standalone, sem CSV)
+  const [dbAddrStatus, setDbAddrStatus] = useState<DbAddressMatchStatus>("idle");
+  const [dbAddrChanges, setDbAddrChanges] = useState<DbAddressChange[]>([]);
+  const [dbAddrAlreadyOk, setDbAddrAlreadyOk] = useState(0);
+  const [dbAddrNoAddr, setDbAddrNoAddr] = useState(0);
+  const [dbAddrReview, setDbAddrReview] = useState(0);
+  const [showDbAddrModal, setShowDbAddrModal] = useState(false);
+  const [dbAddrSaving, setDbAddrSaving] = useState(false);
+  const [dbAddrSaveResult, setDbAddrSaveResult] = useState<{ updated: number; errors: number } | null>(null);
+  const [dbAddrOnlyOutdated, setDbAddrOnlyOutdated] = useState(true);
 
   // JSON-only phone sync (standalone, sem CSV)
   const [jsonSyncContacts, setJsonSyncContacts] = useState<GroupedContact[]>([]);
@@ -506,6 +529,252 @@ export default function AddressMatch() {
       return;
     }
     runPhoneMatchEngine();
+  };
+
+  // ── DB Address Match: run directly against DB payers + DB CEPs ──
+  const runDbAddressMatch = async () => {
+    setDbAddrStatus("loading");
+    setDbAddrChanges([]);
+    setDbAddrSaveResult(null);
+
+    try {
+      // 1. Fetch CEP base from DB
+      toast.loading("Carregando base de CEPs...", { id: "db-addr" });
+      const cepBase: CepRecord[] = [];
+      let cepPage = 0;
+      const CEP_PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("ceps")
+          .select("logradouro, bairro, cidade, uf, cep")
+          .range(cepPage * CEP_PAGE, (cepPage + 1) * CEP_PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        cepBase.push(...data.map((r) => ({
+          logradouro: r.logradouro || "",
+          bairro: r.bairro || "",
+          cidade: r.cidade || "",
+          uf: r.uf || "",
+          cep: r.cep || "",
+        })));
+        if (data.length < CEP_PAGE) break;
+        cepPage++;
+      }
+
+      if (cepBase.length === 0) throw new Error("Base de CEPs vazia no banco");
+
+      // 2. Fetch all active payers with address fields
+      toast.loading(`${cepBase.length} CEPs carregados. Buscando pagadores...`, { id: "db-addr" });
+      type PayerAddrRow = {
+        id: string; name: string;
+        address_original: string | null; address_base: string | null;
+        street: string | null; number: string | null; neighborhood: string | null;
+        cep: string | null; city: string | null; state: string | null;
+        match_ok: boolean | null;
+      };
+      const allPayers: PayerAddrRow[] = [];
+      let payerPage = 0;
+      const PAYER_PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("payers")
+          .select("id, name, address_original, address_base, street, number, neighborhood, cep, city, state, match_ok")
+          .eq("status", "ATIVO")
+          .range(payerPage * PAYER_PAGE, (payerPage + 1) * PAYER_PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allPayers.push(...(data as PayerAddrRow[]));
+        if (data.length < PAYER_PAGE) break;
+        payerPage++;
+      }
+
+      // 3. Filter payers that have an address to match
+      const payersWithAddr = allPayers.filter((p) => !!(p.address_original || p.address_base));
+      const noAddrCount = allPayers.length - payersWithAddr.length;
+
+      toast.loading(`${allPayers.length} pagadores. Processando ${payersWithAddr.length} com endereço...`, { id: "db-addr" });
+
+      // 4. Run match engine using rows format expected by processAllRows
+      const rows = payersWithAddr.map((p) => ({
+        __payer_id: p.id,
+        __payer_name: p.name,
+        __current_street: p.street || "",
+        __current_number: p.number || "",
+        __current_neighborhood: p.neighborhood || "",
+        __current_cep: p.cep || "",
+        __current_city: p.city || "",
+        __current_state: p.state || "",
+        __current_match_ok: p.match_ok ?? false,
+        endereco_para_match: p.address_original || p.address_base || "",
+      }));
+
+      const matchResults = await processAllRows(
+        rows,
+        cepBase,
+        "endereco_para_match",
+        config as EngineMatchConfig,
+        (processed, total) => {
+          if (processed % 100 === 0) {
+            const pct = Math.round((processed / total) * 100);
+            toast.loading(`Processando endereços ${processed}/${total} (${pct}%)...`, { id: "db-addr" });
+          }
+        },
+        bairroAliases,
+      );
+
+      // 5. Compare matched result with current payer data → build change list
+      const fieldLabels: Record<string, string> = {
+        street: "Rua", number: "Número", neighborhood: "Bairro",
+        cep: "CEP", city: "Cidade", state: "UF",
+      };
+
+      const changes: DbAddressChange[] = [];
+      let alreadyOk = 0;
+      let reviewCount = 0;
+
+      for (let i = 0; i < matchResults.length; i++) {
+        const r = matchResults[i];
+        const orig = rows[i];
+
+        if (r.review_status === "REVIEW") {
+          reviewCount++;
+          continue;
+        }
+
+        if (!r.match_ok) continue;
+
+        const proposed: Record<string, string> = {
+          street: String(r.matched_logradouro || ""),
+          number: String(r.matched_numero || ""),
+          neighborhood: String(r.matched_bairro || ""),
+          cep: String(r.matched_cep || "").replace(/\D/g, ""),
+          city: String(r.matched_cidade || ""),
+          state: String(r.matched_uf || ""),
+        };
+
+        const current: Record<string, string> = {
+          street: String(orig.__current_street || ""),
+          number: String(orig.__current_number || ""),
+          neighborhood: String(orig.__current_neighborhood || ""),
+          cep: String(orig.__current_cep || "").replace(/\D/g, ""),
+          city: String(orig.__current_city || ""),
+          state: String(orig.__current_state || ""),
+        };
+
+        const fieldChanges: { field: string; old_value: string; new_value: string }[] = [];
+        const updateData: Record<string, unknown> = {};
+
+        for (const f of ["street", "number", "neighborhood", "cep", "city", "state"] as const) {
+          const newVal = proposed[f];
+          const oldVal = current[f];
+          if (newVal && newVal.toLowerCase() !== oldVal.toLowerCase()) {
+            fieldChanges.push({ field: fieldLabels[f], old_value: oldVal || "—", new_value: newVal });
+            updateData[f] = newVal;
+          }
+        }
+
+        if (!orig.__current_match_ok) {
+          updateData.match_ok = true;
+        }
+
+        if (fieldChanges.length === 0 && orig.__current_match_ok) {
+          alreadyOk++;
+          continue;
+        }
+
+        if (fieldChanges.length === 0 && !orig.__current_match_ok) {
+          // match_ok vai mudar mas endereço já estava certo
+          changes.push({
+            payer_id: String(orig.__payer_id),
+            payer_name: String(orig.__payer_name),
+            address_original: String(orig.endereco_para_match),
+            match_ok: true,
+            review_reason: "",
+            changes: [{ field: "Status", old_value: "Sem match", new_value: "Match confirmado" }],
+            update_data: { match_ok: true },
+          });
+          continue;
+        }
+
+        changes.push({
+          payer_id: String(orig.__payer_id),
+          payer_name: String(orig.__payer_name),
+          address_original: String(orig.endereco_para_match),
+          match_ok: r.match_ok,
+          review_reason: r.review_reason || "",
+          changes: fieldChanges,
+          update_data: { ...updateData, match_ok: true },
+        });
+      }
+
+      toast.dismiss("db-addr");
+      setDbAddrChanges(changes);
+      setDbAddrAlreadyOk(alreadyOk);
+      setDbAddrNoAddr(noAddrCount);
+      setDbAddrReview(reviewCount);
+      setDbAddrStatus("done");
+      setShowDbAddrModal(true);
+
+      if (changes.length === 0) {
+        toast.info(`Todos os endereços já estão atualizados (${alreadyOk} OK, ${reviewCount} em revisão)`);
+      } else {
+        toast.success(`${changes.length} pagadores com alteração, ${alreadyOk} já OK, ${reviewCount} em revisão`);
+      }
+    } catch (err) {
+      console.error("runDbAddressMatch error:", err);
+      toast.error(err instanceof Error ? err.message : "Erro ao processar endereços");
+      toast.dismiss("db-addr");
+      setDbAddrStatus("idle");
+    }
+  };
+
+  // ── DB Address Match: apply changes ──
+  const applyDbAddressChanges = async () => {
+    const toApply = dbAddrOnlyOutdated
+      ? dbAddrChanges.filter((c) => c.changes.some((ch) => ch.field !== "Status"))
+      : dbAddrChanges;
+    if (toApply.length === 0) return;
+    setDbAddrSaving(true);
+
+    let updated = 0;
+    let errors = 0;
+
+    try {
+      const BATCH = 50;
+      for (let i = 0; i < toApply.length; i += BATCH) {
+        const batch = toApply.slice(i, i + BATCH);
+        const pct = Math.round(((i + batch.length) / toApply.length) * 100);
+        toast.loading(`Salvando ${i + batch.length}/${toApply.length} (${pct}%)...`, { id: "db-addr-save" });
+
+        const results = await Promise.all(
+          batch.map((change) =>
+            supabase
+              .from("payers")
+              .update({ ...change.update_data, updated_at: new Date().toISOString() })
+              .eq("id", change.payer_id)
+              .then(({ error }) => (error ? ("error" as const) : ("ok" as const)))
+          )
+        );
+
+        for (const r of results) {
+          if (r === "ok") updated++;
+          else errors++;
+        }
+      }
+
+      toast.dismiss("db-addr-save");
+      setDbAddrSaveResult({ updated, errors });
+      setShowDbAddrModal(false);
+
+      if (errors > 0) toast.warning(`${updated} pagadores atualizados, ${errors} erros`);
+      else toast.success(`${updated} pagadores atualizados com sucesso`);
+    } catch (err) {
+      console.error("applyDbAddressChanges error:", err);
+      toast.error("Erro ao salvar alterações");
+      toast.dismiss("db-addr-save");
+    } finally {
+      setDbAddrSaving(false);
+    }
   };
 
   // ── JSON Sync: upload handler ──
@@ -1720,6 +1989,78 @@ export default function AddressMatch() {
             )}
           </Card>
 
+          {/* Verificar Endereços no Banco (standalone) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-blue-600" />
+                Verificar Endereços do Banco vs Base de CEPs
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Compara os endereços cadastrados nos pagadores ativos com a base de CEPs do banco e mostra o que está desatualizado. Usa a mesma engine do match completo, sem precisar de CSV.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-3 items-center">
+                <Button
+                  onClick={runDbAddressMatch}
+                  disabled={dbAddrStatus === "loading"}
+                  className="gap-2"
+                  variant="outline"
+                >
+                  <Database className="h-4 w-4" />
+                  {dbAddrStatus === "loading" ? "Processando..." : "Verificar endereços no banco"}
+                </Button>
+
+                {dbAddrStatus === "done" && (
+                  <div className="flex flex-wrap gap-3 text-xs text-muted-foreground items-center">
+                    <span className="flex items-center gap-1 text-amber-600">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      {dbAddrChanges.length} desatualizados
+                    </span>
+                    <span className="flex items-center gap-1 text-emerald-600">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {dbAddrAlreadyOk} já OK
+                    </span>
+                    {dbAddrReview > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Info className="h-3.5 w-3.5" />
+                        {dbAddrReview} em revisão
+                      </span>
+                    )}
+                    {dbAddrNoAddr > 0 && (
+                      <span className="text-muted-foreground/60">{dbAddrNoAddr} sem endereço</span>
+                    )}
+                    {dbAddrChanges.length > 0 && (
+                      <Button
+                        size="sm"
+                        className="h-7 gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                        onClick={() => setShowDbAddrModal(true)}
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        Ver e aplicar alterações
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {dbAddrSaveResult && (
+                  <span className="text-sm text-emerald-600 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {dbAddrSaveResult.updated} atualizados
+                    {dbAddrSaveResult.errors > 0 && (
+                      <span className="text-destructive">, {dbAddrSaveResult.errors} erros</span>
+                    )}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Usa os thresholds configurados no painel à direita. Endereços em revisão (bairro não encontrado) são ignorados.
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Sincronizar Telefones via JSON (standalone) */}
           <Card>
             <CardHeader>
@@ -2287,6 +2628,116 @@ export default function AddressMatch() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* Modal: DB address match preview */}
+        <Dialog open={showDbAddrModal} onOpenChange={(open) => setShowDbAddrModal(open)}>
+          <DialogContent className="max-w-5xl h-[90vh] flex flex-col overflow-hidden p-0">
+            <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b">
+              <DialogTitle>Endereços Desatualizados — Preview</DialogTitle>
+              <DialogDescription>
+                {[
+                  dbAddrChanges.length > 0 && `${dbAddrChanges.length} pagadores com alteração`,
+                  dbAddrAlreadyOk > 0 && `${dbAddrAlreadyOk} já atualizados`,
+                  dbAddrReview > 0 && `${dbAddrReview} em revisão (ignorados)`,
+                  dbAddrNoAddr > 0 && `${dbAddrNoAddr} sem endereço cadastrado`,
+                ].filter(Boolean).join(" · ")}
+              </DialogDescription>
+            </DialogHeader>
+
+            {dbAddrChanges.length > 0 && (
+              <>
+                <div className="flex items-center gap-3 px-6 py-2 border-b bg-muted/30">
+                  <Switch
+                    id="only-outdated"
+                    checked={dbAddrOnlyOutdated}
+                    onCheckedChange={setDbAddrOnlyOutdated}
+                  />
+                  <Label htmlFor="only-outdated" className="text-xs cursor-pointer">
+                    Mostrar apenas com mudança de dados (excluir só confirmação de match_ok)
+                  </Label>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {dbAddrOnlyOutdated
+                      ? dbAddrChanges.filter((c) => c.changes.some((ch) => ch.field !== "Status")).length
+                      : dbAddrChanges.length}{" "}
+                    para aplicar
+                  </span>
+                </div>
+
+                <ScrollArea className="flex-1 overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[160px]">Pagador</TableHead>
+                        <TableHead className="min-w-[200px]">Endereço original</TableHead>
+                        <TableHead>Campo</TableHead>
+                        <TableHead>Valor atual</TableHead>
+                        <TableHead>Novo valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(dbAddrOnlyOutdated
+                        ? dbAddrChanges.filter((c) => c.changes.some((ch) => ch.field !== "Status"))
+                        : dbAddrChanges
+                      ).map((change, pi) =>
+                        change.changes.map((c, ci) => (
+                          <TableRow key={`${pi}-${ci}`}>
+                            {ci === 0 && (
+                              <>
+                                <TableCell
+                                  rowSpan={change.changes.length}
+                                  className="text-xs font-medium align-top pt-3"
+                                >
+                                  {change.payer_name}
+                                </TableCell>
+                                <TableCell
+                                  rowSpan={change.changes.length}
+                                  className="text-xs text-muted-foreground align-top pt-3 max-w-[220px] truncate"
+                                  title={change.address_original}
+                                >
+                                  {change.address_original}
+                                </TableCell>
+                              </>
+                            )}
+                            <TableCell className="text-xs font-medium">{c.field}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{c.old_value}</TableCell>
+                            <TableCell className="text-xs font-medium text-blue-600">{c.new_value}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </>
+            )}
+
+            {dbAddrChanges.length === 0 && (
+              <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500 opacity-60" />
+                  <p className="text-sm font-medium">Todos os endereços já estão atualizados</p>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="flex-shrink-0 gap-2 px-6 py-4 border-t">
+              <Button variant="outline" onClick={() => setShowDbAddrModal(false)}>
+                Fechar
+              </Button>
+              {dbAddrChanges.length > 0 && (
+                <Button
+                  onClick={applyDbAddressChanges}
+                  disabled={dbAddrSaving}
+                  className="gap-2 bg-blue-600 hover:bg-blue-700"
+                >
+                  <Save className="h-4 w-4" />
+                  {dbAddrSaving
+                    ? "Salvando..."
+                    : `Aplicar ${dbAddrOnlyOutdated ? dbAddrChanges.filter((c) => c.changes.some((ch) => ch.field !== "Status")).length : dbAddrChanges.length} alterações`}
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Modal: preview JSON sync */}
         <Dialog open={showJsonSyncModal} onOpenChange={(open) => setShowJsonSyncModal(open)}>
           <DialogContent className="max-w-4xl h-[85vh] flex flex-col overflow-hidden p-0">
