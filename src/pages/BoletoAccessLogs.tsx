@@ -238,6 +238,7 @@ type CoverageRow = {
   downloaded: boolean;
   is_paid: boolean;
   is_cancelled: boolean;
+  is_open: boolean;
   is_active: boolean;
   last_access_at: string | null;
 };
@@ -450,23 +451,24 @@ export default function BoletoAccessLogsPage() {
         }
       }
 
-      // Fetch paid/cancelled billings for this month to exclude from pending messages
+      // Fetch billings for this month: PAID/CANCELADO to exclude, OPEN to confirm pendency
       const allPayerIds = Array.from(boletoMap.values())
         .map((b) => b.payer_id)
         .filter((id): id is string => !!id);
       const paidPayerIds = new Set<string>();
       const cancelledPayerIds = new Set<string>();
+      const openPayerIds = new Set<string>();
       if (allPayerIds.length > 0) {
         const { data: resolvedBillings } = await supabase
           .from("billings")
           .select("payer_id,status")
           .in("payer_id", allPayerIds)
-          .eq("reference_month", referenceMonth)
-          .in("status", ["PAID", "CANCELADO"]);
+          .eq("reference_month", referenceMonth);
         for (const b of (resolvedBillings || []) as { payer_id: string | null; status: string }[]) {
           if (!b.payer_id) continue;
           if (b.status === "PAID") paidPayerIds.add(b.payer_id);
-          if (b.status === "CANCELADO") cancelledPayerIds.add(b.payer_id);
+          else if (b.status === "CANCELADO") cancelledPayerIds.add(b.payer_id);
+          else if (b.status === "OPEN") openPayerIds.add(b.payer_id);
         }
       }
 
@@ -486,6 +488,7 @@ export default function BoletoAccessLogsPage() {
             null;
           const isPaid = !!(boleto.payer_id && paidPayerIds.has(boleto.payer_id));
           const isCancelled = !!(boleto.payer_id && cancelledPayerIds.has(boleto.payer_id));
+          const isOpen = !!(boleto.payer_id && openPayerIds.has(boleto.payer_id));
           const isActive = activePayerCpfs.has(cpfDigits);
 
           return {
@@ -498,6 +501,7 @@ export default function BoletoAccessLogsPage() {
             downloaded,
             is_paid: isPaid,
             is_cancelled: isCancelled,
+            is_open: isOpen,
             is_active: isActive,
             last_access_at: lastAccessAt,
           };
@@ -566,8 +570,8 @@ export default function BoletoAccessLogsPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const activeRows = (coverage?.rows || []).filter((row) => row.is_active);
-  // Apenas alunos ativos com boleto não pago e não cancelado (base para WhatsApp e ações em lote)
-  const unpaidRows = activeRows.filter((row) => !row.is_paid && !row.is_cancelled);
+  // Apenas alunos ativos com boleto OPEN no mês selecionado (base para WhatsApp e ações em lote)
+  const unpaidRows = activeRows.filter((row) => row.is_open);
 
   const filteredPendingRows = (
     pendingStatusFilter === "all" ? activeRows : unpaidRows
