@@ -186,21 +186,23 @@ const App = () => (
                 }
               />
               <Route
-                path="/boletos-links"
+                path="/portal-boletos"
                 element={
                   <ProtectedRoute>
                     <BoletoLinksPage />
                   </ProtectedRoute>
                 }
               />
+              <Route path="/boletos-links" element={<Navigate to="/portal-boletos" replace />} />
               <Route
-                path="/logs/2via-boletos"
+                path="/portal-boletos/acessos"
                 element={
                   <ProtectedRoute>
                     <BoletoAccessLogsPage />
                   </ProtectedRoute>
                 }
               />
+              <Route path="/logs/2via-boletos" element={<Navigate to="/portal-boletos/acessos" replace />} />
               <Route
                 path="/auditoria"
                 element={
