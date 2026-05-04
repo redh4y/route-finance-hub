@@ -450,23 +450,24 @@ export default function BoletoAccessLogsPage() {
         }
       }
 
-      // Fetch paid/cancelled billings for this month to exclude from pending messages
+      // Fetch billings for this month: PAID/CANCELADO to exclude, OPEN to confirm pendency
       const allPayerIds = Array.from(boletoMap.values())
         .map((b) => b.payer_id)
         .filter((id): id is string => !!id);
       const paidPayerIds = new Set<string>();
       const cancelledPayerIds = new Set<string>();
+      const openPayerIds = new Set<string>();
       if (allPayerIds.length > 0) {
         const { data: resolvedBillings } = await supabase
           .from("billings")
           .select("payer_id,status")
           .in("payer_id", allPayerIds)
-          .eq("reference_month", referenceMonth)
-          .in("status", ["PAID", "CANCELADO"]);
+          .eq("reference_month", referenceMonth);
         for (const b of (resolvedBillings || []) as { payer_id: string | null; status: string }[]) {
           if (!b.payer_id) continue;
           if (b.status === "PAID") paidPayerIds.add(b.payer_id);
-          if (b.status === "CANCELADO") cancelledPayerIds.add(b.payer_id);
+          else if (b.status === "CANCELADO") cancelledPayerIds.add(b.payer_id);
+          else if (b.status === "OPEN") openPayerIds.add(b.payer_id);
         }
       }
 
