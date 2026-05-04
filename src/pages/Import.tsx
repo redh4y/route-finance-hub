@@ -50,6 +50,7 @@ import {
   Undo2,
   Database,
   Search,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
@@ -1869,6 +1870,7 @@ function ImportCEPsCard() {
   const { importCEPs, isImporting, progress, reset } = useOptimizedImportCEPs();
   const [searchTerm, setSearchTerm] = useState("");
   const [bairroFilter, setBairroFilter] = useState("");
+  const [isExportingCeps, setIsExportingCeps] = useState(false);
 
   const { data: cepsCount } = useQuery({
     queryKey: ["ceps-count"],
@@ -1951,6 +1953,71 @@ function ImportCEPsCard() {
     reset();
   };
 
+  const handleExportCeps = async () => {
+    setIsExportingCeps(true);
+
+    try {
+      const pageSize = 1000;
+      let page = 0;
+      let hasMore = true;
+      const allCeps: Array<{
+        cep: string;
+        logradouro: string | null;
+        bairro: string | null;
+        cidade: string | null;
+        uf: string | null;
+      }> = [];
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("ceps")
+          .select("cep, logradouro, bairro, cidade, uf")
+          .order("bairro", { ascending: true })
+          .order("logradouro", { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+
+        allCeps.push(...(data || []));
+        hasMore = (data?.length || 0) === pageSize;
+        page++;
+      }
+
+      if (allCeps.length === 0) {
+        toast.info("Nenhum CEP cadastrado para exportar");
+        return;
+      }
+
+      const header = ["CEP", "Logradouro", "Bairro", "Localidade"];
+      const rows = allCeps.map((c) => [
+        c.cep || "",
+        c.logradouro || "",
+        c.bairro || "",
+        [c.cidade, c.uf].filter(Boolean).join(" / "),
+      ]);
+
+      const escapeCsv = (value: string) => `"${String(value).replace(/"/g, '""')}"`;
+      const csv = [header, ...rows]
+        .map((line) => line.map((value) => escapeCsv(value)).join(","))
+        .join("\n");
+
+      const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ceps-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      toast.success(`${allCeps.length.toLocaleString("pt-BR")} CEPs exportados`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      toast.error(`Erro ao exportar CEPs: ${message}`);
+    } finally {
+      setIsExportingCeps(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-2">
@@ -2022,6 +2089,20 @@ function ImportCEPsCard() {
                 {cepsCount !== undefined ? `${cepsCount.toLocaleString("pt-BR")} registros no banco` : "Carregando..."}
               </CardDescription>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCeps}
+              disabled={isExportingCeps || !cepsCount}
+              className="gap-2 self-start sm:self-auto"
+            >
+              {isExportingCeps ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Exportar CSV
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">

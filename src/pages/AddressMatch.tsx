@@ -24,6 +24,7 @@ import {
   applyPhoneMatch,
   normPhoneDigits,
   formatPhoneE164,
+  scoreNamePhone,
 } from "@/lib/phone-match-engine";
 import Papa from "papaparse";
 import {
@@ -124,6 +125,18 @@ interface PayerChangePreview {
   update_data: Record<string, unknown>;
 }
 
+interface JsonPhoneChange {
+  payer_id: string;
+  payer_name: string;
+  match_type: "phone_found" | "name_match";
+  match_score?: number;
+  contact_name: string;
+  contact_phone: string;
+  action: "set_primary" | "set_secondary";
+  existing_phone: string;
+  existing_secondary: string;
+}
+
 const DEFAULT_CONFIG: MatchConfig = {
   bairro_fuzzy_threshold: 0.405,
   min_score_logradouro: 0.50,
@@ -199,6 +212,18 @@ export default function AddressMatch() {
   const [resultsFilter, setResultsFilter] = useState<"all" | "ok" | "review" | "fail">("all");
   const [resultsPage, setResultsPage] = useState(1);
   const [failuresPage, setFailuresPage] = useState(1);
+
+  // JSON-only phone sync (standalone, sem CSV)
+  const [jsonSyncContacts, setJsonSyncContacts] = useState<GroupedContact[]>([]);
+  const [jsonSyncRaw, setJsonSyncRaw] = useState<RawWaContact[]>([]);
+  const [jsonSyncFileName, setJsonSyncFileName] = useState("");
+  const [jsonSyncPreview, setJsonSyncPreview] = useState<JsonPhoneChange[]>([]);
+  const [jsonSyncAlreadyOk, setJsonSyncAlreadyOk] = useState(0);
+  const [jsonSyncLoading, setJsonSyncLoading] = useState(false);
+  const [jsonSyncSaving, setJsonSyncSaving] = useState(false);
+  const [showJsonSyncModal, setShowJsonSyncModal] = useState(false);
+  const [jsonSyncResult, setJsonSyncResult] = useState<{ updated: number; errors: number } | null>(null);
+  const [jsonSyncThreshold, setJsonSyncThreshold] = useState(0.6);
 
   const loadAliases = useCallback(async () => {
     const { data, error } = await supabase
@@ -481,6 +506,227 @@ export default function AddressMatch() {
       return;
     }
     runPhoneMatchEngine();
+  };
+
+  // ── JSON Sync: upload handler ──
+  const handleJsonSyncUpload = useCallback((file: File) => {
+    setJsonSyncFileName(file.name);
+    setJsonSyncContacts([]);
+    setJsonSyncRaw([]);
+    setJsonSyncPreview([]);
+    setJsonSyncResult(null);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        const raw = Array.isArray(data) ? data : (data?.contacts || [data]);
+        setJsonSyncRaw(raw as RawWaContact[]);
+        const grouped = readJsonContacts(raw);
+        setJsonSyncContacts(grouped);
+        toast.success(`${file.name}: ${raw.length} contatos → ${grouped.length} agrupados`);
+      } catch {
+        toast.error("Erro ao ler JSON de contatos");
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+  }, []);
+
+  // ── JSON Sync: verify contacts against DB payers ──
+  const verifyJsonSyncInDb = async () => {
+    if (jsonSyncContacts.length === 0) return;
+    setJsonSyncLoading(true);
+    setJsonSyncPreview([]);
+
+    try {
+      toast.loading("Buscando pagadores no banco...", { id: "json-sync" });
+      type PayerRow = { id: string; name: string; phone: string | null; phone_secondary: string | null };
+      const allPayers: PayerRow[] = [];
+      let page = 0;
+      const PAGE_SIZE = 1000;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("payers")
+          .select("id, name, phone, phone_secondary")
+          .eq("status", "ATIVO")
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allPayers.push(...(data as PayerRow[]));
+        if (data.length < PAGE_SIZE) break;
+        page++;
+      }
+
+      toast.loading(`${allPayers.length} pagadores. Verificando ${jsonSyncContacts.length} contatos...`, { id: "json-sync" });
+
+      const preview: JsonPhoneChange[] = [];
+      let alreadyOk = 0;
+
+      for (const contact of jsonSyncContacts) {
+        if (!contact.phone) continue;
+
+        // Parse all unique phone numbers saved for this contact in the JSON
+        const allContactPhones = contact.dup_phones
+          ? contact.dup_phones.split(" | ").map((p) => p.trim()).filter(Boolean)
+          : [contact.phone];
+        const uniquePhoneNorms = [...new Set(allContactPhones.map((p) => normPhoneDigits(p)).filter(Boolean))];
+        const hasMultiplePhones = uniquePhoneNorms.length > 1;
+
+        // Find best matching payer by name
+        let bestScore = 0;
+        let bestPayer: PayerRow | null = null;
+        for (const payer of allPayers) {
+          const score = scoreNamePhone(contact.name, payer.name);
+          if (score > bestScore) {
+            bestScore = score;
+            bestPayer = payer;
+          }
+        }
+
+        if (bestScore < jsonSyncThreshold || !bestPayer) continue;
+
+        const existNorm = normPhoneDigits(bestPayer.phone || "");
+        const existSecNorm = normPhoneDigits(bestPayer.phone_secondary || "");
+
+        const primaryCandidateNorm = normPhoneDigits(contact.phone);
+
+        if (hasMultiplePhones) {
+          // JSON tem 2+ números para esta pessoa → primary = contact.phone, secondary = segundo número
+          if (existNorm === primaryCandidateNorm && existSecNorm) {
+            alreadyOk++;
+            continue;
+          }
+
+          // Checar telefone primário do contato
+          if (primaryCandidateNorm && existNorm !== primaryCandidateNorm && existSecNorm !== primaryCandidateNorm) {
+            preview.push({
+              payer_id: bestPayer.id,
+              payer_name: bestPayer.name,
+              match_type: "name_match",
+              match_score: bestScore,
+              contact_name: contact.name,
+              contact_phone: formatPhoneE164(contact.phone),
+              action: existNorm ? "set_secondary" : "set_primary",
+              existing_phone: bestPayer.phone || "",
+              existing_secondary: bestPayer.phone_secondary || "",
+            });
+          }
+
+          // Checar telefone secundário do contato (segundo número do JSON)
+          const secondNorm = uniquePhoneNorms.find((n) => n !== primaryCandidateNorm);
+          const secondRaw = secondNorm ? allContactPhones.find((p) => normPhoneDigits(p) === secondNorm) : undefined;
+          if (secondNorm && secondRaw && secondNorm !== existNorm && secondNorm !== existSecNorm && !existSecNorm) {
+            preview.push({
+              payer_id: bestPayer.id,
+              payer_name: bestPayer.name,
+              match_type: "name_match",
+              match_score: bestScore,
+              contact_name: contact.name,
+              contact_phone: formatPhoneE164(secondRaw),
+              action: "set_secondary",
+              existing_phone: bestPayer.phone || "",
+              existing_secondary: bestPayer.phone_secondary || "",
+            });
+          }
+
+          if (existNorm === primaryCandidateNorm || existSecNorm === primaryCandidateNorm) {
+            alreadyOk++;
+          }
+        } else {
+          // JSON tem apenas 1 número → sempre atualiza o primário
+          if (primaryCandidateNorm && existNorm === primaryCandidateNorm) {
+            alreadyOk++;
+            continue;
+          }
+
+          if (primaryCandidateNorm) {
+            preview.push({
+              payer_id: bestPayer.id,
+              payer_name: bestPayer.name,
+              match_type: "name_match",
+              match_score: bestScore,
+              contact_name: contact.name,
+              contact_phone: formatPhoneE164(contact.phone),
+              action: "set_primary",
+              existing_phone: bestPayer.phone || "",
+              existing_secondary: bestPayer.phone_secondary || "",
+            });
+          }
+        }
+      }
+
+      toast.dismiss("json-sync");
+      setJsonSyncPreview(preview);
+      setJsonSyncAlreadyOk(alreadyOk);
+      setShowJsonSyncModal(true);
+
+      if (preview.length === 0) {
+        toast.info(`Todos os contatos já estão atualizados (${alreadyOk} verificados)`);
+      }
+    } catch (err) {
+      console.error("verifyJsonSyncInDb error:", err);
+      toast.error("Erro ao verificar contatos no banco");
+      toast.dismiss("json-sync");
+    } finally {
+      setJsonSyncLoading(false);
+    }
+  };
+
+  // ── JSON Sync: apply changes ──
+  const applyJsonSyncChanges = async () => {
+    if (jsonSyncPreview.length === 0) return;
+    setJsonSyncSaving(true);
+
+    let updated = 0;
+    let errors = 0;
+
+    try {
+      const BATCH = 50;
+      for (let i = 0; i < jsonSyncPreview.length; i += BATCH) {
+        const batch = jsonSyncPreview.slice(i, i + BATCH);
+        const pct = Math.round(((i + batch.length) / jsonSyncPreview.length) * 100);
+        toast.loading(`Aplicando ${i + batch.length}/${jsonSyncPreview.length} (${pct}%)...`, { id: "json-apply" });
+
+        const results = await Promise.all(
+          batch.map((change) => {
+            const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
+            if (change.action === "set_primary") {
+              updateData.phone = change.contact_phone;
+            } else {
+              updateData.phone_secondary = change.contact_phone;
+            }
+            return supabase
+              .from("payers")
+              .update(updateData)
+              .eq("id", change.payer_id)
+              .then(({ error }) => (error ? ("error" as const) : ("ok" as const)));
+          })
+        );
+
+        for (const r of results) {
+          if (r === "ok") updated++;
+          else errors++;
+        }
+      }
+
+      toast.dismiss("json-apply");
+      setJsonSyncResult({ updated, errors });
+      setShowJsonSyncModal(false);
+      setJsonSyncPreview([]);
+
+      if (errors > 0) {
+        toast.warning(`${updated} pagadores atualizados, ${errors} erros`);
+      } else {
+        toast.success(`${updated} pagadores atualizados com sucesso`);
+      }
+    } catch (err) {
+      console.error("applyJsonSyncChanges error:", err);
+      toast.error("Erro ao aplicar alterações");
+      toast.dismiss("json-apply");
+    } finally {
+      setJsonSyncSaving(false);
+    }
   };
 
   // ── Import contacts to DB ──
@@ -1474,6 +1720,77 @@ export default function AddressMatch() {
             )}
           </Card>
 
+          {/* Sincronizar Telefones via JSON (standalone) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Phone className="h-4 w-4 text-emerald-600" />
+                Sincronizar Telefones via JSON
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Importe um JSON de contatos WhatsApp e verifique/atualize os telefones dos pagadores diretamente no banco — sem precisar de CSV. Sufixos de ano (ex: " 26") são removidos automaticamente dos nomes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                    JSON de Contatos WhatsApp
+                  </Label>
+                  <Input
+                    type="file"
+                    accept=".json"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleJsonSyncUpload(f);
+                    }}
+                  />
+                  {jsonSyncFileName && (
+                    <p className="text-xs text-muted-foreground">
+                      {jsonSyncFileName} — {jsonSyncRaw.length} contatos → {jsonSyncContacts.length} agrupados
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2 pt-1">
+                  <SliderField
+                    label="Threshold de nome para match"
+                    value={jsonSyncThreshold}
+                    min={0.4}
+                    max={0.9}
+                    step={0.01}
+                    onChange={setJsonSyncThreshold}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Quanto maior, mais conservador. Recomendado: 0.60
+                  </p>
+                </div>
+              </div>
+
+              {jsonSyncContacts.length > 0 && (
+                <div className="flex flex-wrap gap-3 items-center">
+                  <Button
+                    onClick={verifyJsonSyncInDb}
+                    disabled={jsonSyncLoading}
+                    className="gap-2"
+                  >
+                    <Database className="h-4 w-4" />
+                    {jsonSyncLoading ? "Verificando..." : `Verificar ${jsonSyncContacts.length} contatos no banco`}
+                  </Button>
+                  {jsonSyncResult && (
+                    <span className="text-sm text-emerald-600 flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4" />
+                      {jsonSyncResult.updated} atualizados
+                      {jsonSyncResult.errors > 0 && (
+                        <span className="text-destructive">, {jsonSyncResult.errors} erros</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Update payers result */}
           {updatePayersResult && (
             <Card className="border-emerald-500/30 bg-emerald-500/5">
@@ -1965,6 +2282,91 @@ export default function AddressMatch() {
                 >
                   <Save className="h-4 w-4" />
                   {isUpdatingPayers ? "Atualizando..." : `Confirmar ${payerChangesPreview.length} alterações`}
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* Modal: preview JSON sync */}
+        <Dialog open={showJsonSyncModal} onOpenChange={(open) => setShowJsonSyncModal(open)}>
+          <DialogContent className="max-w-4xl h-[85vh] flex flex-col overflow-hidden p-0">
+            <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b">
+              <DialogTitle>Sincronizar Telefones — Preview</DialogTitle>
+              <DialogDescription>
+                {jsonSyncPreview.length === 0
+                  ? `Nenhuma alteração necessária — ${jsonSyncAlreadyOk} contatos já estão atualizados.`
+                  : [
+                      jsonSyncPreview.filter((c) => c.action === "set_primary").length > 0 &&
+                        `${jsonSyncPreview.filter((c) => c.action === "set_primary").length} telefones primários`,
+                      jsonSyncPreview.filter((c) => c.action === "set_secondary").length > 0 &&
+                        `${jsonSyncPreview.filter((c) => c.action === "set_secondary").length} telefones secundários`,
+                      jsonSyncAlreadyOk > 0 && `${jsonSyncAlreadyOk} já atualizados`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+              </DialogDescription>
+            </DialogHeader>
+
+            {jsonSyncPreview.length > 0 && (
+              <ScrollArea className="flex-1 overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[100px]">Ação</TableHead>
+                      <TableHead>Pagador (banco)</TableHead>
+                      <TableHead>Contato (JSON)</TableHead>
+                      <TableHead className="w-[70px]">Score</TableHead>
+                      <TableHead>Tel. Atual</TableHead>
+                      <TableHead>Tel. Sec. Atual</TableHead>
+                      <TableHead>Novo Telefone</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {jsonSyncPreview.map((change, i) => (
+                      <TableRow key={i}>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] px-1.5 py-0 ${
+                              change.action === "set_primary"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                : "bg-violet-50 text-violet-700 border-violet-300"
+                            }`}
+                          >
+                            {change.action === "set_primary" ? "PRIMÁRIO" : "SECUNDÁRIO"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs font-medium">{change.payer_name}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{change.contact_name}</TableCell>
+                        <TableCell className="text-xs font-mono tabular-nums">
+                          {change.match_score !== undefined ? change.match_score.toFixed(3) : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono">{change.existing_phone || "—"}</TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground">
+                          {change.existing_secondary || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono font-medium text-emerald-600">
+                          {change.contact_phone}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            )}
+
+            <DialogFooter className="flex-shrink-0 gap-2 px-6 py-4 border-t">
+              <Button variant="outline" onClick={() => setShowJsonSyncModal(false)}>
+                Cancelar
+              </Button>
+              {jsonSyncPreview.length > 0 && (
+                <Button
+                  onClick={applyJsonSyncChanges}
+                  disabled={jsonSyncSaving}
+                  className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                >
+                  <Save className="h-4 w-4" />
+                  {jsonSyncSaving ? "Aplicando..." : `Confirmar ${jsonSyncPreview.length} alterações`}
                 </Button>
               )}
             </DialogFooter>

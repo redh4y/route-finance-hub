@@ -188,8 +188,8 @@ export function readJsonContacts(raw: RawContact[]): GroupedContact[] {
 
   for (const c of data) {
     let name = (c.saved_name || c.public_name || "").trim();
-    // Remove trailing year suffixes (26, 2026)
-    name = name.replace(/\s+(26|2026)\s*$/, "");
+    // Remove trailing year suffixes like " 26", " 2026", " 25", " 2025", etc.
+    name = name.replace(/\s+(?:20[2-9]\d|[2-9]\d)\s*$/, "");
     const phone = (c.formatted_phone || c.phone_number || "").trim();
     if (!name || !phone) continue;
 
