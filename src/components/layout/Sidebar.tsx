@@ -62,7 +62,7 @@ const navItems = [
       { label: "Pagadores", path: "/pagadores", icon: Users },
       { label: "Importar", path: "/importar", icon: Upload },
       { label: "Atrasos", path: "/atrasos", icon: MessageCircle },
-      { label: "Portal de Boletos", path: "/portal-boletos", icon: FileText },
+      { label: "Portal de Boletos", path: "/portal-boletos", icon: FileText, exact: true },
       { label: "Acessos ao Portal", path: "/portal-boletos/acessos", icon: FileText },
       { label: "Rotas", path: "/rotas", icon: MapPin },
       { label: "Match Endereços", path: "/match-enderecos", icon: MapPin },
