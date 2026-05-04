@@ -5,15 +5,38 @@ import type { GroupMember, PayerGroup } from "./types";
 
 export function DashboardStats() {
   const { data: groups = [] } = useQuery<PayerGroup[]>({
-    queryKey: ["payer_groups"],
+    queryKey: ["payer_groups", "with_counts"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("payer_groups")
-        .select("*")
-        .eq("active", true)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+      const [groupsResult, countsResult, unmatchedResult] = await Promise.all([
+        (supabase as any)
+          .from("payer_groups")
+          .select("*")
+          .eq("active", true)
+          .order("created_at", { ascending: true }),
+        (supabase as any)
+          .from("payer_group_members")
+          .select("group_id")
+          .eq("active", true),
+        (supabase as any)
+          .from("payer_group_members")
+          .select("group_id,match_status")
+          .eq("active", true)
+          .in("match_status", ["unmatched", "review_ignored"]),
+      ]);
+      if (groupsResult.error) throw groupsResult.error;
+      const countMap: Record<string, number> = {};
+      for (const row of countsResult.data ?? []) {
+        countMap[row.group_id] = (countMap[row.group_id] ?? 0) + 1;
+      }
+      const unmatchedMap: Record<string, number> = {};
+      for (const row of unmatchedResult.data ?? []) {
+        unmatchedMap[row.group_id] = (unmatchedMap[row.group_id] ?? 0) + 1;
+      }
+      return (groupsResult.data ?? []).map((g: PayerGroup) => ({
+        ...g,
+        member_count: countMap[g.id] ?? 0,
+        unmatched_count: unmatchedMap[g.id] ?? 0,
+      }));
     },
   });
 
@@ -31,7 +54,7 @@ export function DashboardStats() {
   });
 
   const totalGroups = groups.length;
-  const linkedStudents = allMembers.length;
+  const linkedStudents = groups.reduce((acc, g) => acc + (g.member_count ?? 0), 0);
   const uniqueStudents = new Set(allMembers.map((m) => m.payer_id)).size;
 
   const payerCountMap: Record<string, number> = {};

@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Users, UserPlus, Search, CheckCircle2, AlertTriangle, ShieldOff, Plus } from "lucide-react";
+import { Trash2, Users, UserPlus, Search, CheckCircle2, AlertTriangle, ShieldOff, Plus, X } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -39,6 +40,8 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
   const [savingSettings, setSavingSettings] = useState(false);
   const [ignoringMember, setIgnoringMember] = useState<GroupMember | null>(null);
   const [linkPending, setLinkPending] = useState<{ member: GroupMember; payer: PayerLite } | null>(null);
+  const [searchMember, setSearchMember] = useState("");
+  const [removingMember, setRemovingMember] = useState<GroupMember | null>(null);
 
   const { data: routeConfigRows = [] } = useQuery<RouteConfig[]>({
     queryKey: ["route_config"],
@@ -101,6 +104,16 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
         }),
     [currentMembers, ignoreSet]
   );
+
+  const filteredMembers = useMemo(() => {
+    const q = searchMember.trim().toLowerCase();
+    if (!q) return sortedMembers;
+    return sortedMembers.filter((m) => {
+      const payerName = (m.payer as any)?.name ?? "";
+      const waName = m.wa_display_name ?? "";
+      return payerName.toLowerCase().includes(q) || waName.toLowerCase().includes(q);
+    });
+  }, [sortedMembers, searchMember]);
 
   const handleLinkPayer = async (memberId: string, payerId: string) => {
     const { error } = await (supabase as any)
@@ -233,7 +246,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
             size="sm"
             variant="outline"
             onClick={handleSaveSettings}
-            disabled={savingSettings}
+            disabled={savingSettings || editRoute === (group.route ?? "__none__")}
             className="h-8"
           >
             {savingSettings ? "Salvando..." : "Salvar"}
@@ -254,13 +267,30 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
           </TabsList>
 
           <TabsContent value="members" className="flex-1 min-h-0 mt-3">
-            {currentMembers.some((m) => m.match_status !== "ok") && (
+            {sortedMembers.some((m) => m.match_status !== "ok") && (
               <div className="flex items-center gap-2 mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg py-2 px-3">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                {currentMembers.filter((m) => m.match_status !== "ok").length} membro(s) sem vínculo com pagador — use o select para vincular.
+                {sortedMembers.filter((m) => m.match_status !== "ok").length} membro(s) sem vínculo com pagador — use o select para vincular.
               </div>
             )}
-            <ScrollArea className="h-[340px] border rounded-md">
+            <div className="relative mb-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Buscar membro…"
+                className="h-8 pl-8 text-sm"
+                value={searchMember}
+                onChange={(e) => setSearchMember(e.target.value)}
+              />
+              {searchMember && (
+                <button
+                  onClick={() => setSearchMember("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <ScrollArea className="h-[300px] border rounded-md">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -271,7 +301,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedMembers.map((m) => {
+                  {filteredMembers.map((m) => {
                     const isUnlinked = m.match_status !== "ok";
                     return (
                       <TableRow key={m.id} className={isUnlinked ? "bg-amber-50/60" : undefined}>
@@ -337,7 +367,7 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
                               size="icon"
                               variant="ghost"
                               className="h-7 w-7 text-destructive hover:text-destructive"
-                              onClick={() => handleRemoveMember(m.id)}
+                              onClick={() => setRemovingMember(m)}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -346,10 +376,10 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
                       </TableRow>
                     );
                   })}
-                  {currentMembers.length === 0 && (
+                  {filteredMembers.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={4} className="text-center py-8 text-sm text-muted-foreground">
-                        Nenhum membro.
+                        {searchMember ? "Nenhum membro encontrado." : "Nenhum membro."}
                       </TableCell>
                     </TableRow>
                   )}
@@ -438,6 +468,38 @@ export function ManageGroupDialog({ group, allPayers, onClose }: ManageGroupDial
       </DialogContent>
     </Dialog>
 
+    {removingMember && (
+      <Dialog open onOpenChange={(v) => !v && setRemovingMember(null)}>
+        <DialogContent className="sm:max-w-[380px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Trash2 className="h-4 w-4 text-destructive" />
+              Remover membro
+            </DialogTitle>
+            <DialogDescription>
+              Remover{" "}
+              <span className="font-semibold text-foreground">
+                {(removingMember.payer as any)?.name ?? removingMember.wa_display_name ?? "este membro"}
+              </span>{" "}
+              do grupo?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setRemovingMember(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                await handleRemoveMember(removingMember.id);
+                setRemovingMember(null);
+              }}
+            >
+              Remover
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )}
+
     {linkPending && (
       <Dialog open onOpenChange={(v) => !v && setLinkPending(null)}>
         <DialogContent className="sm:max-w-[400px]">
@@ -502,35 +564,32 @@ function IgnoredMembersTab({ groupId }: { groupId: string }) {
   const { data: ignored = [], isLoading } = useQuery<IgnoreEntry[]>({
     queryKey: ["payer_import_ignore_list", "group", groupId],
     queryFn: async () => {
-      // 1. Get wa_display_names from group members
-      const { data: members } = await (supabase as any)
-        .from("payer_group_members")
-        .select("wa_display_name")
-        .eq("group_id", groupId);
+      const [membersResult, byGroupResult] = await Promise.all([
+        (supabase as any)
+          .from("payer_group_members")
+          .select("wa_display_name")
+          .eq("group_id", groupId),
+        (supabase as any)
+          .from("payer_import_ignore_list")
+          .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
+          .eq("source_group_id", groupId)
+          .order("created_at", { ascending: false }),
+      ]);
 
       const memberNames = [
         ...new Set(
-          (members ?? [])
+          (membersResult.data ?? [])
             .map((m: { wa_display_name: string | null }) => m.wa_display_name)
             .filter(Boolean) as string[]
         ),
       ];
 
-      // 2. Get ignored entries that match member names OR belong to this group
-      const results: IgnoreEntry[] = [];
       const seenIds = new Set<string>();
-
-      // Entries linked to this group via source_group_id
-      const { data: byGroup } = await (supabase as any)
-        .from("payer_import_ignore_list")
-        .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
-        .eq("source_group_id", groupId)
-        .order("created_at", { ascending: false });
-      for (const e of byGroup ?? []) {
+      const results: IgnoreEntry[] = [];
+      for (const e of byGroupResult.data ?? []) {
         if (!seenIds.has(e.id)) { seenIds.add(e.id); results.push(e); }
       }
 
-      // Entries matching member names (may not have source_group_id set)
       if (memberNames.length > 0) {
         const { data: byName } = await (supabase as any)
           .from("payer_import_ignore_list")
@@ -539,22 +598,6 @@ function IgnoredMembersTab({ groupId }: { groupId: string }) {
           .order("created_at", { ascending: false });
         for (const e of byName ?? []) {
           if (!seenIds.has(e.id)) { seenIds.add(e.id); results.push(e); }
-        }
-      }
-
-      // Also match ignore list entries against the full ignore set used to filter the members tab
-      // This catches names that were filtered out and never became payer_group_members
-      const { data: allIgnored } = await (supabase as any)
-        .from("payer_import_ignore_list")
-        .select("*, category:payer_ignore_categories!category_id(id,name,created_at)")
-        .order("created_at", { ascending: false });
-
-      // Check which ignored names would match names present in the group's raw member list
-      const memberNamesLower = new Set(memberNames.map(n => n.toLowerCase()));
-      for (const e of allIgnored ?? []) {
-        if (!seenIds.has(e.id) && memberNamesLower.has(e.wa_name.trim().toLowerCase())) {
-          seenIds.add(e.id);
-          results.push(e);
         }
       }
 

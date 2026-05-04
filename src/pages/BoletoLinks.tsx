@@ -40,11 +40,13 @@ type ParsedLine = {
   phone_digits: string | null;
   reference_month: string | null;
   due_date: string | null;
+  document_date: string | null;
   amount_cents: number | null;
   digitable_line: string | null;
   our_number: string | null;
   file_id: string | null;
   view_url: string | null;
+  file_name: string | null;
   read_source: string | null;
   match_status: "MATCH" | "NO_MATCH" | "MISSING_URL" | "MISSING_DATA" | "MULTIPLE";
 };
@@ -57,9 +59,13 @@ type BoletoJsonRow = {
   digitable_line?: string | null;
   amount?: string | null;
   due_date?: string | null;
+  document_date?: string | null;
   file_id?: string | null;
   download_link?: string | null;
   view_link?: string | null;
+  final_file_name?: string | null;
+  original_file_name?: string | null;
+  competence?: string | null;
   success?: boolean | null;
   error?: string | null;
 };
@@ -110,6 +116,13 @@ function deriveReferenceMonthFromDueDate(dueDateIso: string | null) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+function parseCompetence(value: string | null | undefined): string | null {
+  const raw = String(value || "").trim();
+  const m = raw.match(/^(\d{2})\s+(\d{4})$/);
+  if (!m) return null;
+  return `${m[2]}-${m[1]}`;
 }
 
 function parseAmountToCents(value: string | null | undefined) {
@@ -190,6 +203,7 @@ export default function BoletoLinksPage() {
   const [showFailed, setShowFailed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [searchPreview, setSearchPreview] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ParsedLine["match_status"] | null>(null);
 
   const { data: payers = [] } = useQuery({
     queryKey: ["payers-lite-boleto-links"],
@@ -280,7 +294,11 @@ export default function BoletoLinksPage() {
     const multiple = lines.filter((l) => l.match_status === "MULTIPLE").length;
     const missingUrl = lines.filter((l) => l.match_status === "MISSING_URL").length;
     const missingData = lines.filter((l) => l.match_status === "MISSING_DATA").length;
-    return { total, match, noMatch, multiple, missingUrl, missingData };
+    // NO_MATCH rows that have enough data to auto-create a payer
+    const autoCreate = lines.filter(
+      (l) => l.match_status === "NO_MATCH" && l.student_name && l.cpf_digits && l.drive_url
+    ).length;
+    return { total, match, noMatch, multiple, missingUrl, missingData, autoCreate };
   }, [lines]);
 
 
@@ -317,9 +335,10 @@ export default function BoletoLinksPage() {
   }, [activeMonthPayers, existingMonthLinks, lines]);
 
   const filteredLines = useMemo(() => {
+    let result = statusFilter ? lines.filter((l) => l.match_status === statusFilter) : lines;
     const q = searchPreview.trim().toLowerCase();
-    if (!q) return lines;
-    return lines.filter((line) => {
+    if (!q) return result;
+    return result.filter((line) => {
       const haystack = [
         line.student_name || "",
         line.cpf_digits || "",
@@ -329,7 +348,7 @@ export default function BoletoLinksPage() {
       ].join(" ").toLowerCase();
       return haystack.includes(q);
     });
-  }, [lines, searchPreview]);
+  }, [lines, searchPreview, statusFilter]);
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -360,46 +379,45 @@ export default function BoletoLinksPage() {
           const cpfFromFile = normalizeDigits(row.payer_cpf);
           const driveUrl = String(row.download_link || row.view_link || "").trim() || null;
           const dueDateIso = parseBrDateToIso(row.due_date);
-          const derivedRefMonth = deriveReferenceMonthFromDueDate(dueDateIso);
+          const documentDateIso = parseBrDateToIso(row.document_date);
+          const derivedRefMonth = parseCompetence(row.competence) ?? deriveReferenceMonthFromDueDate(dueDateIso);
+          const fileName = String(row.final_file_name || row.original_file_name || "").trim() || null;
+
+          const shared = {
+            id: String(idx),
+            raw: JSON.stringify(row),
+            reference_month: derivedRefMonth,
+            due_date: dueDateIso,
+            document_date: documentDateIso,
+            amount_cents: parseAmountToCents(row.amount),
+            digitable_line: row.digitable_line || null,
+            our_number: row.our_number || null,
+            file_id: row.file_id || null,
+            view_url: row.view_link || null,
+            file_name: fileName,
+            read_source: row.read_source || null,
+          };
 
           if (!driveUrl) {
             return {
-              id: String(idx),
-              raw: JSON.stringify(row),
+              ...shared,
               student_name: studentName,
               drive_url: null,
               payer_id: null,
               cpf_digits: cpfFromFile || null,
               phone_digits: null,
-              reference_month: derivedRefMonth,
-              due_date: dueDateIso,
-              amount_cents: parseAmountToCents(row.amount),
-              digitable_line: row.digitable_line || null,
-              our_number: row.our_number || null,
-              file_id: row.file_id || null,
-              view_url: row.view_link || null,
-              read_source: row.read_source || null,
               match_status: "MISSING_URL",
             };
           }
 
           if (!cpfFromFile) {
             return {
-              id: String(idx),
-              raw: JSON.stringify(row),
+              ...shared,
               student_name: studentName,
               drive_url: driveUrl,
               payer_id: null,
               cpf_digits: null,
               phone_digits: null,
-              reference_month: derivedRefMonth,
-              due_date: dueDateIso,
-              amount_cents: parseAmountToCents(row.amount),
-              digitable_line: row.digitable_line || null,
-              our_number: row.our_number || null,
-              file_id: row.file_id || null,
-              view_url: row.view_link || null,
-              read_source: row.read_source || null,
               match_status: "MISSING_DATA",
             };
           }
@@ -407,41 +425,23 @@ export default function BoletoLinksPage() {
           const payerByCpf = payerByDocument.get(cpfFromFile) || null;
           if (!payerByCpf) {
             return {
-              id: String(idx),
-              raw: JSON.stringify(row),
+              ...shared,
               student_name: studentName,
               drive_url: driveUrl,
               payer_id: null,
               cpf_digits: cpfFromFile,
               phone_digits: null,
-              reference_month: derivedRefMonth,
-              due_date: dueDateIso,
-              amount_cents: parseAmountToCents(row.amount),
-              digitable_line: row.digitable_line || null,
-              our_number: row.our_number || null,
-              file_id: row.file_id || null,
-              view_url: row.view_link || null,
-              read_source: row.read_source || null,
               match_status: "NO_MATCH",
             };
           }
 
           return {
-            id: String(idx),
-            raw: JSON.stringify(row),
+            ...shared,
             student_name: studentName || payerByCpf.name,
             drive_url: driveUrl,
             payer_id: payerByCpf.id,
             cpf_digits: cpfFromFile,
             phone_digits: normalizeDigits(payerByCpf.phone) || null,
-            reference_month: derivedRefMonth,
-            due_date: dueDateIso,
-            amount_cents: parseAmountToCents(row.amount),
-            digitable_line: row.digitable_line || null,
-            our_number: row.our_number || null,
-            file_id: row.file_id || null,
-            view_url: row.view_link || null,
-            read_source: row.read_source || null,
             match_status: "MATCH",
           };
         });
@@ -452,44 +452,41 @@ export default function BoletoLinksPage() {
           const studentName = extractName(raw);
           const driveUrl = extractDriveUrl(raw);
 
+          const csvShared = {
+            id: String(idx),
+            raw,
+            reference_month: referenceMonth,
+            due_date: null,
+            document_date: null,
+            amount_cents: null,
+            digitable_line: null,
+            our_number: null,
+            file_id: null,
+            view_url: null,
+            file_name: null,
+            read_source: null,
+          };
+
           if (!driveUrl) {
             return {
-              id: String(idx),
-              raw,
+              ...csvShared,
               student_name: studentName,
               drive_url: null,
               payer_id: null,
               cpf_digits: null,
               phone_digits: null,
-              reference_month: referenceMonth,
-              due_date: null,
-              amount_cents: null,
-              digitable_line: null,
-              our_number: null,
-              file_id: null,
-              view_url: null,
-              read_source: null,
               match_status: "MISSING_URL",
             };
           }
 
           if (!studentName) {
             return {
-              id: String(idx),
-              raw,
+              ...csvShared,
               student_name: null,
               drive_url: driveUrl,
               payer_id: null,
               cpf_digits: null,
               phone_digits: null,
-              reference_month: referenceMonth,
-              due_date: null,
-              amount_cents: null,
-              digitable_line: null,
-              our_number: null,
-              file_id: null,
-              view_url: null,
-              read_source: null,
               match_status: "NO_MATCH",
             };
           }
@@ -501,42 +498,24 @@ export default function BoletoLinksPage() {
 
           if (matches.length > 1) {
             return {
-              id: String(idx),
-              raw,
+              ...csvShared,
               student_name: studentName,
               drive_url: driveUrl,
               payer_id: null,
               cpf_digits: null,
               phone_digits: null,
-              reference_month: referenceMonth,
-              due_date: null,
-              amount_cents: null,
-              digitable_line: null,
-              our_number: null,
-              file_id: null,
-              view_url: null,
-              read_source: null,
               match_status: "MULTIPLE",
             };
           }
 
           if (matches.length === 0) {
             return {
-              id: String(idx),
-              raw,
+              ...csvShared,
               student_name: studentName,
               drive_url: driveUrl,
               payer_id: null,
               cpf_digits: null,
               phone_digits: null,
-              reference_month: referenceMonth,
-              due_date: null,
-              amount_cents: null,
-              digitable_line: null,
-              our_number: null,
-              file_id: null,
-              view_url: null,
-              read_source: null,
               match_status: "NO_MATCH",
             };
           }
@@ -547,41 +526,23 @@ export default function BoletoLinksPage() {
 
           if (!cpf) {
             return {
-              id: String(idx),
-              raw,
+              ...csvShared,
               student_name: studentName,
               drive_url: driveUrl,
               payer_id: payer.id,
               cpf_digits: null,
               phone_digits: phone || null,
-              reference_month: referenceMonth,
-              due_date: null,
-              amount_cents: null,
-              digitable_line: null,
-              our_number: null,
-              file_id: null,
-              view_url: null,
-              read_source: null,
               match_status: "MISSING_DATA",
             };
           }
 
           return {
-            id: String(idx),
-            raw,
+            ...csvShared,
             student_name: studentName,
             drive_url: driveUrl,
             payer_id: payer.id,
             cpf_digits: cpf,
             phone_digits: phone || null,
-            reference_month: referenceMonth,
-            due_date: null,
-            amount_cents: null,
-            digitable_line: null,
-            our_number: null,
-            file_id: null,
-            view_url: null,
-            read_source: null,
             match_status: "MATCH",
           };
         });
@@ -603,21 +564,87 @@ export default function BoletoLinksPage() {
 
   const handleImport = async () => {
     const valid = lines.filter((l) => l.match_status === "MATCH" && l.drive_url && l.cpf_digits);
-    if (valid.length === 0) {
-      toast.error("Nenhuma linha valida para importar.");
+
+    // NO_MATCH rows that have CPF + name + URL: payer not in DB, can be auto-created
+    const autoCreateRows = lines.filter(
+      (l) => l.match_status === "NO_MATCH" && l.student_name && l.cpf_digits && l.drive_url
+    );
+
+    if (valid.length === 0 && autoCreateRows.length === 0) {
+      toast.error("Nenhuma linha válida para importar.");
       return;
     }
 
     setIsSaving(true);
     try {
+      // --- Step 1: auto-create missing payers ---
+      let createdCount = 0;
+      const autoCreatedMap = new Map<string, string>(); // cpf_digits → payer_id
+
+      if (autoCreateRows.length > 0) {
+        const uniqueByCpf = new Map<string, ParsedLine>();
+        for (const row of autoCreateRows) {
+          if (!uniqueByCpf.has(row.cpf_digits!)) uniqueByCpf.set(row.cpf_digits!, row);
+        }
+        const cpfsToCreate = Array.from(uniqueByCpf.keys());
+
+        // Check which CPFs already exist in DB (may have been added since parse time)
+        const { data: existing } = await (supabase as any)
+          .from("payers")
+          .select("id,document_digits")
+          .in("document_digits", cpfsToCreate);
+        const existingByCpf = new Map<string, string>();
+        for (const p of existing ?? []) {
+          if (p.document_digits) existingByCpf.set(p.document_digits, p.id);
+        }
+
+        // Insert only truly new ones (omit `id` — let DB generate)
+        const toInsert = Array.from(uniqueByCpf.values()).filter(
+          (row) => !existingByCpf.has(row.cpf_digits!)
+        );
+
+        if (toInsert.length > 0) {
+          const { data: inserted, error: payerError } = await (supabase as any)
+            .from("payers")
+            .insert(
+              toInsert.map((row) => ({
+                name: row.student_name!,
+                document_digits: row.cpf_digits,
+                status: "ATIVO",
+                needs_review: true,
+                review_reason: "Criado automaticamente via importação de boletos — dados incompletos",
+              }))
+            )
+            .select("id,document_digits");
+          if (payerError) throw payerError;
+          for (const p of inserted ?? []) {
+            if (p.document_digits) autoCreatedMap.set(p.document_digits, p.id);
+          }
+          createdCount = toInsert.length;
+        }
+
+        // Also map already-existing payers
+        for (const [cpf, id] of existingByCpf) autoCreatedMap.set(cpf, id);
+      }
+
+      // Merge auto-created rows into valid set
+      const autoCreatedLines: ParsedLine[] = autoCreateRows.map((l) => ({
+        ...l,
+        payer_id: autoCreatedMap.get(l.cpf_digits!) ?? null,
+        match_status: "MATCH" as const,
+      }));
+
+      const allValid = [...valid, ...autoCreatedLines];
+
+      // --- Step 2: dedup ---
       const uniqueByKey = new Map<string, ParsedLine>();
-      for (const row of valid) {
+      for (const row of allValid) {
         const key = row.our_number ? `OUR:${String(row.our_number)}` : `${String(row.cpf_digits)}|${String(row.drive_url)}`;
         uniqueByKey.set(key, row);
       }
 
       const dedupedValid = Array.from(uniqueByKey.values());
-      const repeatedInFile = valid.length - dedupedValid.length;
+      const repeatedInFile = allValid.length - dedupedValid.length;
 
       const alreadyImportedCount = dedupedValid.filter((l) =>
         l.our_number
@@ -626,6 +653,7 @@ export default function BoletoLinksPage() {
       ).length;
       const newCount = dedupedValid.length - alreadyImportedCount;
 
+      // --- Step 3: upsert boleto links ---
       const payload = dedupedValid.map((l) => ({
         reference_month: l.reference_month || referenceMonth,
         payer_id: l.payer_id,
@@ -634,11 +662,13 @@ export default function BoletoLinksPage() {
         phone_digits: l.phone_digits || "",
         drive_url: l.drive_url,
         due_date: l.due_date,
+        document_date: l.document_date,
         amount_cents: l.amount_cents,
         digitable_line: l.digitable_line,
         our_number: l.our_number,
         file_id: l.file_id,
         view_url: l.view_url,
+        file_name: l.file_name,
         source: l.read_source,
       }));
 
@@ -646,25 +676,26 @@ export default function BoletoLinksPage() {
       const withoutOurNumber = payload.filter((p) => !p.our_number);
 
       if (withOurNumber.length > 0) {
-        const { error: upsertByOurError } = await (supabase as any)
+        const { error } = await (supabase as any)
           .from("payer_boleto_links")
           .upsert(withOurNumber, { onConflict: "our_number" });
-        if (upsertByOurError) throw upsertByOurError;
+        if (error) throw error;
       }
 
       if (withoutOurNumber.length > 0) {
-        const { error: upsertByCpfUrlError } = await (supabase as any)
+        const { error } = await (supabase as any)
           .from("payer_boleto_links")
           .upsert(withoutOurNumber, { onConflict: "cpf_digits,drive_url" });
-        if (upsertByCpfUrlError) throw upsertByCpfUrlError;
+        if (error) throw error;
       }
 
       const parts = [`${newCount} nova${newCount !== 1 ? "s" : ""}`];
       if (alreadyImportedCount > 0) parts.push(`${alreadyImportedCount} atualizad${alreadyImportedCount !== 1 ? "as" : "a"}`);
       if (repeatedInFile > 0) parts.push(`${repeatedInFile} repetida${repeatedInFile !== 1 ? "s" : ""} no arquivo consolidadas`);
+      if (createdCount > 0) parts.push(`${createdCount} pagador${createdCount !== 1 ? "es" : ""} criado${createdCount !== 1 ? "s" : ""} para revisão`);
       toast.success(`Importação concluída: ${dedupedValid.length} link${dedupedValid.length !== 1 ? "s" : ""} · ${parts.join(" · ")}`);
     } catch (error: any) {
-      toast.error(`Erro na importacao: ${error?.message || "falha"}`);
+      toast.error(`Erro na importação: ${error?.message || "falha"}`);
     } finally {
       setIsSaving(false);
     }
@@ -703,8 +734,12 @@ export default function BoletoLinksPage() {
           {/* Stats Cards */}
           {(lines.length > 0 || failedRows.length > 0) && (
             <div className="grid gap-4 grid-cols-2 lg:grid-cols-6">
-              <Card>
-                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              {/* Total — not filterable */}
+              <Card
+                className="cursor-pointer transition-colors hover:bg-muted/30"
+                onClick={() => setStatusFilter(null)}
+              >
+                <CardContent className={`pt-4 pb-3 flex items-center gap-3 rounded-xl transition-colors ${statusFilter === null ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}>
                   <div className="rounded-lg bg-primary/10 p-2.5">
                     <FileText className="h-5 w-5 text-primary" />
                   </div>
@@ -714,8 +749,11 @@ export default function BoletoLinksPage() {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <Card
+                className={`transition-colors ${stats.match > 0 ? "cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20" : ""}`}
+                onClick={() => stats.match > 0 && setStatusFilter((v) => v === "MATCH" ? null : "MATCH")}
+              >
+                <CardContent className={`pt-4 pb-3 flex items-center gap-3 rounded-xl transition-colors ${statusFilter === "MATCH" ? "ring-2 ring-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-950/20" : ""}`}>
                   <div className="rounded-lg bg-emerald-500/10 p-2.5">
                     <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                   </div>
@@ -725,19 +763,28 @@ export default function BoletoLinksPage() {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <Card
+                className={`transition-colors ${stats.noMatch > 0 ? "cursor-pointer hover:bg-destructive/5" : ""}`}
+                onClick={() => stats.noMatch > 0 && setStatusFilter((v) => v === "NO_MATCH" ? null : "NO_MATCH")}
+              >
+                <CardContent className={`pt-4 pb-3 flex items-center gap-3 rounded-xl transition-colors ${statusFilter === "NO_MATCH" ? "ring-2 ring-destructive/50 bg-destructive/5" : ""}`}>
                   <div className="rounded-lg bg-destructive/10 p-2.5">
                     <AlertTriangle className="h-5 w-5 text-destructive" />
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Sem match</p>
                     <p className="text-xl font-bold text-destructive">{stats.noMatch}</p>
+                    {stats.autoCreate > 0 && (
+                      <p className="text-[10px] text-amber-600 leading-tight mt-0.5">{stats.autoCreate} serão criados</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <Card
+                className={`transition-colors ${stats.multiple > 0 ? "cursor-pointer hover:bg-amber-50/50 dark:hover:bg-amber-950/20" : ""}`}
+                onClick={() => stats.multiple > 0 && setStatusFilter((v) => v === "MULTIPLE" ? null : "MULTIPLE")}
+              >
+                <CardContent className={`pt-4 pb-3 flex items-center gap-3 rounded-xl transition-colors ${statusFilter === "MULTIPLE" ? "ring-2 ring-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20" : ""}`}>
                   <div className="rounded-lg bg-amber-500/10 p-2.5">
                     <Users className="h-5 w-5 text-amber-500" />
                   </div>
@@ -747,8 +794,18 @@ export default function BoletoLinksPage() {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="pt-4 pb-3 flex items-center gap-3">
+              <Card
+                className={`transition-colors ${(stats.missingUrl + stats.missingData) > 0 ? "cursor-pointer hover:bg-muted/50" : ""}`}
+                onClick={() => {
+                  const total = stats.missingUrl + stats.missingData;
+                  if (!total) return;
+                  setStatusFilter((v) => {
+                    if (v === "MISSING_URL" || v === "MISSING_DATA") return null;
+                    return stats.missingUrl >= stats.missingData ? "MISSING_URL" : "MISSING_DATA";
+                  });
+                }}
+              >
+                <CardContent className={`pt-4 pb-3 flex items-center gap-3 rounded-xl transition-colors ${(statusFilter === "MISSING_URL" || statusFilter === "MISSING_DATA") ? "ring-2 ring-border bg-muted/50" : ""}`}>
                   <div className="rounded-lg bg-muted p-2.5">
                     <LinkIcon className="h-5 w-5 text-muted-foreground" />
                   </div>
@@ -868,18 +925,22 @@ export default function BoletoLinksPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleImport}
-                  disabled={isSaving || isParsing || stats.match === 0}
+                  disabled={isSaving || isParsing || (stats.match === 0 && stats.autoCreate === 0)}
                   className="gap-2"
                 >
                   {isSaving ? (
                     <><Loader2 className="h-4 w-4 animate-spin" />Importando...</>
                   ) : (
-                    <><Upload className="h-4 w-4" />Salvar {stats.match} link{stats.match !== 1 ? "s" : ""}</>
+                    <>
+                      <Upload className="h-4 w-4" />
+                      Salvar {stats.match + stats.autoCreate} link{(stats.match + stats.autoCreate) !== 1 ? "s" : ""}
+                      {stats.autoCreate > 0 && <span className="text-xs opacity-75">· +{stats.autoCreate} criados</span>}
+                    </>
                   )}
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => { setFile(null); setLines([]); setFailedRows([]); setShowFailed(false); }}
+                  onClick={() => { setFile(null); setLines([]); setFailedRows([]); setShowFailed(false); setStatusFilter(null); }}
                   disabled={isParsing || isSaving}
                 >
                   Limpar
@@ -938,7 +999,25 @@ export default function BoletoLinksPage() {
           {/* Preview Table */}
           <Card>
             <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-base">Prévia</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base">Prévia</CardTitle>
+                {statusFilter && (
+                  <button
+                    onClick={() => setStatusFilter(null)}
+                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-muted border border-border hover:bg-muted/80 text-muted-foreground transition-colors"
+                    title="Remover filtro"
+                  >
+                    {{
+                      MATCH: "Match",
+                      NO_MATCH: "Sem match",
+                      MULTIPLE: "Múltiplos",
+                      MISSING_URL: "Sem link",
+                      MISSING_DATA: "Sem CPF",
+                    }[statusFilter]}
+                    <span className="ml-0.5 font-bold">×</span>
+                  </button>
+                )}
+              </div>
               <Badge variant="secondary" className="font-mono text-xs">
                 {filteredLines.length}
               </Badge>

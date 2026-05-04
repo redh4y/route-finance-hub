@@ -28,34 +28,36 @@ export function RouteSection({ onManage, onManageRoutes }: RouteSectionProps) {
   const { data: groups = [], isLoading } = useQuery<PayerGroup[]>({
     queryKey: ["payer_groups", "with_counts"],
     queryFn: async () => {
-      const { data: groupRows, error } = await (supabase as any)
-        .from("payer_groups")
-        .select("*")
-        .eq("active", true)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
+      const [groupsResult, countsResult, unmatchedResult] = await Promise.all([
+        (supabase as any)
+          .from("payer_groups")
+          .select("*")
+          .eq("active", true)
+          .order("created_at", { ascending: true }),
+        (supabase as any)
+          .from("payer_group_members")
+          .select("group_id")
+          .eq("active", true),
+        (supabase as any)
+          .from("payer_group_members")
+          .select("group_id,match_status")
+          .eq("active", true)
+          .in("match_status", ["unmatched", "review_ignored"]),
+      ]);
 
-      const { data: counts } = await (supabase as any)
-        .from("payer_group_members")
-        .select("group_id")
-        .eq("active", true);
+      if (groupsResult.error) throw groupsResult.error;
 
       const countMap: Record<string, number> = {};
-      for (const row of counts ?? []) {
+      for (const row of countsResult.data ?? []) {
         countMap[row.group_id] = (countMap[row.group_id] ?? 0) + 1;
       }
 
       const unmatchedMap: Record<string, number> = {};
-      const { data: unmatched } = await (supabase as any)
-        .from("payer_group_members")
-        .select("group_id,match_status")
-        .eq("active", true)
-        .in("match_status", ["unmatched", "review_ignored"]);
-      for (const row of unmatched ?? []) {
+      for (const row of unmatchedResult.data ?? []) {
         unmatchedMap[row.group_id] = (unmatchedMap[row.group_id] ?? 0) + 1;
       }
 
-      return (groupRows ?? []).map((g: PayerGroup) => ({
+      return (groupsResult.data ?? []).map((g: PayerGroup) => ({
         ...g,
         member_count: countMap[g.id] ?? 0,
         unmatched_count: unmatchedMap[g.id] ?? 0,

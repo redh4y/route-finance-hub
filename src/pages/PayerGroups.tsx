@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, MapPin, Upload, Users, BarChart3 } from "lucide-react";
+import { Plus, MapPin, Upload, Users, ShieldOff } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageTransition } from "@/components/ui/page-transition";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -82,7 +82,7 @@ export default function PayerGroupsPage() {
                 <Upload className="h-4 w-4" /> Importar JSON
               </TabsTrigger>
               <TabsTrigger value="ignore" className="gap-2 data-[state=active]:bg-background">
-                <BarChart3 className="h-4 w-4" /> Ignorados
+                <ShieldOff className="h-4 w-4" /> Ignorados
               </TabsTrigger>
             </TabsList>
 
