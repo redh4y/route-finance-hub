@@ -488,6 +488,7 @@ export default function BoletoAccessLogsPage() {
             null;
           const isPaid = !!(boleto.payer_id && paidPayerIds.has(boleto.payer_id));
           const isCancelled = !!(boleto.payer_id && cancelledPayerIds.has(boleto.payer_id));
+          const isOpen = !!(boleto.payer_id && openPayerIds.has(boleto.payer_id));
           const isActive = activePayerCpfs.has(cpfDigits);
 
           return {
@@ -500,6 +501,7 @@ export default function BoletoAccessLogsPage() {
             downloaded,
             is_paid: isPaid,
             is_cancelled: isCancelled,
+            is_open: isOpen,
             is_active: isActive,
             last_access_at: lastAccessAt,
           };
