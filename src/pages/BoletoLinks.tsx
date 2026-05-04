@@ -707,21 +707,27 @@ export default function BoletoLinksPage() {
         <div className="space-y-6">
           {/* Header */}
           <div className="page-header">
-            <h1 className="page-title">Portal de Boletos</h1>
+            <h1 className="page-title">Portal de Boletos · 2ª via</h1>
             <p className="page-subtitle">
-              Processe boletos do Drive ou importe links para disponibilizar 2ª via.
+              Centralize o processamento e a publicação dos boletos do mês para que os alunos acessem a 2ª via online.
             </p>
           </div>
 
           <Tabs defaultValue="import" className="w-full">
-            <TabsList>
-              <TabsTrigger value="import" className="gap-2">
+            <TabsList className="grid w-full grid-cols-2 max-w-xl h-auto p-1">
+              <TabsTrigger value="import" className="gap-2 flex-col sm:flex-row py-2.5 h-auto">
                 <Upload className="h-4 w-4" />
-                Importar Links
+                <div className="flex flex-col items-start sm:items-center sm:flex-row sm:gap-2">
+                  <span className="font-medium">Importar Links</span>
+                  <span className="text-[10px] text-muted-foreground hidden sm:inline">JSON / XLSX / CSV</span>
+                </div>
               </TabsTrigger>
-              <TabsTrigger value="drive" className="gap-2">
+              <TabsTrigger value="drive" className="gap-2 flex-col sm:flex-row py-2.5 h-auto">
                 <HardDrive className="h-4 w-4" />
-                Processar Drive
+                <div className="flex flex-col items-start sm:items-center sm:flex-row sm:gap-2">
+                  <span className="font-medium">Processar Drive</span>
+                  <span className="text-[10px] text-muted-foreground hidden sm:inline">OCR automático</span>
+                </div>
               </TabsTrigger>
             </TabsList>
 
