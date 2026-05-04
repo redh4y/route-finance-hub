@@ -266,62 +266,73 @@ serve(async (req) => {
     }
 
     const links = data || [];
-    const ourNumbers = Array.from(
-      new Set(
-        links
-          .map((row: any) => String(row.our_number || "").trim())
-          .filter(Boolean),
-      ),
-    );
 
-    const billingsByOurNumber = new Map<
-      string,
-      { status: string | null; due_date: string | null }
-    >();
+    // Normalize our_number: strip bank-prefix "XX/" so "26/101239-6" → "101239-6"
+    function normalizeOurNumber(raw: string | null | undefined): string {
+      const s = String(raw || "").trim();
+      const slashIdx = s.indexOf("/");
+      return slashIdx !== -1 ? s.slice(slashIdx + 1).trim() : s;
+    }
 
-    if (ourNumbers.length > 0) {
-      const { data: billingRows, error: billingsError } = await sb
-        .from("billings")
-        .select("nosso_numero, status, due_date")
-        .eq("payer_id", payer.id)
-        .in("nosso_numero", ourNumbers);
+    type BillingEntry = { status: string | null; due_date: string | null };
 
-      if (billingsError) {
-        return json(500, { ok: false, error: billingsError.message, requestId });
+    // Fetch ALL billings for this payer — no nosso_numero filter so format mismatches are handled in code
+    const billingsByNormalizedOurNumber = new Map<string, BillingEntry>();
+    const billingsByRefMonth = new Map<string, BillingEntry>();
+
+    const { data: billingRows, error: billingsError } = await sb
+      .from("billings")
+      .select("nosso_numero, status, due_date, reference_month")
+      .eq("payer_id", payer.id);
+
+    if (billingsError) {
+      return json(500, { ok: false, error: billingsError.message, requestId });
+    }
+
+    function upsertBillingEntry(map: Map<string, BillingEntry>, key: string, row: any) {
+      if (!key) return;
+      const current = map.get(key);
+      const newPriority = billingStatusPriority(String(row.status || ""));
+      if (!current || newPriority >= billingStatusPriority(String(current.status || ""))) {
+        map.set(key, { status: row.status ?? null, due_date: row.due_date ?? null });
       }
+    }
 
-      for (const row of billingRows || []) {
-        const key = String(row.nosso_numero || "").trim();
-        if (!key) continue;
-
-        const current = billingsByOurNumber.get(key);
-        if (!current) {
-          billingsByOurNumber.set(key, {
-            status: row.status ?? null,
-            due_date: row.due_date ?? null,
-          });
-          continue;
-        }
-
-        const currentPriority = billingStatusPriority(String(current.status || ""));
-        const nextPriority = billingStatusPriority(String(row.status || ""));
-        if (nextPriority >= currentPriority) {
-          billingsByOurNumber.set(key, {
-            status: row.status ?? null,
-            due_date: row.due_date ?? null,
-          });
-        }
+    for (const row of billingRows || []) {
+      // Index by exact nosso_numero
+      const exact = String(row.nosso_numero || "").trim();
+      upsertBillingEntry(billingsByNormalizedOurNumber, exact, row);
+      // Index by normalized (without bank prefix)
+      const normalized = normalizeOurNumber(row.nosso_numero);
+      if (normalized && normalized !== exact) {
+        upsertBillingEntry(billingsByNormalizedOurNumber, normalized, row);
       }
+      // Index by reference_month as fallback
+      const refMonth = String(row.reference_month || "").trim();
+      upsertBillingEntry(billingsByRefMonth, refMonth, row);
+    }
+
+    function resolveBillingEntry(row: any): BillingEntry | null {
+      const ourNum = String(row.our_number || "").trim();
+      if (ourNum) {
+        // Try exact match
+        const exact = billingsByNormalizedOurNumber.get(ourNum);
+        if (exact) return exact;
+        // Try normalized match
+        const norm = normalizeOurNumber(ourNum);
+        const normalized = billingsByNormalizedOurNumber.get(norm);
+        if (normalized) return normalized;
+      }
+      // Fallback: match by reference_month (catches boletos with no our_number or unresolvable number)
+      const refMonth = String(row.reference_month || "").trim();
+      return billingsByRefMonth.get(refMonth) ?? null;
     }
 
     const items = (links || [])
       .map((row: any) => {
-        const billingStatus = row.our_number
-          ? billingsByOurNumber.get(String(row.our_number).trim())?.status || null
-          : null;
-        const publicStatus = row.our_number
-          ? toPublicBillingStatus(billingStatus, row.due_date || null)
-          : null;
+        const entry = resolveBillingEntry(row);
+        const billingStatus = entry?.status ?? null;
+        const publicStatus = toPublicBillingStatus(billingStatus, entry?.due_date ?? row.due_date ?? null);
 
         return {
           reference_month: row.reference_month,
