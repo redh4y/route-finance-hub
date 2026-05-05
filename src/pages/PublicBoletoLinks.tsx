@@ -94,14 +94,33 @@ function formatMonthName(date: Date) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function countBusinessDaysInMonth(date: Date) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let businessDays = 0;
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const weekday = new Date(year, month, day).getDay();
+    if (weekday !== 0 && weekday !== 6) {
+      businessDays++;
+    }
+  }
+
+  return businessDays;
+}
+
 function getAuxilioMonthInfo() {
   const now = new Date();
   const current = new Date(now.getFullYear(), now.getMonth(), 1);
   const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const currentMonth = formatMonthName(current);
+  const previousMonth = formatMonthName(previous);
 
   return {
-    currentMonth: formatMonthName(current),
-    previousMonth: formatMonthName(previous),
+    currentMonth,
+    previousMonth,
+    previousMonthBusinessDays: countBusinessDaysInMonth(previous),
   };
 }
 
@@ -422,250 +441,254 @@ export default function PublicBoletoLinksPage() {
             <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
               <Shield className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-sm text-amber-900">
-                Antes de pagar, confira atentamente os dados: <strong>nome</strong>,{" "}
-                <strong>CPF</strong>, <strong>vencimento</strong> e{" "}
-                <strong>valor</strong>.
+                Antes de pagar, confira atentamente os dados:{" "}
+                <strong>nome</strong>, <strong>CPF</strong>,{" "}
+                <strong>vencimento</strong> e <strong>valor</strong>.
               </p>
             </div>
 
             {/* Results */}
             <Card className="shadow-sm">
-          <CardContent className="pt-5 pb-4">
-            {isLoading ? (
-              <div className="space-y-3">
-                {[0, 1, 2].map((k) => (
-                  <div
-                    key={k}
-                    className="rounded-xl border p-4 animate-pulse space-y-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="h-5 w-32 rounded bg-muted" />
-                      <div className="h-5 w-20 rounded bg-muted" />
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="h-4 w-24 rounded bg-muted" />
-                      <div className="h-4 w-20 rounded bg-muted" />
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="h-9 w-28 rounded bg-muted" />
-                      <div className="h-9 w-24 rounded bg-muted" />
-                    </div>
+              <CardContent className="pt-5 pb-4">
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[0, 1, 2].map((k) => (
+                      <div
+                        key={k}
+                        className="rounded-xl border p-4 animate-pulse space-y-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-5 w-32 rounded bg-muted" />
+                          <div className="h-5 w-20 rounded bg-muted" />
+                        </div>
+                        <div className="flex gap-4">
+                          <div className="h-4 w-24 rounded bg-muted" />
+                          <div className="h-4 w-20 rounded bg-muted" />
+                        </div>
+                        <div className="flex gap-2">
+                          <div className="h-9 w-28 rounded bg-muted" />
+                          <div className="h-9 w-24 rounded bg-muted" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            ) : !hasSearched ? (
-              <div className="text-center py-12 space-y-2">
-                <Search className="mx-auto h-10 w-10 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  Informe seu CPF acima para consultar seus boletos.
-                </p>
-              </div>
-            ) : items.length === 0 ? (
-              <div className="text-center py-12 space-y-2">
-                <FileText className="mx-auto h-10 w-10 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  Nenhum boleto encontrado para o CPF informado.
-                </p>
-              </div>
-            ) : (
-              <>
-                {/* Desktop Table */}
-                <div className="hidden md:block rounded-xl border overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/50">
-                        <TableHead>Competência</TableHead>
-                        <TableHead>Vencimento</TableHead>
-                        <TableHead>Valor</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                ) : !hasSearched ? (
+                  <div className="text-center py-12 space-y-2">
+                    <Search className="mx-auto h-10 w-10 text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground">
+                      Informe seu CPF acima para consultar seus boletos.
+                    </p>
+                  </div>
+                ) : items.length === 0 ? (
+                  <div className="text-center py-12 space-y-2">
+                    <FileText className="mx-auto h-10 w-10 text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground">
+                      Nenhum boleto encontrado para o CPF informado.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Desktop Table */}
+                    <div className="hidden md:block rounded-xl border overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead>Competência</TableHead>
+                            <TableHead>Vencimento</TableHead>
+                            <TableHead>Valor</TableHead>
+                            <TableHead className="text-right">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {items.map((item, idx) => {
+                            const showBarcode =
+                              canShowDigitableLine(item.public_status) &&
+                              item.digitable_line;
+                            return (
+                              <Fragment
+                                key={`${item.reference_month}-${item.our_number || idx}`}
+                              >
+                                <TableRow className="border-b-0">
+                                  <TableCell className="font-medium">
+                                    {formatMonth(item.reference_month)}
+                                  </TableCell>
+                                  <TableCell>
+                                    {formatDateBR(item.due_date)}
+                                  </TableCell>
+                                  <TableCell className="font-semibold tabular-nums">
+                                    {formatCurrency(item.amount_cents)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div className="inline-flex items-center gap-1.5">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8"
+                                        onClick={() => openPreview(item)}
+                                      >
+                                        <Eye className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        className="gap-1.5 h-8"
+                                        onClick={() =>
+                                          handleDownloadClick(item)
+                                        }
+                                        disabled={
+                                          downloadingKey === getItemKey(item)
+                                        }
+                                      >
+                                        {downloadingKey === getItemKey(item) ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Download className="h-3.5 w-3.5" />
+                                        )}
+                                        Baixar
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                                {showBarcode && (
+                                  <TableRow className="bg-muted/30">
+                                    <TableCell
+                                      colSpan={4}
+                                      className="pt-1 pb-2"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className="text-[11px] font-mono rounded-md border bg-card px-2.5 py-1 break-all cursor-copy hover:bg-muted/50 transition-colors"
+                                          onClick={() =>
+                                            handleCopyDigitableLine(
+                                              item.digitable_line,
+                                            )
+                                          }
+                                          title="Clique para copiar"
+                                        >
+                                          {item.digitable_line}
+                                        </span>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="gap-1.5 h-7 text-xs shrink-0"
+                                          onClick={() =>
+                                            handleCopyDigitableLine(
+                                              item.digitable_line,
+                                            )
+                                          }
+                                        >
+                                          <Copy className="h-3 w-3" />
+                                          Copiar
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Mobile Cards */}
+                    <div className="md:hidden space-y-3">
                       {items.map((item, idx) => {
                         const showBarcode =
                           canShowDigitableLine(item.public_status) &&
                           item.digitable_line;
                         return (
-                          <Fragment
+                          <div
                             key={`${item.reference_month}-${item.our_number || idx}`}
+                            className="rounded-xl border bg-card p-4 space-y-3"
                           >
-                            <TableRow className="border-b-0">
-                              <TableCell className="font-medium">
+                            {/* Header */}
+                            <div>
+                              <p className="font-semibold text-lg">
                                 {formatMonth(item.reference_month)}
-                              </TableCell>
-                              <TableCell>
-                                {formatDateBR(item.due_date)}
-                              </TableCell>
-                              <TableCell className="font-semibold tabular-nums">
-                                {formatCurrency(item.amount_cents)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="inline-flex items-center gap-1.5">
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8"
-                                    onClick={() => openPreview(item)}
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    className="gap-1.5 h-8"
-                                    onClick={() => handleDownloadClick(item)}
-                                    disabled={
-                                      downloadingKey === getItemKey(item)
-                                    }
-                                  >
-                                    {downloadingKey === getItemKey(item) ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <Download className="h-3.5 w-3.5" />
-                                    )}
-                                    Baixar
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
+                              </p>
+                            </div>
+
+                            {/* Info */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
+                                  Vencimento
+                                </p>
+                                <p className="text-sm font-medium">
+                                  {formatDateBR(item.due_date)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
+                                  Valor
+                                </p>
+                                <p className="text-sm font-bold">
+                                  {formatCurrency(item.amount_cents)}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Barcode */}
                             {showBarcode && (
-                              <TableRow className="bg-muted/30">
-                                <TableCell colSpan={4} className="pt-1 pb-2">
-                                  <div className="flex items-center gap-2">
-                                    <span
-                                      className="text-[11px] font-mono rounded-md border bg-card px-2.5 py-1 break-all cursor-copy hover:bg-muted/50 transition-colors"
-                                      onClick={() =>
-                                        handleCopyDigitableLine(
-                                          item.digitable_line,
-                                        )
-                                      }
-                                      title="Clique para copiar"
-                                    >
-                                      {item.digitable_line}
-                                    </span>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="gap-1.5 h-7 text-xs shrink-0"
-                                      onClick={() =>
-                                        handleCopyDigitableLine(
-                                          item.digitable_line,
-                                        )
-                                      }
-                                    >
-                                      <Copy className="h-3 w-3" />
-                                      Copiar
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
+                              <div className="space-y-2">
+                                <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">
+                                  Código de barras
+                                </p>
+                                <span
+                                  className="text-[11px] font-mono rounded-lg border bg-muted/50 px-3 py-2.5 break-all block cursor-copy active:bg-muted transition-colors"
+                                  onClick={() =>
+                                    handleCopyDigitableLine(item.digitable_line)
+                                  }
+                                >
+                                  {item.digitable_line}
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1.5 w-full h-10"
+                                  onClick={() =>
+                                    handleCopyDigitableLine(item.digitable_line)
+                                  }
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                  Copiar código de barras
+                                </Button>
+                              </div>
                             )}
-                          </Fragment>
+
+                            {/* Actions */}
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1.5 h-11"
+                                onClick={() => openPreview(item)}
+                              >
+                                <Eye className="h-4 w-4" />
+                                Visualizar
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="gap-1.5 w-full h-11"
+                                onClick={() => handleDownloadClick(item)}
+                                disabled={downloadingKey === getItemKey(item)}
+                              >
+                                {downloadingKey === getItemKey(item) ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="h-4 w-4" />
+                                )}
+                                Baixar boleto
+                              </Button>
+                            </div>
+                          </div>
                         );
                       })}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {/* Mobile Cards */}
-                <div className="md:hidden space-y-3">
-                  {items.map((item, idx) => {
-                    const showBarcode =
-                      canShowDigitableLine(item.public_status) &&
-                      item.digitable_line;
-                    return (
-                      <div
-                        key={`${item.reference_month}-${item.our_number || idx}`}
-                        className="rounded-xl border bg-card p-4 space-y-3"
-                      >
-                        {/* Header */}
-                        <div>
-                          <p className="font-semibold text-lg">
-                            {formatMonth(item.reference_month)}
-                          </p>
-                        </div>
-
-                        {/* Info */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
-                              Vencimento
-                            </p>
-                            <p className="text-sm font-medium">
-                              {formatDateBR(item.due_date)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
-                              Valor
-                            </p>
-                            <p className="text-sm font-bold">
-                              {formatCurrency(item.amount_cents)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Barcode */}
-                        {showBarcode && (
-                          <div className="space-y-2">
-                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">
-                              Código de barras
-                            </p>
-                            <span
-                              className="text-[11px] font-mono rounded-lg border bg-muted/50 px-3 py-2.5 break-all block cursor-copy active:bg-muted transition-colors"
-                              onClick={() =>
-                                handleCopyDigitableLine(item.digitable_line)
-                              }
-                            >
-                              {item.digitable_line}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-1.5 w-full h-10"
-                              onClick={() =>
-                                handleCopyDigitableLine(item.digitable_line)
-                              }
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                              Copiar código de barras
-                            </Button>
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1.5 h-11"
-                            onClick={() => openPreview(item)}
-                          >
-                            <Eye className="h-4 w-4" />
-                            Visualizar
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="gap-1.5 w-full h-11"
-                            onClick={() => handleDownloadClick(item)}
-                            disabled={downloadingKey === getItemKey(item)}
-                          >
-                            {downloadingKey === getItemKey(item) ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Download className="h-4 w-4" />
-                            )}
-                            Baixar boleto
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="auxilio" className="mt-0">
@@ -676,7 +699,9 @@ export default function PublicBoletoLinksPage() {
                     <ClipboardList className="h-5 w-5 text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <CardTitle className="text-lg">Auxílio transporte</CardTitle>
+                    <CardTitle className="text-lg">
+                      Auxílio transporte
+                    </CardTitle>
                     <p className="text-sm text-muted-foreground">
                       Documentos para envio mensal à secretaria.
                     </p>
@@ -691,7 +716,7 @@ export default function PublicBoletoLinksPage() {
                       Período de envio
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      De 01 a 08 de abril.
+                      De 01 a 08 de {auxilioMonthInfo.currentMonth}.
                     </p>
                   </div>
                   <div className="rounded-lg border bg-muted/30 p-4">
@@ -714,14 +739,15 @@ export default function PublicBoletoLinksPage() {
                     <div className="space-y-2 text-sm">
                       <p className="font-semibold">Mês de referência</p>
                       <p className="text-muted-foreground">
-                        A solicitação de {auxilioMonthInfo.currentMonth} usa
-                        sempre os documentos de{" "}
+                        A solicitação de{" "}
+                        <strong className="text-foreground">
+                          {auxilioMonthInfo.currentMonth}
+                        </strong>{" "}
+                        usa sempre os documentos de{" "}
                         <strong className="text-foreground">
                           {auxilioMonthInfo.previousMonth}
                         </strong>
                         .
-                        Exemplo: em abril, envie os boletos e comprovantes de
-                        março.
                       </p>
                     </div>
                   </div>
@@ -732,33 +758,51 @@ export default function PublicBoletoLinksPage() {
                     Documentos para enviar
                   </p>
                   <ul className="mt-3 space-y-3 text-sm">
-                    <li className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                      <div className="flex items-start gap-2">
-                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                        <span>Anexo IV preenchido.</span>
-                      </div>
-                      <div className="flex shrink-0 gap-1.5">
-                        <Button
-                          asChild
-                          variant="outline"
-                          size="sm"
-                          className="h-7 gap-1 px-2 text-xs"
-                        >
-                          <a
-                            href={ANEXO_IV_URL}
-                            target="_blank"
-                            rel="noreferrer"
+                    <li className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                        <div className="flex items-start gap-2">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                          <span>Anexo IV preenchido.</span>
+                        </div>
+                        <div className="flex shrink-0 gap-1.5">
+                          <Button
+                            asChild
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1 px-2 text-xs"
                           >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Abrir
-                          </a>
-                        </Button>
-                        <Button asChild size="sm" className="h-7 gap-1 px-2 text-xs">
-                          <a href={ANEXO_IV_URL} download>
-                            <Download className="h-3.5 w-3.5" />
-                            Baixar
-                          </a>
-                        </Button>
+                            <a
+                              href={ANEXO_IV_URL}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              Abrir
+                            </a>
+                          </Button>
+                          <Button
+                            asChild
+                            size="sm"
+                            className="h-7 gap-1 px-2 text-xs"
+                          >
+                            <a href={ANEXO_IV_URL} download>
+                              <Download className="h-3.5 w-3.5" />
+                              Baixar
+                            </a>
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="ml-5 rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">
+                          Informações extras para preencher no Anexo IV
+                        </p>
+                        <p className="mt-1">
+                          <strong>Valor:</strong> R$ 198,56
+                        </p>
+                        <p>
+                          <strong>Dias viajados:</strong>{" "}
+                          {auxilioMonthInfo.previousMonthBusinessDays}
+                        </p>
                       </div>
                     </li>
                     <li className="flex items-start gap-2">
@@ -789,9 +833,9 @@ export default function PublicBoletoLinksPage() {
                 {hasSearched && items.length > 0 && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
                     <p className="text-sm text-emerald-900">
-                      Seus boletos disponíveis estão na aba Boletos. Use o boleto
-                      de {auxilioMonthInfo.previousMonth} junto com os
-                      comprovantes de pagamento.
+                      Seus boletos disponíveis estão na aba Boletos. Use o
+                      boleto de {auxilioMonthInfo.previousMonth} junto com
+                      os comprovantes de pagamento.
                     </p>
                   </div>
                 )}
