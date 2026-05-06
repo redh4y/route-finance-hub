@@ -700,8 +700,8 @@ export default function AddressMatch() {
           payer_id: String(orig.__payer_id),
           payer_name: String(orig.__payer_name),
           address_original: String(orig.endereco_para_match),
-          match_ok: r.match_ok,
-          review_reason: r.review_reason || "",
+          match_ok: Boolean(r.match_ok),
+          review_reason: String(r.review_reason || ""),
           changes: fieldChanges,
           update_data: { ...updateData, match_ok: true },
         });

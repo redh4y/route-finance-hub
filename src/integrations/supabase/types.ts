@@ -1699,6 +1699,7 @@ export type Database = {
           number: string | null
           payer_code: string | null
           phone: string | null
+          phone_secondary: string | null
           pix_due_day: number | null
           pix_monthly_amount_cents: number | null
           review_address: boolean | null
@@ -1741,6 +1742,7 @@ export type Database = {
           number?: string | null
           payer_code?: string | null
           phone?: string | null
+          phone_secondary?: string | null
           pix_due_day?: number | null
           pix_monthly_amount_cents?: number | null
           review_address?: boolean | null
@@ -1783,6 +1785,7 @@ export type Database = {
           number?: string | null
           payer_code?: string | null
           phone?: string | null
+          phone_secondary?: string | null
           pix_due_day?: number | null
           pix_monthly_amount_cents?: number | null
           review_address?: boolean | null
