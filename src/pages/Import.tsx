@@ -699,15 +699,7 @@ function ImportPayersCard() {
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewRows, setPreviewRows] = useState<PayerPreviewRow[]>([]);
-  const [previewSummary, setPreviewSummary] = useState<PayerPreviewSummary>({
-    total: 0,
-    altered: 0,
-    NEW: 0,
-    UPDATE: 0,
-    NO_CHANGE: 0,
-    AMBIGUOUS: 0,
-    CONFLICT: 0,
-  });
+  const [previewSummary, setPreviewSummary] = useState<PayerPreviewSummary>(EMPTY_PAYER_PREVIEW_SUMMARY);
   const [overwriteAddresses, setOverwriteAddresses] = useState(false);
   const [overwritePhones, setOverwritePhones] = useState(false);
   const { importPayers, isImporting, progress, reset } = useOptimizedImportPayers();
