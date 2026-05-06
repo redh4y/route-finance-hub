@@ -74,6 +74,10 @@ type PayerPreviewRow = {
   matchedId: string | null;
   changedFields?: string[];
   note: string;
+  addressProtected?: boolean;
+  phoneProtected?: boolean;
+  phoneAddedAsSecondary?: boolean;
+  needsReview?: boolean;
 };
 
 type PayerPreviewSummary = {
@@ -84,6 +88,10 @@ type PayerPreviewSummary = {
   NO_CHANGE: number;
   AMBIGUOUS: number;
   CONFLICT: number;
+  addressesProtected: number;
+  phonesProtected: number;
+  phonesAddedSecondary: number;
+  needsReview: number;
 };
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
