@@ -720,23 +720,7 @@ function ImportPayersCard() {
       setFile(droppedFile);
       // clear previous result
       setPreviewRows([]);
-      setPreviewSummary({
-        total: 0,
-        altered: 0,
-        NEW: 0,
-        UPDATE: 0,
-        NO_CHANGE: 0,
-        AMBIGUOUS: 0,
-        CONFLICT: 0,
-      addressesProtected: 0,
-      phonesProtected: 0,
-      phonesAddedSecondary: 0,
-      needsReview: 0,
-        addressesProtected: 0,
-        phonesProtected: 0,
-        phonesAddedSecondary: 0,
-        needsReview: 0,
-      });
+      setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -748,23 +732,7 @@ function ImportPayersCard() {
       setFile(selectedFile);
       // clear previous result
       setPreviewRows([]);
-      setPreviewSummary({
-        total: 0,
-        altered: 0,
-        NEW: 0,
-        UPDATE: 0,
-        NO_CHANGE: 0,
-        AMBIGUOUS: 0,
-        CONFLICT: 0,
-      addressesProtected: 0,
-      phonesProtected: 0,
-      phonesAddedSecondary: 0,
-      needsReview: 0,
-        addressesProtected: 0,
-        phonesProtected: 0,
-        phonesAddedSecondary: 0,
-        needsReview: 0,
-      });
+      setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     }
   };
 
@@ -917,23 +885,7 @@ function ImportPayersCard() {
     } catch (error: any) {
       toast.error(`Falha no dry-run: ${error.message || String(error)}`);
       setPreviewRows([]);
-      setPreviewSummary({
-        total: 0,
-        altered: 0,
-        NEW: 0,
-        UPDATE: 0,
-        NO_CHANGE: 0,
-        AMBIGUOUS: 0,
-        CONFLICT: 0,
-      addressesProtected: 0,
-      phonesProtected: 0,
-      phonesAddedSecondary: 0,
-      needsReview: 0,
-        addressesProtected: 0,
-        phonesProtected: 0,
-        phonesAddedSecondary: 0,
-        needsReview: 0,
-      });
+      setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     } finally {
       setIsPreviewing(false);
     }
@@ -944,19 +896,7 @@ function ImportPayersCard() {
     await importPayers({ file, options: { overwriteAddresses, overwritePhones } });
     setFile(null);
     setPreviewRows([]);
-    setPreviewSummary({
-      total: 0,
-      altered: 0,
-      NEW: 0,
-      UPDATE: 0,
-      NO_CHANGE: 0,
-      AMBIGUOUS: 0,
-      CONFLICT: 0,
-      addressesProtected: 0,
-      phonesProtected: 0,
-      phonesAddedSecondary: 0,
-      needsReview: 0,
-    });
+    setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     reset();
   };
 
