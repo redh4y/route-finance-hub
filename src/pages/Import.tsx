@@ -728,6 +728,14 @@ function ImportPayersCard() {
         NO_CHANGE: 0,
         AMBIGUOUS: 0,
         CONFLICT: 0,
+      addressesProtected: 0,
+      phonesProtected: 0,
+      phonesAddedSecondary: 0,
+      needsReview: 0,
+        addressesProtected: 0,
+        phonesProtected: 0,
+        phonesAddedSecondary: 0,
+        needsReview: 0,
       });
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
@@ -748,6 +756,14 @@ function ImportPayersCard() {
         NO_CHANGE: 0,
         AMBIGUOUS: 0,
         CONFLICT: 0,
+      addressesProtected: 0,
+      phonesProtected: 0,
+      phonesAddedSecondary: 0,
+      needsReview: 0,
+        addressesProtected: 0,
+        phonesProtected: 0,
+        phonesAddedSecondary: 0,
+        needsReview: 0,
       });
     }
   };
@@ -909,6 +925,14 @@ function ImportPayersCard() {
         NO_CHANGE: 0,
         AMBIGUOUS: 0,
         CONFLICT: 0,
+      addressesProtected: 0,
+      phonesProtected: 0,
+      phonesAddedSecondary: 0,
+      needsReview: 0,
+        addressesProtected: 0,
+        phonesProtected: 0,
+        phonesAddedSecondary: 0,
+        needsReview: 0,
       });
     } finally {
       setIsPreviewing(false);
@@ -928,6 +952,10 @@ function ImportPayersCard() {
       NO_CHANGE: 0,
       AMBIGUOUS: 0,
       CONFLICT: 0,
+      addressesProtected: 0,
+      phonesProtected: 0,
+      phonesAddedSecondary: 0,
+      needsReview: 0,
     });
     reset();
   };
