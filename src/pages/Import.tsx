@@ -74,6 +74,10 @@ type PayerPreviewRow = {
   matchedId: string | null;
   changedFields?: string[];
   note: string;
+  addressProtected?: boolean;
+  phoneProtected?: boolean;
+  phoneAddedAsSecondary?: boolean;
+  needsReview?: boolean;
 };
 
 type PayerPreviewSummary = {
@@ -84,6 +88,24 @@ type PayerPreviewSummary = {
   NO_CHANGE: number;
   AMBIGUOUS: number;
   CONFLICT: number;
+  addressesProtected: number;
+  phonesProtected: number;
+  phonesAddedSecondary: number;
+  needsReview: number;
+};
+
+const EMPTY_PAYER_PREVIEW_SUMMARY: PayerPreviewSummary = {
+  total: 0,
+  altered: 0,
+  NEW: 0,
+  UPDATE: 0,
+  NO_CHANGE: 0,
+  AMBIGUOUS: 0,
+  CONFLICT: 0,
+  addressesProtected: 0,
+  phonesProtected: 0,
+  phonesAddedSecondary: 0,
+  needsReview: 0,
 };
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -588,7 +610,7 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
 
 
 const PAYERS_PREVIEW_SELECT =
-  "id, name, document_digits, payer_code, phone, email, address_original, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason";
+  "id, name, document_digits, payer_code, phone, email, extra_contacts, address_original, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason, review_address, needs_review";
 
 function chunkValues<T>(values: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -691,15 +713,7 @@ function ImportPayersCard() {
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewRows, setPreviewRows] = useState<PayerPreviewRow[]>([]);
-  const [previewSummary, setPreviewSummary] = useState<PayerPreviewSummary>({
-    total: 0,
-    altered: 0,
-    NEW: 0,
-    UPDATE: 0,
-    NO_CHANGE: 0,
-    AMBIGUOUS: 0,
-    CONFLICT: 0,
-  });
+  const [previewSummary, setPreviewSummary] = useState<PayerPreviewSummary>(EMPTY_PAYER_PREVIEW_SUMMARY);
   const [overwriteAddresses, setOverwriteAddresses] = useState(false);
   const [overwritePhones, setOverwritePhones] = useState(false);
   const { importPayers, isImporting, progress, reset } = useOptimizedImportPayers();
@@ -712,15 +726,7 @@ function ImportPayersCard() {
       setFile(droppedFile);
       // clear previous result
       setPreviewRows([]);
-      setPreviewSummary({
-        total: 0,
-        altered: 0,
-        NEW: 0,
-        UPDATE: 0,
-        NO_CHANGE: 0,
-        AMBIGUOUS: 0,
-        CONFLICT: 0,
-      });
+      setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -732,15 +738,7 @@ function ImportPayersCard() {
       setFile(selectedFile);
       // clear previous result
       setPreviewRows([]);
-      setPreviewSummary({
-        total: 0,
-        altered: 0,
-        NEW: 0,
-        UPDATE: 0,
-        NO_CHANGE: 0,
-        AMBIGUOUS: 0,
-        CONFLICT: 0,
-      });
+      setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     }
   };
 
@@ -757,6 +755,24 @@ function ImportPayersCard() {
       const codes = Array.from(new Set(transformed.map((t) => t.payer.payer_code).filter((c): c is string => !!c)));
 
       const existing = await fetchPayersForPreview(docs, codes);
+
+      // Fetch the subset of existing payer CEPs that exist in the validated `ceps` table
+      const existingCEPs = Array.from(
+        new Set(
+          (existing || [])
+            .map((p: any) => String(p.cep || "").replace(/\D/g, ""))
+            .filter((c: string) => c.length === 8),
+        ),
+      );
+      const knownCEPs = new Set<string>();
+      for (const chunk of chunkValues(existingCEPs, 400)) {
+        const { data, error } = await supabase.from("ceps").select("cep").in("cep", chunk);
+        if (error) throw error;
+        (data || []).forEach((r: any) => {
+          const d = String(r.cep || "").replace(/\D/g, "");
+          if (d) knownCEPs.add(d);
+        });
+      }
 
       const docMap = new Map<string, any[]>();
       const codeMap = new Map<string, any[]>();
@@ -860,19 +876,77 @@ function ImportPayersCard() {
           };
         }
 
+        // Address protection: protected if existing CEP exists in `ceps` and address is not flagged for review
+        const existingCep = String(existingPayer.cep || "").replace(/\D/g, "");
+        const isAddressValidated =
+          existingCep.length === 8 &&
+          knownCEPs.has(existingCep) &&
+          existingPayer.match_ok !== false &&
+          existingPayer.review_address !== true &&
+          existingPayer.needs_review !== true &&
+          existingPayer.review_status !== "REVIEW";
+        const addressProtected = !overwriteAddresses && isAddressValidated;
+
+        // Phone protection: existing phone exists and CSV brings a different one
+        const existingPhone = (existingPayer.phone || "").trim();
+        const csvPhone = ((item.payer as any).phone || "").trim();
+        const phoneProtected =
+          !overwritePhones && !!existingPhone && !!csvPhone && csvPhone !== existingPhone;
+        const phoneOnlyExisting = !overwritePhones && !!existingPhone;
+
+        // If a CSV phone differs and is not already in extra_contacts, it will be added as secondary
+        const existingExtras = Array.isArray(existingPayer.extra_contacts)
+          ? (existingPayer.extra_contacts as Array<{ value?: string }>)
+          : [];
+        const alreadyAsSecondary = existingExtras.some(
+          (c) => (c?.value || "").trim() === csvPhone,
+        );
+        const phoneAddedAsSecondary = phoneProtected && !alreadyAsSecondary;
+
+        // Build the list of changed fields, excluding fields that are protected
+        const protectedAddressFields = new Set<string>(
+          addressProtected
+            ? ["street", "number", "neighborhood", "city", "state", "cep", "address_original", "match_ok", "review_status", "review_reason"]
+            : [],
+        );
+        const protectedPhoneFields = new Set<string>(phoneOnlyExisting ? ["phone"] : []);
+
         const changedFields = compareKeys
-          .filter((k) => normalize((item.payer as any)[k]) !== normalize((existingPayer as any)[k]))
+          .filter((k) => {
+            if (protectedAddressFields.has(k)) return false;
+            if (protectedPhoneFields.has(k)) return false;
+            return normalize((item.payer as any)[k]) !== normalize((existingPayer as any)[k]);
+          })
           .map((k) => fieldLabels[k]);
 
+        const willChange = changedFields.length > 0 || phoneAddedAsSecondary;
+
+        // Needs review: incoming CSV row carries review flags
+        const incomingNeedsReview =
+          (item.payer as any).review_flag === true ||
+          (item.payer as any).review_address === true ||
+          (item.payer as any).review_status === "REVIEW";
+
+        const noteParts: string[] = [];
+        if (changedFields.length > 0) noteParts.push("Cadastro existente sera atualizado.");
+        if (addressProtected) noteParts.push("Endereco protegido (CEP validado).");
+        if (phoneProtected) noteParts.push("Telefone protegido — novo vai para contato secundario.");
+        if (incomingNeedsReview) noteParts.push("Linha marcada para revisao.");
+        if (noteParts.length === 0) noteParts.push("Sem alteracoes.");
+
         return {
-          type: changedFields.length > 0 ? "UPDATE" : "NO_CHANGE",
+          type: willChange ? "UPDATE" : "NO_CHANGE",
           rowNumber: item.rowNumber,
           name: item.payer.name,
           documentDigits: doc,
           payerCode: code,
           matchedId: existingPayer.id,
           changedFields,
-          note: changedFields.length > 0 ? "Cadastro existente sera atualizado." : "Sem alteracoes.",
+          note: noteParts.join(" "),
+          addressProtected,
+          phoneProtected,
+          phoneAddedAsSecondary,
+          needsReview: incomingNeedsReview,
         };
       });
 
@@ -884,8 +958,14 @@ function ImportPayersCard() {
         NO_CHANGE: previewAll.filter((r) => r.type === "NO_CHANGE").length,
         AMBIGUOUS: previewAll.filter((r) => r.type === "AMBIGUOUS").length,
         CONFLICT: previewAll.filter((r) => r.type === "CONFLICT").length,
+        addressesProtected: previewAll.filter((r) => r.addressProtected).length,
+        phonesProtected: previewAll.filter((r) => r.phoneProtected).length,
+        phonesAddedSecondary: previewAll.filter((r) => r.phoneAddedAsSecondary).length,
+        needsReview: previewAll.filter((r) => r.needsReview).length,
       };
-      const alteredRows = previewAll.filter((r) => r.type === "UPDATE");
+      const alteredRows = previewAll.filter(
+        (r) => r.type === "UPDATE" || r.type === "NEW" || r.addressProtected || r.phoneProtected || r.needsReview,
+      );
 
       setPreviewSummary(summary);
       setPreviewRows(alteredRows);
@@ -893,15 +973,7 @@ function ImportPayersCard() {
     } catch (error: any) {
       toast.error(`Falha no dry-run: ${error.message || String(error)}`);
       setPreviewRows([]);
-      setPreviewSummary({
-        total: 0,
-        altered: 0,
-        NEW: 0,
-        UPDATE: 0,
-        NO_CHANGE: 0,
-        AMBIGUOUS: 0,
-        CONFLICT: 0,
-      });
+      setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     } finally {
       setIsPreviewing(false);
     }
@@ -912,15 +984,7 @@ function ImportPayersCard() {
     await importPayers({ file, options: { overwriteAddresses, overwritePhones } });
     setFile(null);
     setPreviewRows([]);
-    setPreviewSummary({
-      total: 0,
-      altered: 0,
-      NEW: 0,
-      UPDATE: 0,
-      NO_CHANGE: 0,
-      AMBIGUOUS: 0,
-      CONFLICT: 0,
-    });
+    setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     reset();
   };
 
@@ -1042,9 +1106,23 @@ function ImportPayersCard() {
               <Badge variant="secondary">Total registros: {previewSummary.total}</Badge>
               <Badge variant="secondary">Alterados: {previewSummary.altered}</Badge>
               <Badge variant="outline">Novos: {previewSummary.NEW}</Badge>
-              <Badge variant="outline">Sem mudanca: {previewSummary.NO_CHANGE}</Badge>
-              <Badge variant="outline" className="text-warning border-warning/50">Ambiguo: {previewSummary.AMBIGUOUS}</Badge>
+              <Badge variant="outline">Sem mudança: {previewSummary.NO_CHANGE}</Badge>
+              <Badge variant="outline" className="text-warning border-warning/50">Ambíguo: {previewSummary.AMBIGUOUS}</Badge>
               <Badge variant="outline" className="text-destructive border-destructive/50">Conflito: {previewSummary.CONFLICT}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
+                🛡️ Endereços protegidos: {previewSummary.addressesProtected}
+              </Badge>
+              <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
+                🛡️ Telefones protegidos: {previewSummary.phonesProtected}
+              </Badge>
+              <Badge variant="outline" className="border-emerald-500/50 text-emerald-600 dark:text-emerald-400">
+                ➕ Telefones secundários adicionados: {previewSummary.phonesAddedSecondary}
+              </Badge>
+              <Badge variant="outline" className="border-amber-500/50 text-amber-600 dark:text-amber-400">
+                ⚠️ Precisam revisão: {previewSummary.needsReview}
+              </Badge>
             </div>
             <div className="max-h-[360px] overflow-auto rounded border">
               <Table>
@@ -1055,7 +1133,8 @@ function ImportPayersCard() {
                     <TableHead>Nome</TableHead>
                     <TableHead>CPF</TableHead>
                     <TableHead>Cod.</TableHead>
-                    <TableHead>O que sera alterado</TableHead>
+                    <TableHead>Proteções</TableHead>
+                    <TableHead>O que será alterado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1072,6 +1151,25 @@ function ImportPayersCard() {
                       <TableCell>{row.name}</TableCell>
                       <TableCell className="font-mono text-xs">{row.documentDigits || "-"}</TableCell>
                       <TableCell className="font-mono text-xs">{row.payerCode || "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {row.addressProtected && (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-600 dark:text-blue-400">🛡️ End.</Badge>
+                          )}
+                          {row.phoneProtected && (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-600 dark:text-blue-400">🛡️ Tel.</Badge>
+                          )}
+                          {row.phoneAddedAsSecondary && (
+                            <Badge variant="outline" className="text-[10px] border-emerald-500/50 text-emerald-600 dark:text-emerald-400">➕ Tel. 2º</Badge>
+                          )}
+                          {row.needsReview && (
+                            <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400">⚠️ Rev.</Badge>
+                          )}
+                          {!row.addressProtected && !row.phoneProtected && !row.phoneAddedAsSecondary && !row.needsReview && (
+                            <span className="text-muted-foreground/60 text-xs">—</span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>{row.changedFields?.length ? row.changedFields.join(", ") : row.note}</TableCell>
                     </TableRow>
                   ))}
