@@ -94,6 +94,20 @@ type PayerPreviewSummary = {
   needsReview: number;
 };
 
+const EMPTY_PAYER_PREVIEW_SUMMARY: PayerPreviewSummary = {
+  total: 0,
+  altered: 0,
+  NEW: 0,
+  UPDATE: 0,
+  NO_CHANGE: 0,
+  AMBIGUOUS: 0,
+  CONFLICT: 0,
+  addressesProtected: 0,
+  phonesProtected: 0,
+  phonesAddedSecondary: 0,
+  needsReview: 0,
+};
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 
