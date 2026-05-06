@@ -540,10 +540,15 @@ export function useOptimizedImportPayers() {
       queryClient.invalidateQueries({ queryKey: ["payers"] });
       queryClient.invalidateQueries({ queryKey: ["import-logs"] });
 
+      const protBits: string[] = [];
+      if (result.protectedAddresses) protBits.push(`${result.protectedAddresses} endereço(s) preservado(s)`);
+      if (result.protectedPhones) protBits.push(`${result.protectedPhones} telefone(s) preservado(s)`);
+      const protMsg = protBits.length > 0 ? ` — ${protBits.join(", ")}` : "";
+
       if (result.errors > 0) {
-        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros`);
+        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros${protMsg}`);
       } else {
-        toast.success(`${result.success} pagadores importados!`);
+        toast.success(`${result.success} pagadores importados!${protMsg}`);
       }
     },
     onError: (error) => {
