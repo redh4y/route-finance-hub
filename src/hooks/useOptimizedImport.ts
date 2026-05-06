@@ -153,32 +153,115 @@ async function fetchAllExistingBillingsByColumn(
 }
 
 
-async function fetchCandidatePayersByIdentity(documentDigits: string[], payerCodes: string[]) {
-  const byId = new Map<string, { id: string; document_digits: string | null; payer_code: string | null }>();
+// Fields fetched from existing payers used for protected-merge logic during reimport
+const EXISTING_PAYER_SELECT =
+  "id, document_digits, payer_code, name, phone, email, extra_contacts, " +
+  "cep, street, number, neighborhood, city, state, address_base, address_original, " +
+  "match_ok, review_status, review_reason, review_flag, review_address, needs_review";
+
+type ExistingPayerRecord = {
+  id: string;
+  document_digits: string | null;
+  payer_code: string | null;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  extra_contacts: Array<{ type: string; value: string }> | null;
+  cep: string | null;
+  street: string | null;
+  number: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  address_base: string | null;
+  address_original: string | null;
+  match_ok: boolean | null;
+  review_status: string | null;
+  review_reason: string | null;
+  review_flag: boolean | null;
+  review_address: boolean | null;
+  needs_review: boolean | null;
+};
+
+async function fetchCandidatePayersByIdentity(
+  documentDigits: string[],
+  payerCodes: string[],
+): Promise<ExistingPayerRecord[]> {
+  const byId = new Map<string, ExistingPayerRecord>();
 
   for (let i = 0; i < documentDigits.length; i += 400) {
     const chunk = documentDigits.slice(i, i + 400);
     const { data, error } = await supabase
       .from("payers")
-      .select("id, document_digits, payer_code")
+      .select(EXISTING_PAYER_SELECT)
       .in("document_digits", chunk);
 
     if (error) throw error;
-    (data || []).forEach((p: any) => byId.set(p.id, p));
+    (data || []).forEach((p: any) => byId.set(p.id, p as ExistingPayerRecord));
   }
 
   for (let i = 0; i < payerCodes.length; i += 400) {
     const chunk = payerCodes.slice(i, i + 400);
     const { data, error } = await supabase
       .from("payers")
-      .select("id, document_digits, payer_code")
+      .select(EXISTING_PAYER_SELECT)
       .in("payer_code", chunk);
 
     if (error) throw error;
-    (data || []).forEach((p: any) => byId.set(p.id, p));
+    (data || []).forEach((p: any) => byId.set(p.id, p as ExistingPayerRecord));
   }
 
   return Array.from(byId.values());
+}
+
+// Fetch the subset of CEPs (from the `ceps` base) that match the provided list
+async function fetchKnownCEPs(cepDigitsList: string[]): Promise<Set<string>> {
+  const known = new Set<string>();
+  if (cepDigitsList.length === 0) return known;
+  // Deduplicate
+  const unique = Array.from(new Set(cepDigitsList.filter((c) => c && c.length === 8)));
+  for (let i = 0; i < unique.length; i += 400) {
+    const chunk = unique.slice(i, i + 400);
+    const { data, error } = await supabase.from("ceps").select("cep").in("cep", chunk);
+    if (error) throw error;
+    (data || []).forEach((r: any) => {
+      const d = String(r.cep || "").replace(/\D/g, "");
+      if (d) known.add(d);
+    });
+  }
+  return known;
+}
+
+const PROTECTED_ADDRESS_FIELDS = [
+  "cep",
+  "street",
+  "number",
+  "neighborhood",
+  "city",
+  "state",
+  "address_base",
+  "address_original",
+  "match_ok",
+  "review_status",
+  "review_reason",
+  "review_flag",
+  "review_address",
+] as const;
+
+function isAddressProtected(existing: ExistingPayerRecord, knownCEPs: Set<string>): boolean {
+  const cepDigits = String(existing.cep || "").replace(/\D/g, "");
+  if (!cepDigits) return false;
+  if (!knownCEPs.has(cepDigits)) return false;
+  if (existing.match_ok === false) return false;
+  if (existing.review_address === true) return false;
+  if (existing.needs_review === true) return false;
+  if (existing.review_status === "REVIEW") return false;
+  return true;
+}
+
+export interface PayerImportOptions {
+  overwriteAddresses?: boolean;
+  overwritePhones?: boolean;
 }
 
 // Optimized payer import with larger batches and parallel processing
