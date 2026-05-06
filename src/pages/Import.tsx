@@ -876,19 +876,77 @@ function ImportPayersCard() {
           };
         }
 
+        // Address protection: protected if existing CEP exists in `ceps` and address is not flagged for review
+        const existingCep = String(existingPayer.cep || "").replace(/\D/g, "");
+        const isAddressValidated =
+          existingCep.length === 8 &&
+          knownCEPs.has(existingCep) &&
+          existingPayer.match_ok !== false &&
+          existingPayer.review_address !== true &&
+          existingPayer.needs_review !== true &&
+          existingPayer.review_status !== "REVIEW";
+        const addressProtected = !overwriteAddresses && isAddressValidated;
+
+        // Phone protection: existing phone exists and CSV brings a different one
+        const existingPhone = (existingPayer.phone || "").trim();
+        const csvPhone = ((item.payer as any).phone || "").trim();
+        const phoneProtected =
+          !overwritePhones && !!existingPhone && !!csvPhone && csvPhone !== existingPhone;
+        const phoneOnlyExisting = !overwritePhones && !!existingPhone;
+
+        // If a CSV phone differs and is not already in extra_contacts, it will be added as secondary
+        const existingExtras = Array.isArray(existingPayer.extra_contacts)
+          ? (existingPayer.extra_contacts as Array<{ value?: string }>)
+          : [];
+        const alreadyAsSecondary = existingExtras.some(
+          (c) => (c?.value || "").trim() === csvPhone,
+        );
+        const phoneAddedAsSecondary = phoneProtected && !alreadyAsSecondary;
+
+        // Build the list of changed fields, excluding fields that are protected
+        const protectedAddressFields = new Set<string>(
+          addressProtected
+            ? ["street", "number", "neighborhood", "city", "state", "cep", "address_original", "match_ok", "review_status", "review_reason"]
+            : [],
+        );
+        const protectedPhoneFields = new Set<string>(phoneOnlyExisting ? ["phone"] : []);
+
         const changedFields = compareKeys
-          .filter((k) => normalize((item.payer as any)[k]) !== normalize((existingPayer as any)[k]))
+          .filter((k) => {
+            if (protectedAddressFields.has(k)) return false;
+            if (protectedPhoneFields.has(k)) return false;
+            return normalize((item.payer as any)[k]) !== normalize((existingPayer as any)[k]);
+          })
           .map((k) => fieldLabels[k]);
 
+        const willChange = changedFields.length > 0 || phoneAddedAsSecondary;
+
+        // Needs review: incoming CSV row carries review flags
+        const incomingNeedsReview =
+          (item.payer as any).review_flag === true ||
+          (item.payer as any).review_address === true ||
+          (item.payer as any).review_status === "REVIEW";
+
+        const noteParts: string[] = [];
+        if (changedFields.length > 0) noteParts.push("Cadastro existente sera atualizado.");
+        if (addressProtected) noteParts.push("Endereco protegido (CEP validado).");
+        if (phoneProtected) noteParts.push("Telefone protegido — novo vai para contato secundario.");
+        if (incomingNeedsReview) noteParts.push("Linha marcada para revisao.");
+        if (noteParts.length === 0) noteParts.push("Sem alteracoes.");
+
         return {
-          type: changedFields.length > 0 ? "UPDATE" : "NO_CHANGE",
+          type: willChange ? "UPDATE" : "NO_CHANGE",
           rowNumber: item.rowNumber,
           name: item.payer.name,
           documentDigits: doc,
           payerCode: code,
           matchedId: existingPayer.id,
           changedFields,
-          note: changedFields.length > 0 ? "Cadastro existente sera atualizado." : "Sem alteracoes.",
+          note: noteParts.join(" "),
+          addressProtected,
+          phoneProtected,
+          phoneAddedAsSecondary,
+          needsReview: incomingNeedsReview,
         };
       });
 
@@ -900,8 +958,14 @@ function ImportPayersCard() {
         NO_CHANGE: previewAll.filter((r) => r.type === "NO_CHANGE").length,
         AMBIGUOUS: previewAll.filter((r) => r.type === "AMBIGUOUS").length,
         CONFLICT: previewAll.filter((r) => r.type === "CONFLICT").length,
+        addressesProtected: previewAll.filter((r) => r.addressProtected).length,
+        phonesProtected: previewAll.filter((r) => r.phoneProtected).length,
+        phonesAddedSecondary: previewAll.filter((r) => r.phoneAddedAsSecondary).length,
+        needsReview: previewAll.filter((r) => r.needsReview).length,
       };
-      const alteredRows = previewAll.filter((r) => r.type === "UPDATE");
+      const alteredRows = previewAll.filter(
+        (r) => r.type === "UPDATE" || r.type === "NEW" || r.addressProtected || r.phoneProtected || r.needsReview,
+      );
 
       setPreviewSummary(summary);
       setPreviewRows(alteredRows);
