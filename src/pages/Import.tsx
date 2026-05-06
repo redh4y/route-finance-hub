@@ -596,7 +596,7 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
 
 
 const PAYERS_PREVIEW_SELECT =
-  "id, name, document_digits, payer_code, phone, email, address_original, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason";
+  "id, name, document_digits, payer_code, phone, email, extra_contacts, address_original, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason, review_address, needs_review";
 
 function chunkValues<T>(values: T[], size: number): T[][] {
   const chunks: T[][] = [];
