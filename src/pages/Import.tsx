@@ -699,6 +699,8 @@ function ImportPayersCard() {
     AMBIGUOUS: 0,
     CONFLICT: 0,
   });
+  const [overwriteAddresses, setOverwriteAddresses] = useState(false);
+  const [overwritePhones, setOverwritePhones] = useState(false);
   const { importPayers, isImporting, progress, reset } = useOptimizedImportPayers();
 
   const handleDrop = (e: React.DragEvent) => {
