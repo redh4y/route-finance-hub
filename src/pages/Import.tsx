@@ -1106,9 +1106,23 @@ function ImportPayersCard() {
               <Badge variant="secondary">Total registros: {previewSummary.total}</Badge>
               <Badge variant="secondary">Alterados: {previewSummary.altered}</Badge>
               <Badge variant="outline">Novos: {previewSummary.NEW}</Badge>
-              <Badge variant="outline">Sem mudanca: {previewSummary.NO_CHANGE}</Badge>
-              <Badge variant="outline" className="text-warning border-warning/50">Ambiguo: {previewSummary.AMBIGUOUS}</Badge>
+              <Badge variant="outline">Sem mudança: {previewSummary.NO_CHANGE}</Badge>
+              <Badge variant="outline" className="text-warning border-warning/50">Ambíguo: {previewSummary.AMBIGUOUS}</Badge>
               <Badge variant="outline" className="text-destructive border-destructive/50">Conflito: {previewSummary.CONFLICT}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
+                🛡️ Endereços protegidos: {previewSummary.addressesProtected}
+              </Badge>
+              <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
+                🛡️ Telefones protegidos: {previewSummary.phonesProtected}
+              </Badge>
+              <Badge variant="outline" className="border-emerald-500/50 text-emerald-600 dark:text-emerald-400">
+                ➕ Telefones secundários adicionados: {previewSummary.phonesAddedSecondary}
+              </Badge>
+              <Badge variant="outline" className="border-amber-500/50 text-amber-600 dark:text-amber-400">
+                ⚠️ Precisam revisão: {previewSummary.needsReview}
+              </Badge>
             </div>
             <div className="max-h-[360px] overflow-auto rounded border">
               <Table>
@@ -1119,7 +1133,8 @@ function ImportPayersCard() {
                     <TableHead>Nome</TableHead>
                     <TableHead>CPF</TableHead>
                     <TableHead>Cod.</TableHead>
-                    <TableHead>O que sera alterado</TableHead>
+                    <TableHead>Proteções</TableHead>
+                    <TableHead>O que será alterado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1136,6 +1151,25 @@ function ImportPayersCard() {
                       <TableCell>{row.name}</TableCell>
                       <TableCell className="font-mono text-xs">{row.documentDigits || "-"}</TableCell>
                       <TableCell className="font-mono text-xs">{row.payerCode || "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {row.addressProtected && (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-600 dark:text-blue-400">🛡️ End.</Badge>
+                          )}
+                          {row.phoneProtected && (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-600 dark:text-blue-400">🛡️ Tel.</Badge>
+                          )}
+                          {row.phoneAddedAsSecondary && (
+                            <Badge variant="outline" className="text-[10px] border-emerald-500/50 text-emerald-600 dark:text-emerald-400">➕ Tel. 2º</Badge>
+                          )}
+                          {row.needsReview && (
+                            <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400">⚠️ Rev.</Badge>
+                          )}
+                          {!row.addressProtected && !row.phoneProtected && !row.phoneAddedAsSecondary && !row.needsReview && (
+                            <span className="text-muted-foreground/60 text-xs">—</span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>{row.changedFields?.length ? row.changedFields.join(", ") : row.note}</TableCell>
                     </TableRow>
                   ))}
