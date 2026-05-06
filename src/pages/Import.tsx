@@ -957,6 +957,31 @@ function ImportPayersCard() {
 
             {isImporting && <ProgressBar progress={progress} />}
 
+            <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Proteção de dados enriquecidos</p>
+              <p className="text-xs text-muted-foreground">
+                Por padrão, endereços validados (CEP existente na base) e telefones já cadastrados são preservados. Telefones novos do CSV são adicionados como contato secundário. Marque para sobrescrever.
+              </p>
+              <div className="flex flex-wrap gap-4 pt-1">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={overwriteAddresses}
+                    onCheckedChange={(v) => setOverwriteAddresses(v === true)}
+                    disabled={isImporting}
+                  />
+                  Sobrescrever endereços/CEPs existentes
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={overwritePhones}
+                    onCheckedChange={(v) => setOverwritePhones(v === true)}
+                    disabled={isImporting}
+                  />
+                  Sobrescrever telefone principal existente
+                </label>
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               {file && (
                 <Button variant="ghost" onClick={handleClear} disabled={isImporting || isPreviewing}>
