@@ -270,14 +270,24 @@ export function useOptimizedImportPayers() {
   const [progress, setProgress] = useState(0);
 
   const mutation = useMutation({
-    mutationFn: async (file: File): Promise<ImportResult> => {
+    mutationFn: async (
+      input: File | { file: File; options?: PayerImportOptions },
+    ): Promise<ImportResult & { protectedAddresses?: number; protectedPhones?: number }> => {
+      const file = input instanceof File ? input : input.file;
+      const options: PayerImportOptions =
+        input instanceof File ? {} : input.options || {};
+      const overwriteAddresses = options.overwriteAddresses === true;
+      const overwritePhones = options.overwritePhones === true;
+
       const rows = await parseCSV<PayerCSVRow>(file);
       const runId = crypto.randomUUID();
-      const result: ImportResult = {
+      const result: ImportResult & { protectedAddresses?: number; protectedPhones?: number } = {
         total: rows.length,
         success: 0,
         errors: 0,
         errorDetails: [],
+        protectedAddresses: 0,
+        protectedPhones: 0,
       };
 
       // Create import log with run_id
@@ -328,7 +338,9 @@ export function useOptimizedImportPayers() {
 
       const docMap = new Map<string, string[]>();
       const codeMap = new Map<string, string[]>();
-      (candidatePayers || []).forEach((p: any) => {
+      const existingById = new Map<string, ExistingPayerRecord>();
+      (candidatePayers || []).forEach((p) => {
+        existingById.set(p.id, p);
         if (p.document_digits) {
           const list = docMap.get(p.document_digits) || [];
           list.push(p.id);
@@ -340,6 +352,12 @@ export function useOptimizedImportPayers() {
           codeMap.set(p.payer_code, list);
         }
       });
+
+      // Look up which existing CEPs are validated against the ceps table
+      const existingCepDigits = (candidatePayers || [])
+        .map((p) => String(p.cep || "").replace(/\D/g, ""))
+        .filter((c) => c.length === 8);
+      const knownCEPs = await fetchKnownCEPs(existingCepDigits);
 
       const resolvedTransformedRaw = transformed
         .map((item) => {
@@ -363,19 +381,75 @@ export function useOptimizedImportPayers() {
           const codeId = !doc ? (codeMatches[0] || null) : null;
           const targetId = docId || codeId || item.payer.id;
           const isUpdate = !!(docId || codeId);
+          const existing = isUpdate ? existingById.get(targetId) : undefined;
+
+          // Start with the CSV-derived payload
+          const merged: Record<string, any> = {
+            ...item.payer,
+            id: targetId,
+            run_id: runId,
+          };
+
+          if (existing) {
+            // Pagador existia (mesmo que como placeholder): limpa flag de revisão temporária
+            merged.needs_review = false;
+
+            // 1. Protected address — preserve existing enriched address fields
+            const addrProtected =
+              !overwriteAddresses && isAddressProtected(existing, knownCEPs);
+            if (addrProtected) {
+              for (const f of PROTECTED_ADDRESS_FIELDS) {
+                // delete the CSV-supplied value so the upsert keeps the existing DB value
+                delete merged[f];
+              }
+              // Preserve existing review/needs_review flags as-is
+              merged.needs_review = existing.needs_review ?? false;
+              result.protectedAddresses = (result.protectedAddresses || 0) + 1;
+            }
+
+            // 2. Protected phone — never overwrite an existing primary phone automatically
+            const csvPhone = (item.payer as any).phone as string | null | undefined;
+            if (!overwritePhones && existing.phone && existing.phone.trim() !== "") {
+              if (csvPhone && csvPhone !== existing.phone) {
+                // Save as secondary contact if not already present
+                const current = Array.isArray(existing.extra_contacts)
+                  ? existing.extra_contacts
+                  : [];
+                const incomingExtras = Array.isArray((item.payer as any).extra_contacts)
+                  ? ((item.payer as any).extra_contacts as Array<{ type: string; value: string }>)
+                  : [];
+                const seen = new Set<string>();
+                const combined: Array<{ type: string; value: string }> = [];
+                for (const c of [...current, ...incomingExtras, { type: "phone", value: csvPhone }]) {
+                  if (!c?.value) continue;
+                  if (c.value === existing.phone) continue;
+                  if (seen.has(c.value)) continue;
+                  seen.add(c.value);
+                  combined.push(c);
+                }
+                merged.extra_contacts = combined.length > 0 ? combined : null;
+                result.protectedPhones = (result.protectedPhones || 0) + 1;
+              }
+              // Keep existing primary phone
+              merged.phone = existing.phone;
+            } else if (!csvPhone && existing.phone) {
+              // CSV trouxe vazio mas existe phone — preservar
+              merged.phone = existing.phone;
+            }
+
+            // 3. Email: só preencher se DB estiver vazio
+            if (existing.email && existing.email.trim() !== "" && !overwriteAddresses) {
+              merged.email = existing.email;
+            }
+          }
+
           return {
             ...item,
-            payer: {
-              ...item.payer,
-              id: targetId,
-              run_id: runId,
-              // Pagador existia como placeholder (criado durante import de boletos):
-              // limpa as flags de revisão temporária agora que os dados reais chegaram.
-              ...(isUpdate && { needs_review: false }),
-            },
+            payer: merged as NonNullable<ReturnType<typeof transformPayerRow>>,
           };
         })
         .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
+
 
       // Avoid Postgres ON CONFLICT cardinality errors when the same id appears multiple times in one CSV.
       // Keep the last occurrence for each payer id.
