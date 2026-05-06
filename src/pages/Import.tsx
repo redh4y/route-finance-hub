@@ -908,7 +908,7 @@ function ImportPayersCard() {
 
   const handleImport = async () => {
     if (!file) return;
-    await importPayers(file);
+    await importPayers({ file, options: { overwriteAddresses, overwritePhones } });
     setFile(null);
     setPreviewRows([]);
     setPreviewSummary({
