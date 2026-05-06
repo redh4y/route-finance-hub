@@ -756,6 +756,24 @@ function ImportPayersCard() {
 
       const existing = await fetchPayersForPreview(docs, codes);
 
+      // Fetch the subset of existing payer CEPs that exist in the validated `ceps` table
+      const existingCEPs = Array.from(
+        new Set(
+          (existing || [])
+            .map((p: any) => String(p.cep || "").replace(/\D/g, ""))
+            .filter((c: string) => c.length === 8),
+        ),
+      );
+      const knownCEPs = new Set<string>();
+      for (const chunk of chunkValues(existingCEPs, 400)) {
+        const { data, error } = await supabase.from("ceps").select("cep").in("cep", chunk);
+        if (error) throw error;
+        (data || []).forEach((r: any) => {
+          const d = String(r.cep || "").replace(/\D/g, "");
+          if (d) knownCEPs.add(d);
+        });
+      }
+
       const docMap = new Map<string, any[]>();
       const codeMap = new Map<string, any[]>();
       (existing || []).forEach((p: any) => {
