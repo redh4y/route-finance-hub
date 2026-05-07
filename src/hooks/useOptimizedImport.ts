@@ -13,6 +13,10 @@ import {
   isQuickCancellation,
   isPreviousMonthReissue,
 } from "@/lib/csv-import";
+import {
+  applyPayerProtectedMerge,
+  type ExistingPayerLike,
+} from "@/lib/payer-merge";
 import { toast } from "sonner";
 
 export interface ImportResult {
@@ -159,29 +163,7 @@ const EXISTING_PAYER_SELECT =
   "cep, street, number, neighborhood, city, state, address_base, address_original, " +
   "match_ok, review_status, review_reason, review_flag, review_address, needs_review";
 
-type ExistingPayerRecord = {
-  id: string;
-  document_digits: string | null;
-  payer_code: string | null;
-  name: string | null;
-  phone: string | null;
-  email: string | null;
-  extra_contacts: Array<{ type: string; value: string }> | null;
-  cep: string | null;
-  street: string | null;
-  number: string | null;
-  neighborhood: string | null;
-  city: string | null;
-  state: string | null;
-  address_base: string | null;
-  address_original: string | null;
-  match_ok: boolean | null;
-  review_status: string | null;
-  review_reason: string | null;
-  review_flag: boolean | null;
-  review_address: boolean | null;
-  needs_review: boolean | null;
-};
+type ExistingPayerRecord = ExistingPayerLike;
 
 async function fetchCandidatePayersByIdentity(
   documentDigits: string[],
@@ -232,32 +214,6 @@ async function fetchKnownCEPs(cepDigitsList: string[]): Promise<Set<string>> {
   return known;
 }
 
-const PROTECTED_ADDRESS_FIELDS = [
-  "cep",
-  "street",
-  "number",
-  "neighborhood",
-  "city",
-  "state",
-  "address_base",
-  "address_original",
-  "match_ok",
-  "review_status",
-  "review_reason",
-  "review_flag",
-  "review_address",
-] as const;
-
-function isAddressProtected(existing: ExistingPayerRecord, knownCEPs: Set<string>): boolean {
-  const cepDigits = String(existing.cep || "").replace(/\D/g, "");
-  if (!cepDigits) return false;
-  if (!knownCEPs.has(cepDigits)) return false;
-  if (existing.match_ok === false) return false;
-  if (existing.review_address === true) return false;
-  if (existing.needs_review === true) return false;
-  if (existing.review_status === "REVIEW") return false;
-  return true;
-}
 
 export interface PayerImportOptions {
   overwriteAddresses?: boolean;
@@ -383,64 +339,18 @@ export function useOptimizedImportPayers() {
           const isUpdate = !!(docId || codeId);
           const existing = isUpdate ? existingById.get(targetId) : undefined;
 
-          // Start with the CSV-derived payload
-          const merged: Record<string, any> = {
-            ...item.payer,
-            id: targetId,
-            run_id: runId,
-          };
+          // Apply protected merge rules (shared with dry-run in Import.tsx)
+          const { payload: merged, decision } = applyPayerProtectedMerge(
+            { ...item.payer, id: targetId },
+            existing ?? null,
+            knownCEPs,
+            { overwriteAddresses, overwritePhones },
+            runId,
+          );
 
           if (existing) {
-            // Pagador existia (mesmo que como placeholder): limpa flag de revisão temporária
-            merged.needs_review = false;
-
-            // 1. Protected address — preserve existing enriched address fields
-            const addrProtected =
-              !overwriteAddresses && isAddressProtected(existing, knownCEPs);
-            if (addrProtected) {
-              for (const f of PROTECTED_ADDRESS_FIELDS) {
-                // delete the CSV-supplied value so the upsert keeps the existing DB value
-                delete merged[f];
-              }
-              // Preserve existing review/needs_review flags as-is
-              merged.needs_review = existing.needs_review ?? false;
-              result.protectedAddresses = (result.protectedAddresses || 0) + 1;
-            }
-
-            // 2. Protected phone — never overwrite an existing primary phone automatically
-            const csvPhone = (item.payer as any).phone as string | null | undefined;
-            if (!overwritePhones && existing.phone && existing.phone.trim() !== "") {
-              if (csvPhone && csvPhone !== existing.phone) {
-                // Save as secondary contact if not already present
-                const current = Array.isArray(existing.extra_contacts)
-                  ? existing.extra_contacts
-                  : [];
-                const incomingExtras = Array.isArray((item.payer as any).extra_contacts)
-                  ? ((item.payer as any).extra_contacts as Array<{ type: string; value: string }>)
-                  : [];
-                const seen = new Set<string>();
-                const combined: Array<{ type: string; value: string }> = [];
-                for (const c of [...current, ...incomingExtras, { type: "phone", value: csvPhone }]) {
-                  if (!c?.value) continue;
-                  if (c.value === existing.phone) continue;
-                  if (seen.has(c.value)) continue;
-                  seen.add(c.value);
-                  combined.push(c);
-                }
-                merged.extra_contacts = combined.length > 0 ? combined : null;
-                result.protectedPhones = (result.protectedPhones || 0) + 1;
-              }
-              // Keep existing primary phone
-              merged.phone = existing.phone;
-            } else if (!csvPhone && existing.phone) {
-              // CSV trouxe vazio mas existe phone — preservar
-              merged.phone = existing.phone;
-            }
-
-            // 3. Email: só preencher se DB estiver vazio
-            if (existing.email && existing.email.trim() !== "" && !overwriteAddresses) {
-              merged.email = existing.email;
-            }
+            if (decision.addressProtected) result.protectedAddresses = (result.protectedAddresses || 0) + 1;
+            if (decision.phoneProtected) result.protectedPhones = (result.protectedPhones || 0) + 1;
           }
 
           return {

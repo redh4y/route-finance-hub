@@ -56,6 +56,7 @@ import {
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
 import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow, isPreviousMonthReissue } from "@/lib/csv-import";
+import { applyPayerProtectedMerge, type ExistingPayerLike } from "@/lib/payer-merge";
 import { format } from "date-fns";
 
 
@@ -64,6 +65,20 @@ type BillingPreviewType = "NEW" | "UPDATE_DUE_DATE" | "NO_CHANGE" | "MISSING_PAY
 
 
 type PayerPreviewType = "NEW" | "UPDATE" | "NO_CHANGE" | "AMBIGUOUS" | "CONFLICT";
+type PayerPreviewFilter =
+  | "ACTIONABLE"
+  | "ALL"
+  | "UPDATE"
+  | "NEW"
+  | "NO_CHANGE"
+  | "AMBIGUOUS"
+  | "CONFLICT"
+  | "ADDRESS_PROTECTED"
+  | "PHONE_PROTECTED"
+  | "PHONE_SECONDARY"
+  | "EXTRA_CONTACTS"
+  | "EMAIL_PROTECTED"
+  | "NEEDS_REVIEW";
 
 type PayerPreviewRow = {
   type: PayerPreviewType;
@@ -77,6 +92,8 @@ type PayerPreviewRow = {
   addressProtected?: boolean;
   phoneProtected?: boolean;
   phoneAddedAsSecondary?: boolean;
+  extraContactsPreserved?: boolean;
+  emailProtected?: boolean;
   needsReview?: boolean;
 };
 
@@ -91,6 +108,8 @@ type PayerPreviewSummary = {
   addressesProtected: number;
   phonesProtected: number;
   phonesAddedSecondary: number;
+  extraContactsPreserved: number;
+  emailsProtected: number;
   needsReview: number;
 };
 
@@ -105,6 +124,8 @@ const EMPTY_PAYER_PREVIEW_SUMMARY: PayerPreviewSummary = {
   addressesProtected: 0,
   phonesProtected: 0,
   phonesAddedSecondary: 0,
+  extraContactsPreserved: 0,
+  emailsProtected: 0,
   needsReview: 0,
 };
 
@@ -610,7 +631,7 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
 
 
 const PAYERS_PREVIEW_SELECT =
-  "id, name, document_digits, payer_code, phone, email, extra_contacts, address_original, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason, review_address, needs_review";
+  "id, name, document_digits, payer_code, phone, email, extra_contacts, address_original, address_base, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason, review_flag, review_address, needs_review";
 
 function chunkValues<T>(values: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -714,9 +735,39 @@ function ImportPayersCard() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewRows, setPreviewRows] = useState<PayerPreviewRow[]>([]);
   const [previewSummary, setPreviewSummary] = useState<PayerPreviewSummary>(EMPTY_PAYER_PREVIEW_SUMMARY);
+  const [previewFilter, setPreviewFilter] = useState<PayerPreviewFilter>("ACTIONABLE");
   const [overwriteAddresses, setOverwriteAddresses] = useState(false);
   const [overwritePhones, setOverwritePhones] = useState(false);
   const { importPayers, isImporting, progress, reset } = useOptimizedImportPayers();
+
+  const actionablePreviewRows = useMemo(
+    () =>
+      previewRows.filter(
+        (r) =>
+          r.type === "UPDATE" ||
+          r.type === "NEW" ||
+          r.type === "AMBIGUOUS" ||
+          r.type === "CONFLICT" ||
+          r.addressProtected ||
+          r.phoneProtected ||
+          r.needsReview,
+      ),
+    [previewRows],
+  );
+
+  const filteredPreviewRows = useMemo(() => {
+    if (previewFilter === "ALL") return previewRows;
+    if (previewFilter === "ACTIONABLE") {
+      return actionablePreviewRows;
+    }
+    if (previewFilter === "ADDRESS_PROTECTED") return previewRows.filter((r) => r.addressProtected);
+    if (previewFilter === "PHONE_PROTECTED") return previewRows.filter((r) => r.phoneProtected);
+    if (previewFilter === "PHONE_SECONDARY") return previewRows.filter((r) => r.phoneAddedAsSecondary);
+    if (previewFilter === "EXTRA_CONTACTS") return previewRows.filter((r) => r.extraContactsPreserved);
+    if (previewFilter === "EMAIL_PROTECTED") return previewRows.filter((r) => r.emailProtected);
+    if (previewFilter === "NEEDS_REVIEW") return previewRows.filter((r) => r.needsReview);
+    return previewRows.filter((r) => r.type === previewFilter);
+  }, [actionablePreviewRows, previewFilter, previewRows]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -727,6 +778,7 @@ function ImportPayersCard() {
       // clear previous result
       setPreviewRows([]);
       setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
+      setPreviewFilter("ACTIONABLE");
     } else {
       toast.error("Por favor, selecione um arquivo CSV");
     }
@@ -739,6 +791,7 @@ function ImportPayersCard() {
       // clear previous result
       setPreviewRows([]);
       setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
+      setPreviewFilter("ACTIONABLE");
     }
   };
 
@@ -752,9 +805,17 @@ function ImportPayersCard() {
         .filter((t): t is { rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> } => !!t.payer);
 
       const docs = Array.from(new Set(transformed.map((t) => t.payer.document_digits).filter((d): d is string => !!d)));
-      const codes = Array.from(new Set(transformed.map((t) => t.payer.payer_code).filter((c): c is string => !!c)));
+      // Only look up codes for rows that have no CPF (mirrors real import priority)
+      const codesWithoutDoc = Array.from(
+        new Set(
+          transformed
+            .filter((t) => !t.payer.document_digits)
+            .map((t) => t.payer.payer_code)
+            .filter((c): c is string => !!c),
+        ),
+      );
 
-      const existing = await fetchPayersForPreview(docs, codes);
+      const existing = await fetchPayersForPreview(docs, codesWithoutDoc);
 
       // Fetch the subset of existing payer CEPs that exist in the validated `ceps` table
       const existingCEPs = Array.from(
@@ -774,6 +835,7 @@ function ImportPayersCard() {
         });
       }
 
+      // Build lookup maps (doc has priority; code only used when no doc — same as real import)
       const docMap = new Map<string, any[]>();
       const codeMap = new Map<string, any[]>();
       (existing || []).forEach((p: any) => {
@@ -789,166 +851,95 @@ function ImportPayersCard() {
         }
       });
 
-      const compareKeys = [
-        "name",
-        "document_digits",
-        "payer_code",
-        "phone",
-        "email",
-        "address_original",
-        "street",
-        "number",
-        "neighborhood",
-        "city",
-        "state",
-        "cep",
-        "match_ok",
-        "review_status",
-        "review_reason",
-      ] as const;
-
-      const fieldLabels: Record<(typeof compareKeys)[number], string> = {
-        name: "Nome",
-        document_digits: "CPF",
-        payer_code: "Cdigo",
-        phone: "Telefone",
-        email: "Email",
-        address_original: "Endereo original",
-        street: "Logradouro",
-        number: "Nmero",
-        neighborhood: "Bairro",
-        city: "Cidade",
-        state: "UF",
-        cep: "CEP",
-        match_ok: "Match endereo",
-        review_status: "Status reviso",
-        review_reason: "Motivo reviso",
-      };
-
-      const normalize = (v: unknown) => {
-        if (v === undefined || v === null || v === "") return null;
-        return String(v).trim();
-      };
-
-      const previewAll: PayerPreviewRow[] = transformed.map((item) => {
+      // Process all CSV rows and apply the same merge logic as the real import
+      const previewAllRaw: PayerPreviewRow[] = transformed.map((item) => {
         const doc = item.payer.document_digits || null;
         const code = item.payer.payer_code || null;
         const docMatches = doc ? (docMap.get(doc) || []) : [];
-        const codeMatches = code ? (codeMap.get(code) || []) : [];
+        // Code only used as fallback when there is no doc (mirrors real import)
+        const codeMatches = !doc && code ? (codeMap.get(code) || []) : [];
 
-        if (docMatches.length > 1 || codeMatches.length > 1) {
+        // AMBIGUOUS: multiple DB candidates for the same lookup key
+        if (docMatches.length > 1) {
           return {
-            type: "AMBIGUOUS",
+            type: "AMBIGUOUS" as const,
             rowNumber: item.rowNumber,
             name: item.payer.name,
             documentDigits: doc,
             payerCode: code,
             matchedId: null,
-            note: "Mais de um cadastro candidato para match.",
+            note: `Mais de um cadastro com o CPF ${doc}.`,
+          };
+        }
+        if (codeMatches.length > 1) {
+          return {
+            type: "AMBIGUOUS" as const,
+            rowNumber: item.rowNumber,
+            name: item.payer.name,
+            documentDigits: doc,
+            payerCode: code,
+            matchedId: null,
+            note: `Mais de um cadastro com o código ${code}.`,
           };
         }
 
         const byDoc = docMatches[0] || null;
         const byCode = codeMatches[0] || null;
+        // Doc wins; code only as fallback (no CONFLICT — same as real import)
+        const existingPayer: ExistingPayerLike | null = (byDoc || byCode) as ExistingPayerLike | null;
 
-        if (byDoc && byCode && byDoc.id !== byCode.id) {
-          return {
-            type: "CONFLICT",
-            rowNumber: item.rowNumber,
-            name: item.payer.name,
-            documentDigits: doc,
-            payerCode: code,
-            matchedId: null,
-            note: `CPF e codigo apontam para IDs diferentes (${byDoc.id} / ${byCode.id}).`,
-          };
-        }
-
-        const existingPayer = byDoc || byCode;
         if (!existingPayer) {
           return {
-            type: "NEW",
+            type: "NEW" as const,
             rowNumber: item.rowNumber,
             name: item.payer.name,
             documentDigits: doc,
             payerCode: code,
             matchedId: null,
-            note: "Novo pagador sera criado.",
+            note: "Novo pagador será criado.",
           };
         }
 
-        // Address protection: protected if existing CEP exists in `ceps` and address is not flagged for review
-        const existingCep = String(existingPayer.cep || "").replace(/\D/g, "");
-        const isAddressValidated =
-          existingCep.length === 8 &&
-          knownCEPs.has(existingCep) &&
-          existingPayer.match_ok !== false &&
-          existingPayer.review_address !== true &&
-          existingPayer.needs_review !== true &&
-          existingPayer.review_status !== "REVIEW";
-        const addressProtected = !overwriteAddresses && isAddressValidated;
-
-        // Phone protection: existing phone exists and CSV brings a different one
-        const existingPhone = (existingPayer.phone || "").trim();
-        const csvPhone = ((item.payer as any).phone || "").trim();
-        const phoneProtected =
-          !overwritePhones && !!existingPhone && !!csvPhone && csvPhone !== existingPhone;
-        const phoneOnlyExisting = !overwritePhones && !!existingPhone;
-
-        // If a CSV phone differs and is not already in extra_contacts, it will be added as secondary
-        const existingExtras = Array.isArray(existingPayer.extra_contacts)
-          ? (existingPayer.extra_contacts as Array<{ value?: string }>)
-          : [];
-        const alreadyAsSecondary = existingExtras.some(
-          (c) => (c?.value || "").trim() === csvPhone,
+        // Apply the same protected merge as the real import
+        const { decision } = applyPayerProtectedMerge(
+          item.payer as Record<string, any>,
+          existingPayer,
+          knownCEPs,
+          { overwriteAddresses, overwritePhones },
         );
-        const phoneAddedAsSecondary = phoneProtected && !alreadyAsSecondary;
 
-        // Build the list of changed fields, excluding fields that are protected
-        const protectedAddressFields = new Set<string>(
-          addressProtected
-            ? ["street", "number", "neighborhood", "city", "state", "cep", "address_original", "match_ok", "review_status", "review_reason"]
-            : [],
-        );
-        const protectedPhoneFields = new Set<string>(phoneOnlyExisting ? ["phone"] : []);
-
-        const changedFields = compareKeys
-          .filter((k) => {
-            if (protectedAddressFields.has(k)) return false;
-            if (protectedPhoneFields.has(k)) return false;
-            return normalize((item.payer as any)[k]) !== normalize((existingPayer as any)[k]);
-          })
-          .map((k) => fieldLabels[k]);
-
-        const willChange = changedFields.length > 0 || phoneAddedAsSecondary;
-
-        // Needs review: incoming CSV row carries review flags
-        const incomingNeedsReview =
-          (item.payer as any).review_flag === true ||
-          (item.payer as any).review_address === true ||
-          (item.payer as any).review_status === "REVIEW";
-
-        const noteParts: string[] = [];
-        if (changedFields.length > 0) noteParts.push("Cadastro existente sera atualizado.");
-        if (addressProtected) noteParts.push("Endereco protegido (CEP validado).");
-        if (phoneProtected) noteParts.push("Telefone protegido — novo vai para contato secundario.");
-        if (incomingNeedsReview) noteParts.push("Linha marcada para revisao.");
-        if (noteParts.length === 0) noteParts.push("Sem alteracoes.");
+        const willChange = decision.changedFields.length > 0;
+        const note = decision.notes.length > 0 ? decision.notes.join(" ") : "Sem alterações.";
 
         return {
-          type: willChange ? "UPDATE" : "NO_CHANGE",
+          type: willChange ? ("UPDATE" as const) : ("NO_CHANGE" as const),
           rowNumber: item.rowNumber,
           name: item.payer.name,
           documentDigits: doc,
           payerCode: code,
           matchedId: existingPayer.id,
-          changedFields,
-          note: noteParts.join(" "),
-          addressProtected,
-          phoneProtected,
-          phoneAddedAsSecondary,
-          needsReview: incomingNeedsReview,
+          changedFields: decision.changedFields,
+          note,
+          addressProtected: decision.addressProtected,
+          phoneProtected: decision.phoneProtected,
+          phoneAddedAsSecondary: decision.phoneAddedAsSecondary,
+          extraContactsPreserved: decision.extraContactsPreserved,
+          emailProtected: decision.emailProtected,
+          needsReview: decision.needsReview,
         };
       });
+
+      // Simulate deduplication: same payer id → keep last occurrence (mirrors real import)
+      const dedupMap = new Map<string, PayerPreviewRow>();
+      const droppedDuplicates: number[] = [];
+      for (const row of previewAllRaw) {
+        const key = row.matchedId || `new-${row.documentDigits || row.payerCode || row.name}`;
+        if (dedupMap.has(key) && row.type !== "NEW") {
+          droppedDuplicates.push(row.rowNumber);
+        }
+        dedupMap.set(key, row);
+      }
+      const previewAll = Array.from(dedupMap.values());
 
       const summary: PayerPreviewSummary = {
         total: previewAll.length,
@@ -961,15 +952,19 @@ function ImportPayersCard() {
         addressesProtected: previewAll.filter((r) => r.addressProtected).length,
         phonesProtected: previewAll.filter((r) => r.phoneProtected).length,
         phonesAddedSecondary: previewAll.filter((r) => r.phoneAddedAsSecondary).length,
+        extraContactsPreserved: previewAll.filter((r) => r.extraContactsPreserved).length,
+        emailsProtected: previewAll.filter((r) => r.emailProtected).length,
         needsReview: previewAll.filter((r) => r.needsReview).length,
       };
-      const alteredRows = previewAll.filter(
-        (r) => r.type === "UPDATE" || r.type === "NEW" || r.addressProtected || r.phoneProtected || r.needsReview,
-      );
 
       setPreviewSummary(summary);
-      setPreviewRows(alteredRows);
-      toast.success(`Dry-run concluido: ${summary.total} linhas analisadas, ${summary.altered} alteradas.`);
+      setPreviewRows(previewAll);
+      setPreviewFilter("ACTIONABLE");
+
+      const dupNote = droppedDuplicates.length > 0
+        ? ` ${droppedDuplicates.length} duplicata(s) no CSV consolidadas na última ocorrência.`
+        : "";
+      toast.success(`Dry-run concluído: ${previewAllRaw.length} linhas analisadas, ${summary.altered} alteradas.${dupNote}`);
     } catch (error: any) {
       toast.error(`Falha no dry-run: ${error.message || String(error)}`);
       setPreviewRows([]);
@@ -985,15 +980,41 @@ function ImportPayersCard() {
     setFile(null);
     setPreviewRows([]);
     setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
+    setPreviewFilter("ACTIONABLE");
     reset();
   };
 
   const handleClear = () => {
     setFile(null);
     setPreviewRows([]);
+    setPreviewFilter("ACTIONABLE");
     // clear previous result
     reset();
   };
+
+  const renderPreviewFilterBadge = (
+    filter: PayerPreviewFilter,
+    label: string,
+    count: number,
+    className = "",
+    variant: "default" | "secondary" | "destructive" | "outline" = "outline",
+  ) => (
+    <button
+      type="button"
+      onClick={() => setPreviewFilter(filter)}
+      className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      aria-pressed={previewFilter === filter}
+    >
+      <Badge
+        variant={variant}
+        className={`${className} cursor-pointer transition-colors ${
+          previewFilter === filter ? "ring-2 ring-ring ring-offset-1" : ""
+        }`}
+      >
+        {label}: {count}
+      </Badge>
+    </button>
+  );
 
   return (
     <div className="space-y-6">
@@ -1103,27 +1124,64 @@ function ImportPayersCard() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">Total registros: {previewSummary.total}</Badge>
-              <Badge variant="secondary">Alterados: {previewSummary.altered}</Badge>
-              <Badge variant="outline">Novos: {previewSummary.NEW}</Badge>
-              <Badge variant="outline">Sem mudança: {previewSummary.NO_CHANGE}</Badge>
-              <Badge variant="outline" className="text-warning border-warning/50">Ambíguo: {previewSummary.AMBIGUOUS}</Badge>
-              <Badge variant="outline" className="text-destructive border-destructive/50">Conflito: {previewSummary.CONFLICT}</Badge>
+              {renderPreviewFilterBadge("ALL", "Total registros", previewSummary.total, "", "secondary")}
+              {renderPreviewFilterBadge("UPDATE", "Alterados", previewSummary.altered, "", "secondary")}
+              {renderPreviewFilterBadge("NEW", "Novos", previewSummary.NEW)}
+              {renderPreviewFilterBadge("NO_CHANGE", "Sem mudança", previewSummary.NO_CHANGE)}
+              {renderPreviewFilterBadge("AMBIGUOUS", "Ambíguo", previewSummary.AMBIGUOUS, "text-warning border-warning/50")}
+              {renderPreviewFilterBadge("CONFLICT", "Conflito", previewSummary.CONFLICT, "text-destructive border-destructive/50")}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
-                🛡️ Endereços protegidos: {previewSummary.addressesProtected}
-              </Badge>
-              <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
-                🛡️ Telefones protegidos: {previewSummary.phonesProtected}
-              </Badge>
-              <Badge variant="outline" className="border-emerald-500/50 text-emerald-600 dark:text-emerald-400">
-                ➕ Telefones secundários adicionados: {previewSummary.phonesAddedSecondary}
-              </Badge>
-              <Badge variant="outline" className="border-amber-500/50 text-amber-600 dark:text-amber-400">
-                ⚠️ Precisam revisão: {previewSummary.needsReview}
-              </Badge>
+              {renderPreviewFilterBadge(
+                "ACTIONABLE",
+                "Ações/proteções",
+                actionablePreviewRows.length,
+                "border-primary/50 text-primary",
+              )}
+              {renderPreviewFilterBadge(
+                "ADDRESS_PROTECTED",
+                "🛡️ Endereços protegidos",
+                previewSummary.addressesProtected,
+                "border-blue-500/50 text-blue-600 dark:text-blue-400",
+              )}
+              {renderPreviewFilterBadge(
+                "PHONE_PROTECTED",
+                "🛡️ Telefones protegidos",
+                previewSummary.phonesProtected,
+                "border-blue-500/50 text-blue-600 dark:text-blue-400",
+              )}
+              {renderPreviewFilterBadge(
+                "PHONE_SECONDARY",
+                "➕ Tel. secundários adicionados",
+                previewSummary.phonesAddedSecondary,
+                "border-emerald-500/50 text-emerald-600 dark:text-emerald-400",
+              )}
+              {previewSummary.extraContactsPreserved > 0 && (
+                renderPreviewFilterBadge(
+                  "EXTRA_CONTACTS",
+                  "🔒 Contatos extras preservados",
+                  previewSummary.extraContactsPreserved,
+                  "border-slate-500/50 text-slate-600 dark:text-slate-400",
+                )
+              )}
+              {previewSummary.emailsProtected > 0 && (
+                renderPreviewFilterBadge(
+                  "EMAIL_PROTECTED",
+                  "🔒 Emails preservados",
+                  previewSummary.emailsProtected,
+                  "border-slate-500/50 text-slate-600 dark:text-slate-400",
+                )
+              )}
+              {renderPreviewFilterBadge(
+                "NEEDS_REVIEW",
+                "⚠️ Precisam revisão",
+                previewSummary.needsReview,
+                "border-amber-500/50 text-amber-600 dark:text-amber-400",
+              )}
             </div>
+            <p className="text-xs text-muted-foreground">
+              Mostrando {filteredPreviewRows.length} de {previewSummary.total} registros do dry-run.
+            </p>
             <div className="max-h-[360px] overflow-auto rounded border">
               <Table>
                 <TableHeader>
@@ -1138,7 +1196,7 @@ function ImportPayersCard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {previewRows.map((row) => (
+                  {filteredPreviewRows.map((row) => (
                     <TableRow key={`${row.rowNumber}-${row.name}-${row.type}`}>
                       <TableCell>{row.rowNumber}</TableCell>
                       <TableCell><Badge variant="outline">{{
@@ -1162,10 +1220,16 @@ function ImportPayersCard() {
                           {row.phoneAddedAsSecondary && (
                             <Badge variant="outline" className="text-[10px] border-emerald-500/50 text-emerald-600 dark:text-emerald-400">➕ Tel. 2º</Badge>
                           )}
+                          {row.extraContactsPreserved && (
+                            <Badge variant="outline" className="text-[10px] border-slate-500/50 text-slate-600 dark:text-slate-400">🔒 Cont.</Badge>
+                          )}
+                          {row.emailProtected && (
+                            <Badge variant="outline" className="text-[10px] border-slate-500/50 text-slate-600 dark:text-slate-400">🔒 Email</Badge>
+                          )}
                           {row.needsReview && (
                             <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400">⚠️ Rev.</Badge>
                           )}
-                          {!row.addressProtected && !row.phoneProtected && !row.phoneAddedAsSecondary && !row.needsReview && (
+                          {!row.addressProtected && !row.phoneProtected && !row.phoneAddedAsSecondary && !row.extraContactsPreserved && !row.emailProtected && !row.needsReview && (
                             <span className="text-muted-foreground/60 text-xs">—</span>
                           )}
                         </div>
@@ -1175,7 +1239,7 @@ function ImportPayersCard() {
                   ))}
                 </TableBody>
               </Table>
-              {previewRows.length === 0 && (
+              {filteredPreviewRows.length === 0 && (
                 <div className="p-4 text-sm text-muted-foreground">
                   {previewSummary.NO_CHANGE > 0
                     ? "Nenhum pagador com alteração detectada. Registros sem alteração não aparecem no preview."

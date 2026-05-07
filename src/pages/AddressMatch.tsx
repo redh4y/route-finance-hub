@@ -143,8 +143,25 @@ interface DbAddressChange {
   address_original: string;
   match_ok: boolean;
   review_reason: string;
+  current_cep: string;
+  proposed_cep: string;
+  is_generic_cep: boolean;
+  top1_score: number;
+  bairro_score: number;
+  proposed_bairro: string;
+  proposed_street: string;
+  match_decision: string;
   changes: { field: string; old_value: string; new_value: string }[];
   update_data: Record<string, unknown>;
+}
+
+interface DbAddrWeakCepRow {
+  payer_id: string;
+  payer_name: string;
+  address_original: string;
+  current_cep: string;
+  is_generic_cep: boolean;
+  review_reason: string;
 }
 
 type DbAddressMatchStatus = "idle" | "loading" | "done";
@@ -231,10 +248,12 @@ export default function AddressMatch() {
   const [dbAddrAlreadyOk, setDbAddrAlreadyOk] = useState(0);
   const [dbAddrNoAddr, setDbAddrNoAddr] = useState(0);
   const [dbAddrReview, setDbAddrReview] = useState(0);
+  const [dbAddrReviewWithWeakCep, setDbAddrReviewWithWeakCep] = useState<DbAddrWeakCepRow[]>([]);
   const [showDbAddrModal, setShowDbAddrModal] = useState(false);
   const [dbAddrSaving, setDbAddrSaving] = useState(false);
   const [dbAddrSaveResult, setDbAddrSaveResult] = useState<{ updated: number; errors: number } | null>(null);
   const [dbAddrOnlyOutdated, setDbAddrOnlyOutdated] = useState(true);
+  const [genericCepsInput, setGenericCepsInput] = useState("14790000");
 
   // JSON-only phone sync (standalone, sem CSV)
   const [jsonSyncContacts, setJsonSyncContacts] = useState<GroupedContact[]>([]);
@@ -535,7 +554,16 @@ export default function AddressMatch() {
   const runDbAddressMatch = async () => {
     setDbAddrStatus("loading");
     setDbAddrChanges([]);
+    setDbAddrReviewWithWeakCep([]);
     setDbAddrSaveResult(null);
+
+    // Parse generic CEPs list from input
+    const genericCepsSet = new Set<string>(
+      genericCepsInput
+        .split(/[,\s;]+/)
+        .map((s) => s.replace(/\D/g, ""))
+        .filter(Boolean)
+    );
 
     try {
       // 1. Fetch CEP base from DB
@@ -563,6 +591,11 @@ export default function AddressMatch() {
 
       if (cepBase.length === 0) throw new Error("Base de CEPs vazia no banco");
 
+      // Build set of CEPs known in cepBase (digits only)
+      const knownCepsInBase = new Set<string>(
+        cepBase.map((c) => c.cep.replace(/\D/g, "")).filter(Boolean)
+      );
+
       // 2. Fetch all active payers with address fields
       toast.loading(`${cepBase.length} CEPs carregados. Buscando pagadores...`, { id: "db-addr" });
       type PayerAddrRow = {
@@ -571,6 +604,7 @@ export default function AddressMatch() {
         street: string | null; number: string | null; neighborhood: string | null;
         cep: string | null; city: string | null; state: string | null;
         match_ok: boolean | null;
+        review_address: boolean | null; review_status: string | null; review_reason: string | null;
       };
       const allPayers: PayerAddrRow[] = [];
       let payerPage = 0;
@@ -578,7 +612,7 @@ export default function AddressMatch() {
       while (true) {
         const { data, error } = await supabase
           .from("payers")
-          .select("id, name, address_original, address_base, street, number, neighborhood, cep, city, state, match_ok")
+          .select("id, name, address_original, address_base, street, number, neighborhood, cep, city, state, match_ok, review_address, review_status, review_reason")
           .eq("status", "ATIVO")
           .range(payerPage * PAYER_PAGE, (payerPage + 1) * PAYER_PAGE - 1);
         if (error) throw error;
@@ -605,6 +639,9 @@ export default function AddressMatch() {
         __current_city: p.city || "",
         __current_state: p.state || "",
         __current_match_ok: p.match_ok ?? false,
+        __current_review_address: p.review_address ?? false,
+        __current_review_status: p.review_status || "",
+        __current_review_reason: p.review_reason || "",
         endereco_para_match: p.address_original || p.address_base || "",
       }));
 
@@ -629,6 +666,7 @@ export default function AddressMatch() {
       };
 
       const changes: DbAddressChange[] = [];
+      const reviewWithWeakCep: DbAddrWeakCepRow[] = [];
       let alreadyOk = 0;
       let reviewCount = 0;
 
@@ -636,18 +674,34 @@ export default function AddressMatch() {
         const r = matchResults[i];
         const orig = rows[i];
 
+        const currentCepDigits = String(orig.__current_cep || "").replace(/\D/g, "");
+        const isGenericCep = !!currentCepDigits && genericCepsSet.has(currentCepDigits);
+        const cepInBase = !!currentCepDigits && knownCepsInBase.has(currentCepDigits);
+
         if (r.review_status === "REVIEW") {
           reviewCount++;
+          // If current CEP is generic, missing, or not in cepBase → surface as "needs attention"
+          if (!currentCepDigits || isGenericCep || !cepInBase) {
+            reviewWithWeakCep.push({
+              payer_id: String(orig.__payer_id),
+              payer_name: String(orig.__payer_name),
+              address_original: String(orig.endereco_para_match),
+              current_cep: currentCepDigits,
+              is_generic_cep: isGenericCep,
+              review_reason: String(r.review_reason || ""),
+            });
+          }
           continue;
         }
 
         if (!r.match_ok) continue;
 
+        const proposedCepDigits = String(r.matched_cep || "").replace(/\D/g, "");
         const proposed: Record<string, string> = {
           street: String(r.matched_logradouro || ""),
           number: String(r.matched_numero || ""),
           neighborhood: String(r.matched_bairro || ""),
-          cep: String(r.matched_cep || "").replace(/\D/g, ""),
+          cep: proposedCepDigits,
           city: String(r.matched_cidade || ""),
           state: String(r.matched_uf || ""),
         };
@@ -656,7 +710,7 @@ export default function AddressMatch() {
           street: String(orig.__current_street || ""),
           number: String(orig.__current_number || ""),
           neighborhood: String(orig.__current_neighborhood || ""),
-          cep: String(orig.__current_cep || "").replace(/\D/g, ""),
+          cep: currentCepDigits,
           city: String(orig.__current_city || ""),
           state: String(orig.__current_state || ""),
         };
@@ -673,38 +727,56 @@ export default function AddressMatch() {
           }
         }
 
-        if (!orig.__current_match_ok) {
-          updateData.match_ok = true;
-        }
+        // Always write address_base, match_ok, and clear review flags
+        updateData.match_ok = true;
+        updateData.address_base = String(orig.endereco_para_match);
+        updateData.review_address = false;
+        updateData.review_status = null;
+        updateData.review_reason = null;
 
-        if (fieldChanges.length === 0 && orig.__current_match_ok) {
+        // "Already OK": address unchanged, CEP in cepBase (not generic), match_ok already set, review flags already clear
+        const reviewFlagsClear =
+          !orig.__current_review_address &&
+          !orig.__current_review_status &&
+          !orig.__current_review_reason;
+        if (
+          fieldChanges.length === 0 &&
+          orig.__current_match_ok &&
+          cepInBase &&
+          !isGenericCep &&
+          reviewFlagsClear
+        ) {
           alreadyOk++;
           continue;
         }
 
-        if (fieldChanges.length === 0 && !orig.__current_match_ok) {
-          // match_ok vai mudar mas endereço já estava certo
-          changes.push({
-            payer_id: String(orig.__payer_id),
-            payer_name: String(orig.__payer_name),
-            address_original: String(orig.endereco_para_match),
-            match_ok: true,
-            review_reason: "",
-            changes: [{ field: "Status", old_value: "Sem match", new_value: "Match confirmado" }],
-            update_data: { match_ok: true },
-          });
-          continue;
-        }
+        const matchDecision = r.review_status === "REVIEW"
+          ? "REVISÃO"
+          : r.match_ok
+          ? "OK"
+          : "FALHA";
 
-        changes.push({
+        const changeEntry: DbAddressChange = {
           payer_id: String(orig.__payer_id),
           payer_name: String(orig.__payer_name),
           address_original: String(orig.endereco_para_match),
-          match_ok: Boolean(r.match_ok),
+          match_ok: true,
           review_reason: String(r.review_reason || ""),
-          changes: fieldChanges,
-          update_data: { ...updateData, match_ok: true },
-        });
+          current_cep: currentCepDigits,
+          proposed_cep: proposedCepDigits,
+          is_generic_cep: isGenericCep,
+          top1_score: Number(r.top1_score ?? 0),
+          bairro_score: Number(r.bairro_score ?? 0),
+          proposed_bairro: String(r.matched_bairro || ""),
+          proposed_street: String(r.matched_logradouro || ""),
+          match_decision: matchDecision,
+          changes: fieldChanges.length > 0
+            ? fieldChanges
+            : [{ field: "Status", old_value: isGenericCep ? "CEP genérico" : "Sem match", new_value: "Match confirmado" }],
+          update_data: updateData,
+        };
+
+        changes.push(changeEntry);
       }
 
       toast.dismiss("db-addr");
@@ -712,13 +784,18 @@ export default function AddressMatch() {
       setDbAddrAlreadyOk(alreadyOk);
       setDbAddrNoAddr(noAddrCount);
       setDbAddrReview(reviewCount);
+      setDbAddrReviewWithWeakCep(reviewWithWeakCep);
       setDbAddrStatus("done");
       setShowDbAddrModal(true);
 
-      if (changes.length === 0) {
+      if (changes.length === 0 && reviewWithWeakCep.length === 0) {
         toast.info(`Todos os endereços já estão atualizados (${alreadyOk} OK, ${reviewCount} em revisão)`);
       } else {
-        toast.success(`${changes.length} pagadores com alteração, ${alreadyOk} já OK, ${reviewCount} em revisão`);
+        const parts = [];
+        if (changes.length > 0) parts.push(`${changes.length} com alteração`);
+        if (reviewWithWeakCep.length > 0) parts.push(`${reviewWithWeakCep.length} em revisão com CEP fraco`);
+        if (alreadyOk > 0) parts.push(`${alreadyOk} já OK`);
+        toast.success(parts.join(", "));
       }
     } catch (err) {
       console.error("runDbAddressMatch error:", err);
@@ -2001,6 +2078,19 @@ export default function AddressMatch() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  CEPs genéricos (separados por vírgula) — tratados como CEP fraco, sem proteção de endereço
+                </Label>
+                <Input
+                  className="h-8 text-xs font-mono"
+                  placeholder="ex: 14790000, 14790001"
+                  value={genericCepsInput}
+                  onChange={(e) => setGenericCepsInput(e.target.value)}
+                />
+              </div>
+
               <div className="flex flex-wrap gap-3 items-center">
                 <Button
                   onClick={runDbAddressMatch}
@@ -2026,12 +2116,17 @@ export default function AddressMatch() {
                       <span className="flex items-center gap-1">
                         <Info className="h-3.5 w-3.5" />
                         {dbAddrReview} em revisão
+                        {dbAddrReviewWithWeakCep.length > 0 && (
+                          <span className="text-amber-600 font-medium">
+                            ({dbAddrReviewWithWeakCep.length} CEP fraco)
+                          </span>
+                        )}
                       </span>
                     )}
                     {dbAddrNoAddr > 0 && (
                       <span className="text-muted-foreground/60">{dbAddrNoAddr} sem endereço</span>
                     )}
-                    {dbAddrChanges.length > 0 && (
+                    {(dbAddrChanges.length > 0 || dbAddrReviewWithWeakCep.length > 0) && (
                       <Button
                         size="sm"
                         className="h-7 gap-1 bg-blue-600 hover:bg-blue-700 text-white"
@@ -2056,7 +2151,7 @@ export default function AddressMatch() {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Usa os thresholds configurados no painel à direita. Endereços em revisão (bairro não encontrado) são ignorados.
+                Usa os thresholds configurados no painel à direita. CEPs genéricos e endereços em revisão com bairro não encontrado ficam em seção separada.
               </p>
             </CardContent>
           </Card>
@@ -2630,93 +2725,180 @@ export default function AddressMatch() {
         </Dialog>
         {/* Modal: DB address match preview */}
         <Dialog open={showDbAddrModal} onOpenChange={(open) => setShowDbAddrModal(open)}>
-          <DialogContent className="max-w-5xl h-[90vh] flex flex-col overflow-hidden p-0">
+          <DialogContent className="max-w-6xl h-[90vh] flex flex-col overflow-hidden p-0">
             <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b">
               <DialogTitle>Endereços Desatualizados — Preview</DialogTitle>
               <DialogDescription>
                 {[
-                  dbAddrChanges.length > 0 && `${dbAddrChanges.length} pagadores com alteração`,
-                  dbAddrAlreadyOk > 0 && `${dbAddrAlreadyOk} já atualizados`,
-                  dbAddrReview > 0 && `${dbAddrReview} em revisão (ignorados)`,
-                  dbAddrNoAddr > 0 && `${dbAddrNoAddr} sem endereço cadastrado`,
+                  dbAddrChanges.length > 0 && `${dbAddrChanges.length} com alteração`,
+                  dbAddrReviewWithWeakCep.length > 0 && `${dbAddrReviewWithWeakCep.length} revisão c/ CEP fraco`,
+                  dbAddrAlreadyOk > 0 && `${dbAddrAlreadyOk} já OK`,
+                  dbAddrReview > 0 && `${dbAddrReview} em revisão total`,
+                  dbAddrNoAddr > 0 && `${dbAddrNoAddr} sem endereço`,
                 ].filter(Boolean).join(" · ")}
               </DialogDescription>
             </DialogHeader>
 
-            {dbAddrChanges.length > 0 && (
-              <>
-                <div className="flex items-center gap-3 px-6 py-2 border-b bg-muted/30">
-                  <Switch
-                    id="only-outdated"
-                    checked={dbAddrOnlyOutdated}
-                    onCheckedChange={setDbAddrOnlyOutdated}
-                  />
-                  <Label htmlFor="only-outdated" className="text-xs cursor-pointer">
-                    Mostrar apenas com mudança de dados (excluir só confirmação de match_ok)
-                  </Label>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {dbAddrOnlyOutdated
-                      ? dbAddrChanges.filter((c) => c.changes.some((ch) => ch.field !== "Status")).length
-                      : dbAddrChanges.length}{" "}
-                    para aplicar
-                  </span>
-                </div>
+            <ScrollArea className="flex-1 overflow-hidden">
+              {dbAddrChanges.length > 0 && (
+                <>
+                  <div className="flex items-center gap-3 px-6 py-2 border-b bg-muted/30 sticky top-0 z-10">
+                    <Switch
+                      id="only-outdated"
+                      checked={dbAddrOnlyOutdated}
+                      onCheckedChange={setDbAddrOnlyOutdated}
+                    />
+                    <Label htmlFor="only-outdated" className="text-xs cursor-pointer">
+                      Somente com mudança de dados (excluir só confirmação de match_ok)
+                    </Label>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {dbAddrOnlyOutdated
+                        ? dbAddrChanges.filter((c) => c.changes.some((ch) => ch.field !== "Status")).length
+                        : dbAddrChanges.length}{" "}
+                      para aplicar
+                    </span>
+                  </div>
 
-                <ScrollArea className="flex-1 overflow-hidden">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[160px]">Pagador</TableHead>
-                        <TableHead className="min-w-[200px]">Endereço original</TableHead>
-                        <TableHead>Campo</TableHead>
-                        <TableHead>Valor atual</TableHead>
-                        <TableHead>Novo valor</TableHead>
+                      <TableRow className="text-xs">
+                        <TableHead className="min-w-[140px]">Pagador</TableHead>
+                        <TableHead className="min-w-[180px]">Endereço original</TableHead>
+                        <TableHead className="w-[90px]">CEP atual</TableHead>
+                        <TableHead className="w-[90px]">CEP proposto</TableHead>
+                        <TableHead className="min-w-[120px]">Bairro proposto</TableHead>
+                        <TableHead className="min-w-[140px]">Rua proposta</TableHead>
+                        <TableHead className="w-[70px] text-right">Score</TableHead>
+                        <TableHead className="w-[70px] text-right">Bairro</TableHead>
+                        <TableHead className="w-[80px]">Status</TableHead>
+                        <TableHead className="min-w-[160px]">Alterações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {(dbAddrOnlyOutdated
                         ? dbAddrChanges.filter((c) => c.changes.some((ch) => ch.field !== "Status"))
                         : dbAddrChanges
-                      ).map((change, pi) =>
-                        change.changes.map((c, ci) => (
-                          <TableRow key={`${pi}-${ci}`}>
-                            {ci === 0 && (
-                              <>
-                                <TableCell
-                                  rowSpan={change.changes.length}
-                                  className="text-xs font-medium align-top pt-3"
-                                >
-                                  {change.payer_name}
-                                </TableCell>
-                                <TableCell
-                                  rowSpan={change.changes.length}
-                                  className="text-xs text-muted-foreground align-top pt-3 max-w-[220px] truncate"
-                                  title={change.address_original}
-                                >
-                                  {change.address_original}
-                                </TableCell>
-                              </>
+                      ).map((change, pi) => (
+                        <TableRow key={pi} className="text-xs">
+                          <TableCell className="font-medium align-top py-2">
+                            {change.payer_name}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground align-top py-2 max-w-[200px] truncate" title={change.address_original}>
+                            {change.address_original}
+                          </TableCell>
+                          <TableCell className="align-top py-2 font-mono">
+                            {change.current_cep ? (
+                              <span className={change.is_generic_cep ? "text-amber-600 font-medium" : ""}>
+                                {change.current_cep}
+                                {change.is_generic_cep && (
+                                  <span className="ml-1 text-[10px] text-amber-500">(genérico)</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/50">—</span>
                             )}
-                            <TableCell className="text-xs font-medium">{c.field}</TableCell>
-                            <TableCell className="text-xs text-muted-foreground">{c.old_value}</TableCell>
-                            <TableCell className="text-xs font-medium text-blue-600">{c.new_value}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
+                          </TableCell>
+                          <TableCell className="align-top py-2 font-mono text-blue-600">
+                            {change.proposed_cep || "—"}
+                          </TableCell>
+                          <TableCell className="align-top py-2">
+                            {change.proposed_bairro || "—"}
+                          </TableCell>
+                          <TableCell className="align-top py-2 max-w-[160px] truncate" title={change.proposed_street}>
+                            {change.proposed_street || "—"}
+                          </TableCell>
+                          <TableCell className="align-top py-2 text-right tabular-nums">
+                            {change.top1_score > 0 ? change.top1_score.toFixed(3) : "—"}
+                          </TableCell>
+                          <TableCell className="align-top py-2 text-right tabular-nums">
+                            {change.bairro_score > 0 ? change.bairro_score.toFixed(3) : "—"}
+                          </TableCell>
+                          <TableCell className="align-top py-2">
+                            <Badge
+                              variant="outline"
+                              className={
+                                change.match_decision === "OK"
+                                  ? "border-emerald-500 text-emerald-700 bg-emerald-50 text-[10px] px-1.5 py-0"
+                                  : change.match_decision === "REVISÃO"
+                                  ? "border-amber-500 text-amber-700 bg-amber-50 text-[10px] px-1.5 py-0"
+                                  : "border-red-400 text-red-700 bg-red-50 text-[10px] px-1.5 py-0"
+                              }
+                            >
+                              {change.match_decision}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="align-top py-2">
+                            <div className="flex flex-col gap-0.5">
+                              {change.changes.map((c, ci) => (
+                                <span key={ci} className="text-[11px]">
+                                  <span className="text-muted-foreground">{c.field}:</span>{" "}
+                                  <span className="line-through text-muted-foreground/60">{c.old_value}</span>{" → "}
+                                  <span className="font-medium text-blue-600">{c.new_value}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
-                </ScrollArea>
-              </>
-            )}
+                </>
+              )}
 
-            {dbAddrChanges.length === 0 && (
-              <div className="flex-1 flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500 opacity-60" />
-                  <p className="text-sm font-medium">Todos os endereços já estão atualizados</p>
+              {dbAddrReviewWithWeakCep.length > 0 && (
+                <>
+                  <div className="px-6 py-3 border-t border-b bg-amber-50/60 sticky top-0 z-10">
+                    <p className="text-xs font-semibold text-amber-700 flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Em revisão com CEP fraco / sem CEP — precisam de atenção ({dbAddrReviewWithWeakCep.length})
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      O engine não encontrou o bairro. Se o CEP estiver errado ou for genérico, corrija manualmente.
+                    </p>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="text-xs">
+                        <TableHead className="min-w-[140px]">Pagador</TableHead>
+                        <TableHead className="min-w-[220px]">Endereço original</TableHead>
+                        <TableHead className="w-[90px]">CEP atual</TableHead>
+                        <TableHead>Motivo</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dbAddrReviewWithWeakCep.map((row, ri) => (
+                        <TableRow key={ri} className="text-xs bg-amber-50/30">
+                          <TableCell className="font-medium py-2">{row.payer_name}</TableCell>
+                          <TableCell className="text-muted-foreground py-2 max-w-[240px] truncate" title={row.address_original}>
+                            {row.address_original}
+                          </TableCell>
+                          <TableCell className="py-2 font-mono">
+                            {row.current_cep ? (
+                              <span className={row.is_generic_cep ? "text-amber-600 font-medium" : "text-muted-foreground"}>
+                                {row.current_cep}
+                                {row.is_generic_cep && <span className="ml-1 text-[10px]">(genérico)</span>}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/50">sem CEP</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="py-2 text-muted-foreground">{row.review_reason || "Bairro não identificado"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
+              )}
+
+              {dbAddrChanges.length === 0 && dbAddrReviewWithWeakCep.length === 0 && (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground py-16">
+                  <div className="text-center">
+                    <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500 opacity-60" />
+                    <p className="text-sm font-medium">Todos os endereços já estão atualizados</p>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </ScrollArea>
 
             <DialogFooter className="flex-shrink-0 gap-2 px-6 py-4 border-t">
               <Button variant="outline" onClick={() => setShowDbAddrModal(false)}>
