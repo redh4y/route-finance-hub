@@ -51,6 +51,7 @@ export type PayerMergeDecision = {
   emailProtected: boolean;
   needsReview: boolean;
   changedFields: string[];
+  changeDetails: Array<{ field: string; oldValue: unknown; newValue: unknown }>;
   notes: string[];
 };
 
@@ -78,6 +79,83 @@ const FIELD_LABELS: Record<string, string> = {
 function normalizeVal(v: unknown): string | null {
   if (v === undefined || v === null || v === "") return null;
   return String(v).trim();
+}
+
+function normalizeTextComparable(v: unknown): string | null {
+  const normalized = normalizeVal(v);
+  if (!normalized) return null;
+  return normalized
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function hasDiacritics(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return value.normalize("NFD") !== value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function removeDiacritics(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function hasReplacementChar(value: unknown): boolean {
+  return typeof value === "string" && value.includes(String.fromCharCode(0xfffd));
+}
+
+const TEXT_FIELDS_TO_GUARD = [
+  "name",
+  "email",
+  "address_original",
+  "street",
+  "neighborhood",
+  "city",
+  "state",
+  "address_base",
+  "review_status",
+  "review_reason",
+];
+
+const ADDRESS_REVIEW_FIELDS = [
+  "match_ok",
+  "review_status",
+  "review_reason",
+  "review_flag",
+  "review_address",
+];
+
+function hasAnyExistingAddress(existing: ExistingPayerLike): boolean {
+  return Boolean(
+    normalizeVal(existing.address_original) ||
+      normalizeVal(existing.address_base) ||
+      normalizeVal(existing.street) ||
+      normalizeVal(existing.cep),
+  );
+}
+
+function getCepDigits(value: unknown): string {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function hasAnyAddressPayload(payload: Record<string, any>, existing?: ExistingPayerLike | null): boolean {
+  return Boolean(
+    normalizeVal(payload.address_original) ||
+      normalizeVal(payload.address_base) ||
+      normalizeVal(payload.street) ||
+      normalizeVal(existing?.address_original) ||
+      normalizeVal(existing?.address_base) ||
+      normalizeVal(existing?.street),
+  );
+}
+
+function markAddressReview(payload: Record<string, any>, reason: string, existing?: ExistingPayerLike | null) {
+  payload.match_ok = false;
+  payload.review_address = true;
+  payload.review_flag = true;
+  payload.review_status = "REVIEW";
+  payload.review_reason = existing?.review_reason || reason;
+  payload.needs_review = true;
 }
 
 export function isAddressProtected(
@@ -128,10 +206,21 @@ export function applyPayerProtectedMerge(
       csvPayer.review_address === true ||
       csvPayer.review_status === "REVIEW",
     changedFields: [],
+    changeDetails: [],
     notes: [],
   };
 
   if (!existing) {
+    const cepDigits = getCepDigits(merged.cep);
+    if (!hasAnyAddressPayload(merged)) {
+      markAddressReview(merged, "SEM_ENDERECO");
+      decision.needsReview = true;
+      decision.notes.push("Linha marcada para revisão: pagador sem endereço.");
+    } else if (!cepDigits || !knownCEPs.has(cepDigits)) {
+      markAddressReview(merged, "CEP_NAO_VALIDADO_BASE");
+      decision.needsReview = true;
+      decision.notes.push("Linha marcada para revisão: CEP ausente ou fora da base de CEPs.");
+    }
     if (decision.needsReview) decision.notes.push("Linha marcada para revisão.");
     return { payload: merged, decision };
   }
@@ -139,15 +228,116 @@ export function applyPayerProtectedMerge(
   // Clear temporary review flag for existing payers
   merged.needs_review = false;
 
+  const ignoredEncodingFields: string[] = [];
+  for (const key of TEXT_FIELDS_TO_GUARD) {
+    if (hasReplacementChar(merged[key])) {
+      delete merged[key];
+      ignoredEncodingFields.push(FIELD_LABELS[key] || key);
+    }
+  }
+  if (ignoredEncodingFields.length > 0) {
+    decision.notes.push(`Campos ignorados por texto com encoding inválido: ${ignoredEncodingFields.join(", ")}.`);
+  }
+
+  if (typeof merged.name === "string") {
+    merged.name = removeDiacritics(merged.name);
+  }
+
+  if (typeof existing.name === "string" && hasDiacritics(existing.name)) {
+    merged.name = removeDiacritics(existing.name);
+    decision.notes.push("Nome será padronizado sem acento/caractere especial.");
+  } else if (
+    normalizeTextComparable(existing.name) &&
+    normalizeTextComparable(existing.name) === normalizeTextComparable(merged.name)
+  ) {
+    if (!hasDiacritics(existing.name)) {
+      delete merged.name;
+      decision.notes.push("Nome preservado: diferença apenas de acento/caractere especial.");
+    }
+  }
+
+  const incomingAddressReviewDowngrade =
+    existing.match_ok === true &&
+    merged.match_ok === false &&
+    merged.review_address === true &&
+    !merged.review_status &&
+    !merged.review_reason;
+  const incomingRawAddressWithoutMatch =
+    !hasAnyExistingAddress(existing) &&
+    normalizeVal(merged.address_original) &&
+    merged.match_ok === false &&
+    merged.review_address === true &&
+    !merged.review_status &&
+    !merged.review_reason;
+
+  if (!overwriteAddresses && (incomingAddressReviewDowngrade || incomingRawAddressWithoutMatch)) {
+    for (const field of ADDRESS_REVIEW_FIELDS) {
+      delete merged[field];
+    }
+    decision.notes.push(
+      incomingRawAddressWithoutMatch
+        ? "Endereço original do CSV será preenchido e ficará em revisão até passar pelo match de endereços."
+        : "Status de match do endereço preservado: CSV não trouxe resultado de match/revisão explícito.",
+    );
+  }
+
   // 1. Address protection
-  const addrProtected = !overwriteAddresses && isAddressProtected(existing, knownCEPs);
+  const existingCepValidated = knownCEPs.has(getCepDigits(existing.cep));
+  let addrProtected = !overwriteAddresses && isAddressProtected(existing, knownCEPs);
+  const shouldClearReviewBecauseCurrentCepIsValid =
+    !overwriteAddresses &&
+    !addrProtected &&
+    existingCepValidated &&
+    (existing.review_status === "REVIEW" ||
+      existing.review_address === true ||
+      existing.review_flag === true ||
+      existing.needs_review === true ||
+      existing.match_ok === false);
+
+  if (shouldClearReviewBecauseCurrentCepIsValid) {
+    for (const f of PROTECTED_ADDRESS_FIELDS) {
+      delete merged[f];
+    }
+    merged.match_ok = true;
+    merged.review_status = null;
+    merged.review_reason = null;
+    merged.review_flag = false;
+    merged.review_address = false;
+    merged.needs_review = false;
+    addrProtected = true;
+    decision.addressProtected = true;
+    decision.notes.push("Revisão de endereço será limpa: CEP atual já existe na base de CEPs.");
+  }
+
   if (addrProtected) {
     for (const f of PROTECTED_ADDRESS_FIELDS) {
       delete merged[f];
     }
-    merged.needs_review = existing.needs_review ?? false;
+    if (shouldClearReviewBecauseCurrentCepIsValid) {
+      merged.match_ok = true;
+      merged.review_status = null;
+      merged.review_reason = null;
+      merged.review_flag = false;
+      merged.review_address = false;
+      merged.needs_review = false;
+    } else {
+      merged.needs_review = existing.needs_review ?? false;
+    }
     decision.addressProtected = true;
-    decision.notes.push("Endereço protegido (CEP validado).");
+    if (!shouldClearReviewBecauseCurrentCepIsValid) {
+      decision.notes.push("Endereço protegido (CEP validado).");
+    }
+  }
+
+  if (!addrProtected && !overwriteAddresses) {
+    const finalCep = "cep" in merged ? getCepDigits(merged.cep) : getCepDigits(existing.cep);
+    if (!hasAnyAddressPayload(merged, existing)) {
+      markAddressReview(merged, "SEM_ENDERECO", existing);
+      decision.notes.push("Linha marcada para revisão: pagador sem endereço.");
+    } else if (!finalCep || !knownCEPs.has(finalCep)) {
+      markAddressReview(merged, "CEP_NAO_VALIDADO_BASE", existing);
+      decision.notes.push("Linha marcada para revisão: CEP ausente ou fora da base de CEPs.");
+    }
   }
 
   // 2. Merge extra_contacts accumulatively — never replace existing contacts
@@ -231,11 +421,22 @@ export function applyPayerProtectedMerge(
   for (const key of compareKeys) {
     if (!(key in merged)) continue; // field was deleted (protected) — DB value unchanged
     if (normalizeVal(merged[key]) !== normalizeVal((existing as any)[key])) {
-      decision.changedFields.push(FIELD_LABELS[key] || key);
+      const field = FIELD_LABELS[key] || key;
+      decision.changedFields.push(field);
+      decision.changeDetails.push({
+        field,
+        oldValue: (existing as any)[key],
+        newValue: merged[key],
+      });
     }
   }
   if (addedNew) {
     decision.changedFields.push("Contatos extras");
+    decision.changeDetails.push({
+      field: "Contatos extras",
+      oldValue: currentExtras,
+      newValue: mergedExtras,
+    });
   }
 
   // Compute final needsReview from what will actually be written

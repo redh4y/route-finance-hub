@@ -797,7 +797,7 @@ export default function PublicBoletoLinksPage() {
                           Informações extras para preencher no Anexo IV
                         </p>
                         <p className="mt-1">
-                          <strong>Valor:</strong> R$ 198,56
+                          <strong>Valor:</strong> R$ 198,56 (Barretos)
                         </p>
                         <p>
                           <strong>Dias viajados:</strong>{" "}
@@ -809,8 +809,8 @@ export default function PublicBoletoLinksPage() {
                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                       <span>
                         Boleto e comprovante de pagamento do ônibus referente ao
-                        mês de{" "}
-                        <strong>{auxilioMonthInfo.previousMonth}</strong>.
+                        mês de <strong>{auxilioMonthInfo.previousMonth}</strong>
+                        .
                       </span>
                     </li>
                     <li className="flex items-start gap-2">
@@ -834,8 +834,8 @@ export default function PublicBoletoLinksPage() {
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
                     <p className="text-sm text-emerald-900">
                       Seus boletos disponíveis estão na aba Boletos. Use o
-                      boleto de {auxilioMonthInfo.previousMonth} junto com
-                      os comprovantes de pagamento.
+                      boleto de {auxilioMonthInfo.previousMonth} junto com os
+                      comprovantes de pagamento.
                     </p>
                   </div>
                 )}

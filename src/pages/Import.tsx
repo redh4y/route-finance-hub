@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,6 +10,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -30,7 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PageTransition } from "@/components/ui/page-transition";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs, type ImportResult } from "@/hooks/useOptimizedImport";
+import { useOptimizedImportPayers, useOptimizedImportBillings, useOptimizedImportCEPs, type ImportResult, type PreResolvedPayerItem } from "@/hooks/useOptimizedImport";
 import { useInvoiceImport } from "@/hooks/useInvoiceImport";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,7 +62,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseInvoiceSheet, ParsedInvoiceLine } from "@/lib/invoice-import";
-import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow, isPreviousMonthReissue } from "@/lib/csv-import";
+import { parseCSV, transformBillingRow, transformPayerRow, BillingCSVRow, PayerCSVRow, isPreviousMonthReissue, getCSVFieldValue } from "@/lib/csv-import";
 import { applyPayerProtectedMerge, type ExistingPayerLike } from "@/lib/payer-merge";
 import { format } from "date-fns";
 
@@ -88,6 +95,8 @@ type PayerPreviewRow = {
   payerCode: string | null;
   matchedId: string | null;
   changedFields?: string[];
+  changeDetails?: Array<{ field: string; oldValue: unknown; newValue: unknown }>;
+  comparisonDetails?: Array<{ field: string; databaseValue: unknown; csvValue: unknown }>;
   note: string;
   addressProtected?: boolean;
   phoneProtected?: boolean;
@@ -111,6 +120,10 @@ type PayerPreviewSummary = {
   extraContactsPreserved: number;
   emailsProtected: number;
   needsReview: number;
+};
+
+const getPayerCSVField = (row: PayerCSVRow, ...keys: string[]) => {
+  return getCSVFieldValue(row, ...keys);
 };
 
 const EMPTY_PAYER_PREVIEW_SUMMARY: PayerPreviewSummary = {
@@ -179,6 +192,36 @@ const getBillingPreviewStatusKey = (billing: {
   status: string;
 }) => `${getBillingPreviewBaseKey(billing)}|ST|${(billing.status || "").trim().toUpperCase()}`;
 
+// Chunked payer fetch — splits docs and codes into separate .in() queries (200/chunk)
+// to avoid URL-limit failures with large CSVs.
+async function fetchPayersForBillingPreview(
+  docs: string[],
+  codes: string[],
+): Promise<Array<{ id: string; name: string | null; payer_code: string | null; document_digits: string | null }>> {
+  const CHUNK = 200;
+  const docChunks: string[][] = [];
+  for (let i = 0; i < docs.length; i += CHUNK) docChunks.push(docs.slice(i, i + CHUNK));
+  const codeChunks: string[][] = [];
+  for (let i = 0; i < codes.length; i += CHUNK) codeChunks.push(codes.slice(i, i + CHUNK));
+
+  const queries = [
+    ...docChunks.map((chunk) =>
+      supabase.from("payers").select("id, name, payer_code, document_digits").in("document_digits", chunk),
+    ),
+    ...codeChunks.map((chunk) =>
+      supabase.from("payers").select("id, name, payer_code, document_digits").in("payer_code", chunk),
+    ),
+  ];
+
+  const results = await Promise.all(queries);
+  const byId = new Map<string, { id: string; name: string | null; payer_code: string | null; document_digits: string | null }>();
+  for (const { data, error } of results) {
+    if (error) throw error;
+    (data || []).forEach((p: any) => byId.set(p.id, p));
+  }
+  return Array.from(byId.values());
+}
+
 async function fetchAllBillingsForPreview(
   column: "payer_id" | "nosso_numero",
   values: string[],
@@ -231,19 +274,9 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
     )
   );
 
-  let payerQuery = supabase.from("payers").select("id, name, payer_code, document_digits");
-  if (importedDocs.length > 0 && importedCodes.length > 0) {
-    payerQuery = payerQuery.or(
-      `document_digits.in.(${importedDocs.map((d) => `"${d}"`).join(",")}),payer_code.in.(${importedCodes.map((c) => `"${c}"`).join(",")})`
-    );
-  } else if (importedDocs.length > 0) {
-    payerQuery = payerQuery.in("document_digits", importedDocs);
-  } else if (importedCodes.length > 0) {
-    payerQuery = payerQuery.in("payer_code", importedCodes);
-  }
-
-  const { data: payers, error: payerErr } = await payerQuery;
-  if (payerErr) throw payerErr;
+  const payers = (importedDocs.length > 0 || importedCodes.length > 0)
+    ? await fetchPayersForBillingPreview(importedDocs, importedCodes)
+    : [];
 
   const payerById = new Map((payers || []).map((p) => [p.id, p]));
   const payerIdByCode = new Map((payers || []).filter((p) => p.payer_code).map((p) => [p.payer_code as string, p.id as string]));
@@ -633,6 +666,22 @@ async function analyzeBillingPreview(file: File): Promise<{ rows: BillingPreview
 const PAYERS_PREVIEW_SELECT =
   "id, name, document_digits, payer_code, phone, email, extra_contacts, address_original, address_base, street, number, neighborhood, city, state, cep, match_ok, review_status, review_reason, review_flag, review_address, needs_review";
 
+type PayerImportCache = {
+  fileLastModified: number;
+  fileSize: number;
+  fileName: string;
+  overwriteAddresses: boolean;
+  overwritePhones: boolean;
+  computedAt: number;
+  totalRows: number;
+  resolvedItems: PreResolvedPayerItem[];
+  errorDetails: Array<{ row: number; error: string }>;
+  protectedAddresses: number;
+  protectedPhones: number;
+};
+
+const PAYER_IMPORT_CACHE_TTL_MS = 10 * 60 * 1000;
+
 function chunkValues<T>(values: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < values.length; i += size) {
@@ -733,11 +782,15 @@ function ImportPayersCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewStep, setPreviewStep] = useState("");
   const [previewRows, setPreviewRows] = useState<PayerPreviewRow[]>([]);
   const [previewSummary, setPreviewSummary] = useState<PayerPreviewSummary>(EMPTY_PAYER_PREVIEW_SUMMARY);
   const [previewFilter, setPreviewFilter] = useState<PayerPreviewFilter>("ACTIONABLE");
+  const [selectedPreviewRow, setSelectedPreviewRow] = useState<PayerPreviewRow | null>(null);
   const [overwriteAddresses, setOverwriteAddresses] = useState(false);
   const [overwritePhones, setOverwritePhones] = useState(false);
+  const [previewOutdated, setPreviewOutdated] = useState(false);
+  const payerImportCacheRef = useRef<PayerImportCache | null>(null);
   const { importPayers, isImporting, progress, reset } = useOptimizedImportPayers();
 
   const actionablePreviewRows = useMemo(
@@ -745,12 +798,7 @@ function ImportPayersCard() {
       previewRows.filter(
         (r) =>
           r.type === "UPDATE" ||
-          r.type === "NEW" ||
-          r.type === "AMBIGUOUS" ||
-          r.type === "CONFLICT" ||
-          r.addressProtected ||
-          r.phoneProtected ||
-          r.needsReview,
+          r.type === "NEW",
       ),
     [previewRows],
   );
@@ -775,7 +823,7 @@ function ImportPayersCard() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
-      // clear previous result
+      payerImportCacheRef.current = null;
       setPreviewRows([]);
       setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
       setPreviewFilter("ACTIONABLE");
@@ -788,7 +836,7 @@ function ImportPayersCard() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
-      // clear previous result
+      payerImportCacheRef.current = null;
       setPreviewRows([]);
       setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
       setPreviewFilter("ACTIONABLE");
@@ -797,12 +845,14 @@ function ImportPayersCard() {
 
   const handlePreview = async () => {
     if (!file) return;
+    setPreviewOutdated(false);
     setIsPreviewing(true);
+    setPreviewStep("Lendo CSV…");
     try {
       const rows = await parseCSV<PayerCSVRow>(file);
       const transformed = rows
-        .map((row, idx) => ({ rowNumber: idx + 2, payer: transformPayerRow(row) }))
-        .filter((t): t is { rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> } => !!t.payer);
+        .map((row, idx) => ({ rowNumber: idx + 2, payer: transformPayerRow(row), raw: row }))
+        .filter((t): t is { rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>>; raw: PayerCSVRow } => !!t.payer);
 
       const docs = Array.from(new Set(transformed.map((t) => t.payer.document_digits).filter((d): d is string => !!d)));
       // Only look up codes for rows that have no CPF (mirrors real import priority)
@@ -815,16 +865,22 @@ function ImportPayersCard() {
         ),
       );
 
+      setPreviewStep("Buscando pagadores…");
       const existing = await fetchPayersForPreview(docs, codesWithoutDoc);
 
       // Fetch the subset of existing payer CEPs that exist in the validated `ceps` table
       const existingCEPs = Array.from(
         new Set(
-          (existing || [])
-            .map((p: any) => String(p.cep || "").replace(/\D/g, ""))
+          [
+            ...(existing || []).map((p: any) => p.cep),
+            ...transformed.map((item) => (item.payer as any).cep),
+            ...transformed.map((item) => getPayerCSVField(item.raw, "CEP")),
+          ]
+            .map((cep) => String(cep || "").replace(/\D/g, ""))
             .filter((c: string) => c.length === 8),
         ),
       );
+      setPreviewStep("Validando CEPs…");
       const knownCEPs = new Set<string>();
       for (const chunk of chunkValues(existingCEPs, 400)) {
         const { data, error } = await supabase.from("ceps").select("cep").in("cep", chunk);
@@ -835,6 +891,7 @@ function ImportPayersCard() {
         });
       }
 
+      setPreviewStep("Calculando alterações…");
       // Build lookup maps (doc has priority; code only used when no doc — same as real import)
       const docMap = new Map<string, any[]>();
       const codeMap = new Map<string, any[]>();
@@ -889,6 +946,17 @@ function ImportPayersCard() {
         const existingPayer: ExistingPayerLike | null = (byDoc || byCode) as ExistingPayerLike | null;
 
         if (!existingPayer) {
+          const comparisonDetails = [
+            { field: "Nome", databaseValue: null, csvValue: item.payer.name },
+            { field: "CPF", databaseValue: null, csvValue: item.payer.document_digits },
+            { field: "Código", databaseValue: null, csvValue: item.payer.payer_code },
+            { field: "Telefone", databaseValue: null, csvValue: (item.payer as any).phone },
+            { field: "Email", databaseValue: null, csvValue: (item.payer as any).email },
+            { field: "Endereço original", databaseValue: null, csvValue: (item.payer as any).address_original },
+            { field: "CEP", databaseValue: null, csvValue: (item.payer as any).cep || getPayerCSVField(item.raw, "CEP") },
+            { field: "Cidade", databaseValue: null, csvValue: (item.payer as any).city || getPayerCSVField(item.raw, "Cidade") },
+            { field: "UF", databaseValue: null, csvValue: (item.payer as any).state || getPayerCSVField(item.raw, "UF") },
+          ].filter((detail) => detail.csvValue !== null && detail.csvValue !== undefined && detail.csvValue !== "");
           return {
             type: "NEW" as const,
             rowNumber: item.rowNumber,
@@ -910,6 +978,24 @@ function ImportPayersCard() {
 
         const willChange = decision.changedFields.length > 0;
         const note = decision.notes.length > 0 ? decision.notes.join(" ") : "Sem alterações.";
+        const comparisonDetails = [
+          { field: "Nome", databaseValue: existingPayer.name, csvValue: item.payer.name },
+          { field: "CPF", databaseValue: existingPayer.document_digits, csvValue: item.payer.document_digits },
+          { field: "Código", databaseValue: existingPayer.payer_code, csvValue: item.payer.payer_code },
+          { field: "Telefone", databaseValue: existingPayer.phone, csvValue: (item.payer as any).phone },
+          { field: "Email", databaseValue: existingPayer.email, csvValue: (item.payer as any).email },
+          { field: "Endereço original", databaseValue: existingPayer.address_original, csvValue: (item.payer as any).address_original },
+          { field: "Logradouro", databaseValue: existingPayer.street, csvValue: (item.payer as any).street },
+          { field: "Número", databaseValue: existingPayer.number, csvValue: (item.payer as any).number },
+          { field: "Bairro", databaseValue: existingPayer.neighborhood, csvValue: (item.payer as any).neighborhood },
+          { field: "CEP", databaseValue: existingPayer.cep, csvValue: (item.payer as any).cep || getPayerCSVField(item.raw, "CEP") },
+          { field: "Cidade", databaseValue: existingPayer.city, csvValue: (item.payer as any).city || getPayerCSVField(item.raw, "Cidade") },
+          { field: "UF", databaseValue: existingPayer.state, csvValue: (item.payer as any).state || getPayerCSVField(item.raw, "UF") },
+          { field: "Match endereço", databaseValue: existingPayer.match_ok, csvValue: (item.payer as any).match_ok },
+          { field: "Status revisão", databaseValue: existingPayer.review_status, csvValue: (item.payer as any).review_status },
+          { field: "Motivo revisão", databaseValue: existingPayer.review_reason, csvValue: (item.payer as any).review_reason },
+          { field: "Revisar endereço", databaseValue: existingPayer.review_address, csvValue: (item.payer as any).review_address },
+        ];
 
         return {
           type: willChange ? ("UPDATE" as const) : ("NO_CHANGE" as const),
@@ -919,6 +1005,8 @@ function ImportPayersCard() {
           payerCode: code,
           matchedId: existingPayer.id,
           changedFields: decision.changedFields,
+          changeDetails: decision.changeDetails,
+          comparisonDetails,
           note,
           addressProtected: decision.addressProtected,
           phoneProtected: decision.phoneProtected,
@@ -948,13 +1036,68 @@ function ImportPayersCard() {
         UPDATE: previewAll.filter((r) => r.type === "UPDATE").length,
         NO_CHANGE: previewAll.filter((r) => r.type === "NO_CHANGE").length,
         AMBIGUOUS: previewAll.filter((r) => r.type === "AMBIGUOUS").length,
-        CONFLICT: previewAll.filter((r) => r.type === "CONFLICT").length,
+        CONFLICT: 0,
         addressesProtected: previewAll.filter((r) => r.addressProtected).length,
         phonesProtected: previewAll.filter((r) => r.phoneProtected).length,
         phonesAddedSecondary: previewAll.filter((r) => r.phoneAddedAsSecondary).length,
         extraContactsPreserved: previewAll.filter((r) => r.extraContactsPreserved).length,
         emailsProtected: previewAll.filter((r) => r.emailProtected).length,
         needsReview: previewAll.filter((r) => r.needsReview).length,
+      };
+
+      // Build import cache: compute merged payloads for all rows so the
+      // real import can skip re-parsing the CSV and re-querying the DB.
+      const cacheResolvedItems: PreResolvedPayerItem[] = [];
+      const cacheErrorDetails: Array<{ row: number; error: string }> = [];
+      let cacheProtectedAddresses = 0;
+      let cacheProtectedPhones = 0;
+
+      for (const item of transformed) {
+        const doc = item.payer.document_digits || null;
+        const code = item.payer.payer_code || null;
+        const docMatches = doc ? (docMap.get(doc) || []) : [];
+        const codeMatches = !doc && code ? (codeMap.get(code) || []) : [];
+
+        if (docMatches.length > 1) {
+          cacheErrorDetails.push({ row: item.rowNumber, error: `Ambiguidade por CPF (${doc})` });
+          continue;
+        }
+        if (codeMatches.length > 1) {
+          cacheErrorDetails.push({ row: item.rowNumber, error: `Ambiguidade por Cod Pagador (${code})` });
+          continue;
+        }
+
+        const existingPayer = ((docMatches[0] || codeMatches[0]) as ExistingPayerLike) ?? null;
+        const targetId = existingPayer ? existingPayer.id : item.payer.id;
+        const isUpdate = !!existingPayer;
+
+        const { payload, decision } = applyPayerProtectedMerge(
+          { ...item.payer, id: targetId } as Record<string, any>,
+          existingPayer,
+          knownCEPs,
+          { overwriteAddresses, overwritePhones },
+        );
+
+        if (isUpdate) {
+          if (decision.addressProtected) cacheProtectedAddresses++;
+          if (decision.phoneProtected) cacheProtectedPhones++;
+        }
+
+        cacheResolvedItems.push({ rowNumber: item.rowNumber, payer: payload, isUpdate, decision });
+      }
+
+      payerImportCacheRef.current = {
+        fileLastModified: file.lastModified,
+        fileSize: file.size,
+        fileName: file.name,
+        overwriteAddresses,
+        overwritePhones,
+        computedAt: Date.now(),
+        totalRows: rows.length,
+        resolvedItems: cacheResolvedItems,
+        errorDetails: cacheErrorDetails,
+        protectedAddresses: cacheProtectedAddresses,
+        protectedPhones: cacheProtectedPhones,
       };
 
       setPreviewSummary(summary);
@@ -964,19 +1107,38 @@ function ImportPayersCard() {
       const dupNote = droppedDuplicates.length > 0
         ? ` ${droppedDuplicates.length} duplicata(s) no CSV consolidadas na última ocorrência.`
         : "";
-      toast.success(`Dry-run concluído: ${previewAllRaw.length} linhas analisadas, ${summary.altered} alteradas.${dupNote}`);
+      const noChangeNote = summary.NO_CHANGE > 0 ? ` ${summary.NO_CHANGE} sem mudança.` : "";
+      toast.success(`Dry-run concluído: ${previewAllRaw.length} linhas analisadas, ${summary.NEW} novas e ${summary.altered} alteradas.${noChangeNote}${dupNote}`);
     } catch (error: any) {
       toast.error(`Falha no dry-run: ${error.message || String(error)}`);
       setPreviewRows([]);
       setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
     } finally {
       setIsPreviewing(false);
+      setPreviewStep("");
     }
   };
 
   const handleImport = async () => {
     if (!file) return;
-    await importPayers({ file, options: { overwriteAddresses, overwritePhones } });
+
+    const cache = payerImportCacheRef.current;
+    const isCacheValid =
+      cache !== null &&
+      cache.fileLastModified === file.lastModified &&
+      cache.fileSize === file.size &&
+      cache.fileName === file.name &&
+      cache.overwriteAddresses === overwriteAddresses &&
+      cache.overwritePhones === overwritePhones &&
+      Date.now() - cache.computedAt < PAYER_IMPORT_CACHE_TTL_MS;
+
+    if (isCacheValid) {
+      await importPayers({ preResolved: cache });
+    } else {
+      await importPayers({ file, options: { overwriteAddresses, overwritePhones } });
+    }
+
+    payerImportCacheRef.current = null;
     setFile(null);
     setPreviewRows([]);
     setPreviewSummary(EMPTY_PAYER_PREVIEW_SUMMARY);
@@ -985,10 +1147,10 @@ function ImportPayersCard() {
   };
 
   const handleClear = () => {
+    payerImportCacheRef.current = null;
     setFile(null);
     setPreviewRows([]);
     setPreviewFilter("ACTIONABLE");
-    // clear previous result
     reset();
   };
 
@@ -1015,6 +1177,88 @@ function ImportPayersCard() {
       </Badge>
     </button>
   );
+
+  const formatPreviewValue = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return "—";
+    if (Array.isArray(value)) {
+      if (value.length === 0) return "—";
+      return value
+        .map((item) => {
+          if (item && typeof item === "object" && "value" in item) {
+            return String((item as { value?: unknown }).value || "");
+          }
+          return String(item);
+        })
+        .filter(Boolean)
+        .join(", ");
+    }
+    if (typeof value === "boolean") return value ? "Sim" : "Não";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  };
+
+  const normalizePreviewValue = (field: string, value: unknown) => {
+    if (value === null || value === undefined || value === "") return "";
+    if (typeof value === "boolean") return value ? "sim" : "não";
+    const normalized = String(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+    if (["cpf", "cep", "telefone"].includes(field.trim().toLowerCase())) {
+      return normalized.replace(/\D/g, "");
+    }
+
+    return normalized;
+  };
+
+  const isPreviewValueEqual = (field: string, a: unknown, b: unknown) =>
+    normalizePreviewValue(field, a) === normalizePreviewValue(field, b);
+
+  const normalizePreviewFieldName = (field: string) =>
+    field
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+
+  const addressComparisonFields = new Set([
+    "endereco original",
+    "logradouro",
+    "numero",
+    "bairro",
+    "cep",
+    "cidade",
+    "uf",
+    "match endereco",
+    "status revisao",
+    "motivo revisao",
+    "revisar endereco",
+  ]);
+
+  const getPreviewComparisonStatus = (
+    row: PayerPreviewRow,
+    detail: NonNullable<PayerPreviewRow["comparisonDetails"]>[number],
+  ) => {
+    if (isPreviewValueEqual(detail.field, detail.databaseValue, detail.csvValue)) {
+      return { valid: true, label: "Dados iguais" };
+    }
+
+    const field = normalizePreviewFieldName(detail.field);
+    if (row.addressProtected && addressComparisonFields.has(field)) {
+      return { valid: true, label: "Dado preservado: endereço atual validado pela base de CEPs" };
+    }
+    if (row.phoneProtected && field === "telefone") {
+      return { valid: true, label: "Dado preservado: telefone atual protegido" };
+    }
+    if (row.emailProtected && field === "email") {
+      return { valid: true, label: "Dado preservado: email atual protegido" };
+    }
+
+    return { valid: false, label: "Dados divergentes" };
+  };
 
   return (
     <div className="space-y-6">
@@ -1051,7 +1295,10 @@ function ImportPayersCard() {
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <Checkbox
                     checked={overwriteAddresses}
-                    onCheckedChange={(v) => setOverwriteAddresses(v === true)}
+                    onCheckedChange={(v) => {
+                      setOverwriteAddresses(v === true);
+                      if (previewRows.length > 0) setPreviewOutdated(true);
+                    }}
                     disabled={isImporting}
                   />
                   Sobrescrever endereços/CEPs existentes
@@ -1059,7 +1306,10 @@ function ImportPayersCard() {
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <Checkbox
                     checked={overwritePhones}
-                    onCheckedChange={(v) => setOverwritePhones(v === true)}
+                    onCheckedChange={(v) => {
+                      setOverwritePhones(v === true);
+                      if (previewRows.length > 0) setPreviewOutdated(true);
+                    }}
                     disabled={isImporting}
                   />
                   Sobrescrever telefone principal existente
@@ -1078,7 +1328,7 @@ function ImportPayersCard() {
                 {isPreviewing ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Analisando...
+                    {previewStep || "Analisando..."}
                   </>
                 ) : (
                   <>
@@ -1182,6 +1432,12 @@ function ImportPayersCard() {
             <p className="text-xs text-muted-foreground">
               Mostrando {filteredPreviewRows.length} de {previewSummary.total} registros do dry-run.
             </p>
+            {previewOutdated && (
+              <div className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                Opções alteradas — re-execute o Dry-run para atualizar o preview.
+              </div>
+            )}
             <div className="max-h-[360px] overflow-auto rounded border">
               <Table>
                 <TableHeader>
@@ -1197,7 +1453,19 @@ function ImportPayersCard() {
                 </TableHeader>
                 <TableBody>
                   {filteredPreviewRows.map((row) => (
-                    <TableRow key={`${row.rowNumber}-${row.name}-${row.type}`}>
+                    <TableRow
+                      key={`${row.rowNumber}-${row.name}-${row.type}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedPreviewRow(row)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedPreviewRow(row);
+                        }
+                      }}
+                      className="group cursor-pointer transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
                       <TableCell>{row.rowNumber}</TableCell>
                       <TableCell><Badge variant="outline">{{
                         NEW: "Novo",
@@ -1234,7 +1502,14 @@ function ImportPayersCard() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>{row.changedFields?.length ? row.changedFields.join(", ") : row.note}</TableCell>
+                      <TableCell>
+                        <span
+                          className="block max-w-[360px] truncate text-sm text-primary underline-offset-4 group-hover:underline"
+                          title={row.changedFields?.length ? row.changedFields.join(", ") : row.note}
+                        >
+                          {row.changedFields?.length ? row.changedFields.join(", ") : row.note}
+                        </span>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1250,6 +1525,121 @@ function ImportPayersCard() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={!!selectedPreviewRow} onOpenChange={(open) => !open && setSelectedPreviewRow(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Detalhes da alteração</DialogTitle>
+            <DialogDescription>
+              {selectedPreviewRow
+                ? `Linha ${selectedPreviewRow.rowNumber} · ${selectedPreviewRow.name}`
+                : "Veja os dados que serão gravados na importação."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedPreviewRow && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">{selectedPreviewRow.type}</Badge>
+                {selectedPreviewRow.addressProtected && <Badge variant="outline">Endereço protegido</Badge>}
+                {selectedPreviewRow.phoneProtected && <Badge variant="outline">Telefone protegido</Badge>}
+                {selectedPreviewRow.phoneAddedAsSecondary && <Badge variant="outline">Telefone secundário</Badge>}
+                {selectedPreviewRow.extraContactsPreserved && <Badge variant="outline">Contatos preservados</Badge>}
+                {selectedPreviewRow.emailProtected && <Badge variant="outline">Email preservado</Badge>}
+                {selectedPreviewRow.needsReview && <Badge variant="outline">Revisão</Badge>}
+              </div>
+
+              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                {selectedPreviewRow.note}
+              </div>
+
+              {(selectedPreviewRow.comparisonDetails || []).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Comparação banco x CSV</p>
+                  <div className="max-h-[300px] overflow-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Campo</TableHead>
+                          <TableHead className="w-[72px] text-center">Status</TableHead>
+                          <TableHead>Base de dados</TableHead>
+                          <TableHead>CSV importado</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(selectedPreviewRow.comparisonDetails || []).map((detail, index) => {
+                          const comparisonStatus = getPreviewComparisonStatus(selectedPreviewRow, detail);
+
+                          return (
+                            <TableRow key={`compare-${detail.field}-${index}`}>
+                              <TableCell className="font-medium">{detail.field}</TableCell>
+                              <TableCell className="text-center">
+                                {comparisonStatus.valid ? (
+                                  <CheckCircle2
+                                    className="mx-auto h-4 w-4 text-emerald-600"
+                                    aria-label={comparisonStatus.label}
+                                    title={comparisonStatus.label}
+                                  />
+                                ) : (
+                                  <AlertTriangle
+                                    className="mx-auto h-4 w-4 text-amber-600"
+                                    aria-label={comparisonStatus.label}
+                                    title={comparisonStatus.label}
+                                  />
+                                )}
+                              </TableCell>
+                              <TableCell className="max-w-[240px] break-words text-muted-foreground">
+                                {formatPreviewValue(detail.databaseValue)}
+                              </TableCell>
+                              <TableCell className="max-w-[240px] break-words">
+                                {formatPreviewValue(detail.csvValue)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {(selectedPreviewRow.changeDetails || []).length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Alterações que serão gravadas</p>
+                <div className="max-h-[420px] overflow-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Campo</TableHead>
+                        <TableHead>Atual no banco</TableHead>
+                        <TableHead>Novo valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(selectedPreviewRow.changeDetails || []).map((detail, index) => (
+                        <TableRow key={`${detail.field}-${index}`}>
+                          <TableCell className="font-medium">{detail.field}</TableCell>
+                          <TableCell className="max-w-[240px] break-words text-muted-foreground">
+                            {formatPreviewValue(detail.oldValue)}
+                          </TableCell>
+                          <TableCell className="max-w-[240px] break-words">
+                            {formatPreviewValue(detail.newValue)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  Nenhum campo será alterado. Esta linha aparece por proteção, revisão ou status informativo.
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1259,7 +1649,7 @@ function ImportBillingsCard() {
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewRows, setPreviewRows] = useState<BillingPreviewRow[]>([]);
-  const [previewFilter, setPreviewFilter] = useState<"ALL" | BillingPreviewType>("ALL");
+  const [previewFilter, setPreviewFilter] = useState<"ALL" | "ACTIONABLE" | BillingPreviewType>("ACTIONABLE");
   const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
   const [nameConflicts, setNameConflicts] = useState<BillingNameConflict[]>([]);
   const [approvedNameUpdates, setApprovedNameUpdates] = useState<Set<string>>(new Set());
@@ -1276,6 +1666,7 @@ function ImportBillingsCard() {
 
   const filteredPreviewRows = useMemo(() => {
     if (previewFilter === "ALL") return previewRows;
+    if (previewFilter === "ACTIONABLE") return previewRows.filter((r) => r.type !== "NO_CHANGE");
     return previewRows.filter((r) => r.type === previewFilter);
   }, [previewRows, previewFilter]);
 
@@ -1310,14 +1701,16 @@ function ImportBillingsCard() {
     setIsPreviewing(true);
     try {
       const { rows, nameConflicts: conflicts } = await analyzeBillingPreview(file);
-      const relevantRows = rows.filter((row) => row.type !== "NO_CHANGE");
-      setPreviewRows(relevantRows);
+      setPreviewRows(rows);
       setNameConflicts(conflicts);
       setNameConflictsReviewed(true);
       // By default, approve all name updates
       setApprovedNameUpdates(new Set(conflicts.map((c) => c.payerId)));
+      const noChangeCount = rows.filter((r) => r.type === "NO_CHANGE").length;
+      const actionableCount = rows.length - noChangeCount;
+      const noChangeMsg = noChangeCount > 0 ? ` ${noChangeCount} sem mudança.` : "";
       const conflictMsg = conflicts.length > 0 ? ` ${conflicts.length} conflito(s) de nome detectado(s).` : "";
-      toast.success(`Análise concluída: ${rows.length} linhas comparadas, ${relevantRows.length} com diferença.${conflictMsg}`);
+      toast.success(`Análise concluída: ${rows.length} linhas comparadas, ${actionableCount} com diferença.${noChangeMsg}${conflictMsg}`);
     } catch (error: any) {
       toast.error(`Falha na analise: ${error.message || String(error)}`);
       setPreviewRows([]);
@@ -1646,12 +2039,13 @@ function ImportBillingsCard() {
                   Compare com a base atual antes de confirmar a importação.
                 </CardDescription>
               </div>
-              <Select value={previewFilter} onValueChange={(v) => setPreviewFilter(v as "ALL" | BillingPreviewType)}>
+              <Select value={previewFilter} onValueChange={(v) => setPreviewFilter(v as "ALL" | "ACTIONABLE" | BillingPreviewType)}>
                 <SelectTrigger className="w-[220px]">
                   <SelectValue placeholder="Filtrar" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ALL">Todos</SelectItem>
+                  <SelectItem value="ACTIONABLE">Com diferença</SelectItem>
+                  <SelectItem value="ALL">Todos (incluindo sem mudança)</SelectItem>
                   <SelectItem value="NEW">Novos</SelectItem>
                   <SelectItem value="UPDATE_DUE_DATE">Vencimento alterado</SelectItem>
                   <SelectItem value="NEW_STATUS_VARIANT">Novo status (histórico)</SelectItem>

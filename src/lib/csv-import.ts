@@ -226,8 +226,9 @@ export function parseCSV<T>(file: File): Promise<T[]> {
         if (results.errors.length > 0) {
           console.warn("CSV parse warnings:", results.errors);
         }
-        // Check if encoding looks garbled
-        const sample = JSON.stringify(results.data.slice(0, 5));
+        // Check the parsed file, not just the first rows: payer lists can have
+        // accent problems hundreds of lines below the header.
+        const sample = JSON.stringify((results.data as any[]).slice(0, 300));
         if (hasGarbledEncoding(sample)) {
           console.log("Detected garbled UTF-8, retrying with Latin-1...");
           // Re-parse with Latin-1
@@ -374,6 +375,24 @@ export interface PayerCSVRow {
   review_reason?: string;
 }
 
+export function getCSVFieldValue<T extends Record<string, unknown>>(row: T, ...keys: string[]): string | undefined {
+  const normalizeHeader = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+  const wanted = new Set(keys.map(normalizeHeader));
+  for (const [key, value] of Object.entries(row)) {
+    if (wanted.has(normalizeHeader(key)) && value !== undefined && value !== null) {
+      return String(value);
+    }
+  }
+  return undefined;
+}
+
 // Billing CSV row type - Complete mapping from CSV headers
 export interface BillingCSVRow {
   // Main identification
@@ -418,28 +437,51 @@ export interface CEPCSVRow {
 
 // Transform payer CSV row to database format with complete business rules
 export function transformPayerRow(row: PayerCSVRow) {
-  const documentDigits = normalizeCPF(row.Identif);
-  const payerCode = row["Cod Pagador"]?.trim() || null;
+  const rawNome = getCSVFieldValue(row, "Nome");
+  const rawIdentif = getCSVFieldValue(row, "Identif");
+  const rawCodPagador = getCSVFieldValue(row, "Cod Pagador");
+  const rawEndereco = getCSVFieldValue(row, "Endereco", "Endereço");
+  const rawCep = getCSVFieldValue(row, "CEP");
+  const rawCidade = getCSVFieldValue(row, "Cidade");
+  const rawUf = getCSVFieldValue(row, "UF");
+  const rawTelefone = getCSVFieldValue(row, "Telefone");
+  const rawTelefoneSecundario = getCSVFieldValue(row, "Telefone_secundario", "Telefone secundario", "Telefone secundário");
+  const rawEmail = getCSVFieldValue(row, "Email", "E-mail");
+  const rawMatchOk = getCSVFieldValue(row, "match_ok");
+  const rawReviewStatus = getCSVFieldValue(row, "review_status");
+  const rawReviewReason = getCSVFieldValue(row, "review_reason");
+  const rawMatchedUf = getCSVFieldValue(row, "matched_uf");
+  const rawMatchedLogradouro = getCSVFieldValue(row, "matched_logradouro");
+  const rawParsedNumero = getCSVFieldValue(row, "parsed_numero");
+  const rawMatchedNumero = getCSVFieldValue(row, "matched_numero");
+  const rawMatchedBairro = getCSVFieldValue(row, "matched_bairro");
+  const rawMatchedCep = getCSVFieldValue(row, "matched_cep");
+  const rawMatchedCidade = getCSVFieldValue(row, "matched_cidade");
+  const rawMatchedFull = getCSVFieldValue(row, "matched_full");
+  const rawMatchedEnderecoCompleto = getCSVFieldValue(row, "matched_endereco_completo");
 
-  if ((!documentDigits && !payerCode) || !row.Nome?.trim()) {
+  const documentDigits = normalizeCPF(rawIdentif);
+  const payerCode = rawCodPagador?.trim() || null;
+
+  if ((!documentDigits && !payerCode) || !rawNome?.trim()) {
     return null;
   }
 
   const id = crypto.randomUUID();
 
-  const matchOk = row.match_ok?.toLowerCase() === "true";
+  const matchOk = rawMatchOk?.toLowerCase() === "true";
   const documentValid = validateCPF(documentDigits);
   
   // Determine review flag based on multiple conditions
-  const reviewStatus = row.review_status?.trim() || null;
-  const reviewReason = row.review_reason?.trim() || null;
+  const reviewStatus = rawReviewStatus?.trim() || null;
+  const reviewReason = rawReviewReason?.trim() || null;
   const reviewFlag = !matchOk || 
     reviewStatus === "REVIEW" || 
     (reviewReason?.includes("AMBIGUO_TOP2_PROXIMO") ?? false);
   
   // Build extra contacts array if secondary phone exists
   const extraContacts: Array<{ type: string; value: string }> = [];
-  const secondaryPhone = normalizePhone(row.Telefone_secundario);
+  const secondaryPhone = normalizePhone(rawTelefoneSecundario);
   if (secondaryPhone) {
     extraContacts.push({ type: "phone", value: secondaryPhone });
   }
@@ -448,14 +490,14 @@ export function transformPayerRow(row: PayerCSVRow) {
   // Note: name_lower is a generated column in the database, so we don't include it
   const basePayer = {
     id,
-    name: row.Nome.trim(),
-    document: row.Identif?.trim() || null,
+    name: rawNome.trim(),
+    document: rawIdentif?.trim() || null,
     document_digits: documentDigits,
     document_valid: documentValid,
     payer_code: payerCode,
-    address_original: row.Endereco?.trim() || null,
-    phone: normalizePhone(row.Telefone),
-    email: row.Email?.trim() || null,
+    address_original: rawEndereco?.trim() || null,
+    phone: normalizePhone(rawTelefone),
+    email: rawEmail?.trim() || null,
     match_ok: matchOk,
     review_status: reviewStatus,
     review_reason: reviewReason,
@@ -466,17 +508,17 @@ export function transformPayerRow(row: PayerCSVRow) {
 
   // Only add matched address fields if match_ok is true
   if (matchOk) {
-    const stateRaw = (row.matched_uf ?? row.UF ?? "").trim();
+    const stateRaw = (rawMatchedUf ?? rawUf ?? "").trim();
 
     return {
       ...basePayer,
-      street: row.matched_logradouro?.trim() || null,
-      number: row.parsed_numero?.trim() || row.matched_numero?.trim() || null,
-      neighborhood: row.matched_bairro?.trim() || null,
-      cep: normalizeCEP(row.matched_cep) || normalizeCEP(row.CEP) || null,
-      city: row.matched_cidade?.trim() || row.Cidade?.trim() || null,
+      street: rawMatchedLogradouro?.trim() || null,
+      number: rawParsedNumero?.trim() || rawMatchedNumero?.trim() || null,
+      neighborhood: rawMatchedBairro?.trim() || null,
+      cep: normalizeCEP(rawMatchedCep) || normalizeCEP(rawCep) || null,
+      city: rawMatchedCidade?.trim() || rawCidade?.trim() || null,
       state: stateRaw ? stateRaw.toUpperCase().slice(0, 2) : null,
-      address_base: row.matched_full?.trim() || row.matched_endereco_completo?.trim() || null,
+      address_base: rawMatchedFull?.trim() || rawMatchedEnderecoCompleto?.trim() || null,
     };
   }
 

@@ -16,6 +16,7 @@ import {
 import {
   applyPayerProtectedMerge,
   type ExistingPayerLike,
+  type PayerMergeDecision,
 } from "@/lib/payer-merge";
 import { toast } from "sonner";
 
@@ -26,7 +27,26 @@ export interface ImportResult {
   errorDetails: Array<{ row: number; error: string }>;
   payerUpdatesChanged?: number;
   payerUpdatesUnchanged?: number;
+  skippedUnchanged?: number;
 }
+
+export type PreResolvedPayerItem = {
+  rowNumber: number;
+  payer: Record<string, any>;
+  isUpdate: boolean;
+  decision: PayerMergeDecision;
+};
+
+export type PreResolvedPayerImportInput = {
+  preResolved: {
+    fileName: string;
+    totalRows: number;
+    resolvedItems: PreResolvedPayerItem[];
+    errorDetails: Array<{ row: number; error: string }>;
+    protectedAddresses: number;
+    protectedPhones: number;
+  };
+};
 
 const BATCH_SIZE_PAYERS = 200;
 const BATCH_SIZE_BILLINGS = 100;
@@ -169,30 +189,61 @@ async function fetchCandidatePayersByIdentity(
   documentDigits: string[],
   payerCodes: string[],
 ): Promise<ExistingPayerRecord[]> {
+  const docChunks: string[][] = [];
+  for (let i = 0; i < documentDigits.length; i += 400)
+    docChunks.push(documentDigits.slice(i, i + 400));
+
+  const codeChunks: string[][] = [];
+  for (let i = 0; i < payerCodes.length; i += 400)
+    codeChunks.push(payerCodes.slice(i, i + 400));
+
+  const queries = [
+    ...docChunks.map((chunk) =>
+      supabase.from("payers").select(EXISTING_PAYER_SELECT).in("document_digits", chunk),
+    ),
+    ...codeChunks.map((chunk) =>
+      supabase.from("payers").select(EXISTING_PAYER_SELECT).in("payer_code", chunk),
+    ),
+  ];
+
+  const results = await Promise.all(queries);
   const byId = new Map<string, ExistingPayerRecord>();
-
-  for (let i = 0; i < documentDigits.length; i += 400) {
-    const chunk = documentDigits.slice(i, i + 400);
-    const { data, error } = await supabase
-      .from("payers")
-      .select(EXISTING_PAYER_SELECT)
-      .in("document_digits", chunk);
-
+  for (const { data, error } of results) {
     if (error) throw error;
     (data || []).forEach((p: any) => byId.set(p.id, p as ExistingPayerRecord));
   }
 
-  for (let i = 0; i < payerCodes.length; i += 400) {
-    const chunk = payerCodes.slice(i, i + 400);
-    const { data, error } = await supabase
-      .from("payers")
-      .select(EXISTING_PAYER_SELECT)
-      .in("payer_code", chunk);
+  return Array.from(byId.values());
+}
 
+// Generic chunked payer fetch by docs + codes — avoids single large .or() that exceeds URL limits.
+// Sends each list as separate .in() queries (200 per chunk) and merges by id.
+async function fetchPayersByDocsAndCodes<T extends { id: string }>(
+  docs: string[],
+  codes: string[],
+  selectFields: string,
+): Promise<T[]> {
+  const CHUNK = 200;
+  const docChunks: string[][] = [];
+  for (let i = 0; i < docs.length; i += CHUNK) docChunks.push(docs.slice(i, i + CHUNK));
+  const codeChunks: string[][] = [];
+  for (let i = 0; i < codes.length; i += CHUNK) codeChunks.push(codes.slice(i, i + CHUNK));
+
+  const queries = [
+    ...docChunks.map((chunk) =>
+      supabase.from("payers").select(selectFields).in("document_digits", chunk),
+    ),
+    ...codeChunks.map((chunk) =>
+      supabase.from("payers").select(selectFields).in("payer_code", chunk),
+    ),
+  ];
+
+  const results = await Promise.all(queries);
+  const byId = new Map<string, T>();
+  for (const { data, error } of results) {
     if (error) throw error;
-    (data || []).forEach((p: any) => byId.set(p.id, p as ExistingPayerRecord));
+    (data || []).forEach((p: any) => byId.set(p.id, p as T));
   }
-
   return Array.from(byId.values());
 }
 
@@ -220,6 +271,128 @@ export interface PayerImportOptions {
   overwritePhones?: boolean;
 }
 
+async function upsertPayerBatches(
+  items: Array<{ rowNumber: number; payer: Record<string, any> }>,
+  result: ImportResult & { protectedAddresses?: number; protectedPhones?: number },
+  setProgress: (p: number) => void,
+): Promise<void> {
+  const totalBatches = Math.ceil(items.length / BATCH_SIZE_PAYERS);
+  for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+    const start = batchIdx * BATCH_SIZE_PAYERS;
+    const batchItems = items.slice(start, start + BATCH_SIZE_PAYERS);
+    const batch = batchItems.map((b) => b.payer);
+    try {
+      const { error } = await supabase
+        .from("payers")
+        .upsert(batch as any[], { onConflict: "id" });
+      if (error) throw error;
+      result.success += batchItems.length;
+    } catch (err: any) {
+      for (const item of batchItems) {
+        try {
+          const { error: rowError } = await supabase
+            .from("payers")
+            .upsert(item.payer as any, { onConflict: "id" });
+          if (rowError) {
+            result.errors++;
+            result.errorDetails.push({
+              row: item.rowNumber,
+              error: [rowError.message, rowError.details].filter(Boolean).join(" | "),
+            });
+          } else {
+            result.success++;
+          }
+        } catch (e: any) {
+          result.errors++;
+          result.errorDetails.push({ row: item.rowNumber, error: e.message });
+        }
+      }
+    }
+    setProgress(Math.round(((batchIdx + 1) / totalBatches) * 100));
+  }
+}
+
+async function executePreResolvedImport(
+  preResolved: PreResolvedPayerImportInput["preResolved"],
+  setProgress: (p: number) => void,
+): Promise<ImportResult & { protectedAddresses?: number; protectedPhones?: number }> {
+  const runId = crypto.randomUUID();
+
+  const result: ImportResult & { protectedAddresses?: number; protectedPhones?: number } = {
+    total: preResolved.totalRows,
+    success: 0,
+    errors: preResolved.errorDetails.length,
+    errorDetails: [...preResolved.errorDetails],
+    protectedAddresses: preResolved.protectedAddresses,
+    protectedPhones: preResolved.protectedPhones,
+  };
+
+  const logPromise = supabase
+    .from("import_logs")
+    .insert({
+      file_name: preResolved.fileName,
+      type: "PAYERS",
+      total_rows: preResolved.totalRows,
+      status: "PROCESSING",
+      run_id: runId,
+    })
+    .select("id")
+    .single();
+
+  // Re-stamp run_id on every payload (must be fresh per import run)
+  const stamped = preResolved.resolvedItems.map((item) => ({
+    ...item,
+    payer: { ...item.payer, run_id: runId },
+  }));
+
+  // Dedup by payer id (keep last occurrence — same rule as file-based path)
+  const dedupMap = new Map<string, typeof stamped[number]>();
+  for (const item of stamped) {
+    dedupMap.set(item.payer.id, item);
+  }
+  const deduped = Array.from(dedupMap.values());
+  const droppedDuplicates = stamped.length - deduped.length;
+  if (droppedDuplicates > 0) {
+    result.errorDetails.push({
+      row: 0,
+      error: `${droppedDuplicates} linha(s) duplicada(s) no CSV (mesmo pagador) foram consolidadas na última ocorrência.`,
+    });
+  }
+
+  // Only upsert payers that are new or have actual field changes
+  const toUpsert = deduped.filter((t) => !t.isUpdate || t.decision.changedFields.length > 0);
+  const skippedUnchanged = deduped.length - toUpsert.length;
+  result.success += skippedUnchanged;
+  result.skippedUnchanged = skippedUnchanged;
+
+  await upsertPayerBatches(toUpsert, result, setProgress);
+
+  const diffSummary = {
+    inserted: toUpsert.filter((t) => !t.isUpdate).length,
+    updated: toUpsert.filter((t) => t.isUpdate).length,
+    skipped: skippedUnchanged + droppedDuplicates,
+    errors: result.errors,
+  };
+
+  const { data: importLog } = await logPromise;
+  if (importLog?.id) {
+    await supabase
+      .from("import_logs")
+      .update({
+        status: result.errors === result.total ? "FAILED" : "COMPLETED",
+        processed_rows: result.total,
+        success_rows: result.success,
+        error_rows: result.errors,
+        errors: result.errorDetails.slice(0, 100),
+        completed_at: new Date().toISOString(),
+        diff_summary: diffSummary,
+      })
+      .eq("id", importLog.id);
+  }
+
+  return result;
+}
+
 // Optimized payer import with larger batches and parallel processing
 export function useOptimizedImportPayers() {
   const queryClient = useQueryClient();
@@ -227,8 +400,12 @@ export function useOptimizedImportPayers() {
 
   const mutation = useMutation({
     mutationFn: async (
-      input: File | { file: File; options?: PayerImportOptions },
+      input: File | { file: File; options?: PayerImportOptions } | PreResolvedPayerImportInput,
     ): Promise<ImportResult & { protectedAddresses?: number; protectedPhones?: number }> => {
+      if ("preResolved" in input) {
+        return executePreResolvedImport(input.preResolved, setProgress);
+      }
+
       const file = input instanceof File ? input : input.file;
       const options: PayerImportOptions =
         input instanceof File ? {} : input.options || {};
@@ -313,7 +490,10 @@ export function useOptimizedImportPayers() {
       const existingCepDigits = (candidatePayers || [])
         .map((p) => String(p.cep || "").replace(/\D/g, ""))
         .filter((c) => c.length === 8);
-      const knownCEPs = await fetchKnownCEPs(existingCepDigits);
+      const incomingCepDigits = transformed
+        .map((item) => String((item.payer as any).cep || "").replace(/\D/g, ""))
+        .filter((c) => c.length === 8);
+      const knownCEPs = await fetchKnownCEPs([...existingCepDigits, ...incomingCepDigits]);
 
       const resolvedTransformedRaw = transformed
         .map((item) => {
@@ -356,14 +536,16 @@ export function useOptimizedImportPayers() {
           return {
             ...item,
             payer: merged as NonNullable<ReturnType<typeof transformPayerRow>>,
+            isUpdate,
+            decision,
           };
         })
-        .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>;
+        .filter(Boolean) as Array<{ rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>>; isUpdate: boolean; decision: ReturnType<typeof applyPayerProtectedMerge>["decision"] }>;
 
 
       // Avoid Postgres ON CONFLICT cardinality errors when the same id appears multiple times in one CSV.
       // Keep the last occurrence for each payer id.
-      const dedupMap = new Map<string, { rowNumber: number; payer: NonNullable<ReturnType<typeof transformPayerRow>> }>();
+      const dedupMap = new Map<string, typeof resolvedTransformedRaw[number]>();
       for (const item of resolvedTransformedRaw) {
         dedupMap.set(item.payer.id, item);
       }
@@ -372,58 +554,27 @@ export function useOptimizedImportPayers() {
       if (droppedDuplicates > 0) {
         result.errorDetails.push({
           row: 0,
-          error: `${droppedDuplicates} linha(s) duplicada(s) no CSV (mesmo pagador) foram consolidadas na ?ltima ocorr?ncia.`,
+          error: `${droppedDuplicates} linha(s) duplicada(s) no CSV (mesmo pagador) foram consolidadas na última ocorrência.`,
         });
       }
 
-      // Process in larger batches
-      const totalBatches = Math.ceil(resolvedTransformed.length / BATCH_SIZE_PAYERS);
+      // Only upsert payers that are new or have actual field changes.
+      // Existing payers with no changed fields are skipped to avoid unnecessary writes.
+      const toUpsert = resolvedTransformed.filter(
+        (t) => !t.isUpdate || t.decision.changedFields.length > 0,
+      );
+      const skippedUnchanged = resolvedTransformed.length - toUpsert.length;
+      result.success += skippedUnchanged;
 
-      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+      await upsertPayerBatches(toUpsert, result, setProgress);
 
-        const start = batchIdx * BATCH_SIZE_PAYERS;
-        const batchItems = resolvedTransformed.slice(start, start + BATCH_SIZE_PAYERS);
-        const batch = batchItems.map((b) => b.payer);
-
-        try {
-          const { error } = await supabase
-            .from("payers")
-            .upsert(batch as any[], { onConflict: "id" });
-
-          if (error) throw error;
-          result.success += batchItems.length;
-        } catch (err: any) {
-          // Only fallback to per-row if batch fails
-          for (const item of batchItems) {
-            try {
-              const { error: rowError } = await supabase
-                .from("payers")
-                .upsert(item.payer as any, { onConflict: "id" });
-
-              if (rowError) {
-                result.errors++;
-                result.errorDetails.push({
-                  row: item.rowNumber,
-                  error: [rowError.message, rowError.details].filter(Boolean).join(" | "),
-                });
-              } else {
-                result.success++;
-              }
-            } catch (e: any) {
-              result.errors++;
-              result.errorDetails.push({ row: item.rowNumber, error: e.message });
-            }
-          }
-        }
-
-        setProgress(Math.round(((batchIdx + 1) / totalBatches) * 100));
-      }
+      result.skippedUnchanged = skippedUnchanged;
 
       // Build diff summary
       const diffSummary = {
-        inserted: resolvedTransformed.filter((t) => !candidatePayers.some((p: any) => p.id === t.payer.id)).length,
-        updated: resolvedTransformed.filter((t) => candidatePayers.some((p: any) => p.id === t.payer.id)).length,
-        skipped: droppedDuplicates,
+        inserted: toUpsert.filter((t) => !t.isUpdate).length,
+        updated: toUpsert.filter((t) => t.isUpdate).length,
+        skipped: skippedUnchanged + droppedDuplicates,
         errors: result.errors,
       };
 
@@ -455,10 +606,13 @@ export function useOptimizedImportPayers() {
       if (result.protectedPhones) protBits.push(`${result.protectedPhones} telefone(s) preservado(s)`);
       const protMsg = protBits.length > 0 ? ` — ${protBits.join(", ")}` : "";
 
+      const written = result.success - (result.skippedUnchanged ?? 0);
+      const skippedMsg = result.skippedUnchanged ? `, ${result.skippedUnchanged} sem alteração` : "";
+
       if (result.errors > 0) {
-        toast.warning(`Importação: ${result.success} OK, ${result.errors} erros${protMsg}`);
+        toast.warning(`Importação: ${written} gravados${skippedMsg}, ${result.errors} erros${protMsg}`);
       } else {
-        toast.success(`${result.success} pagadores importados!${protMsg}`);
+        toast.success(`${written} pagadores gravados${skippedMsg}${protMsg}`);
       }
     },
     onError: (error) => {
@@ -568,18 +722,9 @@ export function useOptimizedImportBillings() {
         )
       );
 
-      let existingPayersQuery = supabase.from("payers").select(PAYER_UPDATE_FIELDS);
-      if (importedDocs.length > 0 && importedCodes.length > 0) {
-        existingPayersQuery = existingPayersQuery.or(
-          `document_digits.in.(${importedDocs.map((d) => `"${d}"`).join(",")}),payer_code.in.(${importedCodes.map((c) => `"${c}"`).join(",")})`
-        );
-      } else if (importedDocs.length > 0) {
-        existingPayersQuery = existingPayersQuery.in("document_digits", importedDocs);
-      } else if (importedCodes.length > 0) {
-        existingPayersQuery = existingPayersQuery.in("payer_code", importedCodes);
-      }
-
-      const { data: existingPayers } = await existingPayersQuery;
+      const existingPayers = (importedDocs.length > 0 || importedCodes.length > 0)
+        ? await fetchPayersByDocsAndCodes(importedDocs, importedCodes, PAYER_UPDATE_FIELDS)
+        : [];
 
       const existingPayerIds = new Set(existingPayers?.map((p) => p.id) || []);
       const existingPayerCodes = new Map(
@@ -801,7 +946,12 @@ export function useOptimizedImportBillings() {
 
         const registerPlannedUpdate = (targetId: string, status: string) => {
           const updatedPayload = { ...billingData, status };
-          updateBillings.push({ id: targetId, data: updatedPayload });
+          // Prefer upsert by nosso_numero (reliable) over update by internal ID (can silently no-op)
+          if (billingData.nosso_numero) {
+            newBillings.push(updatedPayload);
+          } else {
+            updateBillings.push({ id: targetId, data: updatedPayload });
+          }
 
           registerExistingBilling({
             id: targetId,
@@ -980,37 +1130,45 @@ export function useOptimizedImportBillings() {
 
       setProgress(70);
 
-      // Update existing billings
-      for (const { id, data } of updateBillings) {
-        try {
-          await supabase.from("billings").update(data).eq("id", id);
-          result.success++;
-        } catch (err: any) {
-          result.errors++;
-          result.errorDetails.push({ row: 0, error: formatBillingErrorMessage(data as Partial<TransformedBilling>, err.message) });
-        }
+      // Update existing billings in parallel chunks
+      const UPDATE_BILLINGS_CHUNK = 50;
+      for (let i = 0; i < updateBillings.length; i += UPDATE_BILLINGS_CHUNK) {
+        const chunk = updateBillings.slice(i, i + UPDATE_BILLINGS_CHUNK);
+        await Promise.all(
+          chunk.map(async ({ id, data }) => {
+            try {
+              await supabase.from("billings").update(data).eq("id", id);
+              result.success++;
+            } catch (err: any) {
+              result.errors++;
+              result.errorDetails.push({ row: 0, error: formatBillingErrorMessage(data as Partial<TransformedBilling>, err.message) });
+            }
+          })
+        );
       }
 
       setProgress(85);
 
-      // Update payers in batch
+      // Update payers in batch via upsert (1 query per batch instead of N parallel updates)
       const payerUpdateEntries = Array.from(payerUpdates.entries());
       for (let i = 0; i < payerUpdateEntries.length; i += BATCH_SIZE_PAYERS) {
         const batch = payerUpdateEntries.slice(i, i + BATCH_SIZE_PAYERS);
-        await Promise.all(
-          batch.map(([id, update]) =>
-            supabase.from("payers").update(update).eq("id", id)
-          )
-        );
+        await supabase
+          .from("payers")
+          .upsert(
+            batch.map(([id, update]) => ({ id, ...update })),
+            { onConflict: "id" }
+          );
       }
 
       // Apply approved name updates from user
       if (nameUpdates && Object.keys(nameUpdates).length > 0) {
-        await Promise.all(
-          Object.entries(nameUpdates).map(([id, name]) =>
-            supabase.from("payers").update({ name }).eq("id", id)
-          )
-        );
+        const nameEntries = Object.entries(nameUpdates).map(([id, name]) => ({ id, name }));
+        for (let i = 0; i < nameEntries.length; i += BATCH_SIZE_PAYERS) {
+          await supabase
+            .from("payers")
+            .upsert(nameEntries.slice(i, i + BATCH_SIZE_PAYERS), { onConflict: "id" });
+        }
       }
 
       setProgress(95);
@@ -1219,34 +1377,39 @@ async function deactivatePayersNotInImport(
   referenceMonth: string,
   payerIdsInImport: Set<string>
 ) {
-  const { data: activePayers } = await supabase
-    .from("payers")
-    .select("id, billing_mode, is_coordinator, manual_active_until, needs_review")
-    .eq("status", "ATIVO");
-
-  if (!activePayers) return;
-
+  const PAGE_SIZE = 1000;
   const payersToDeactivate: string[] = [];
   const mixedToReview: string[] = [];
 
-  for (const payer of activePayers) {
-    if (payerIdsInImport.has(payer.id)) continue;
-    if (payer.is_coordinator) continue;
-    if (payer.manual_active_until && payer.manual_active_until >= referenceMonth)
-      continue;
+  // Paginate to avoid Supabase's default 1000-row truncation
+  let from = 0;
+  while (true) {
+    const { data: page, error } = await supabase
+      .from("payers")
+      .select("id, billing_mode, is_coordinator, manual_active_until, needs_review")
+      .eq("status", "ATIVO")
+      .range(from, from + PAGE_SIZE - 1);
 
-    if (payer.billing_mode === "PIX_ONLY") continue;
+    if (error) break;
+    if (!page || page.length === 0) break;
 
-    if (payer.billing_mode === "MIXED") {
-      if (!payer.needs_review) mixedToReview.push(payer.id);
-      continue;
+    for (const payer of page) {
+      if (payerIdsInImport.has(payer.id)) continue;
+      if (payer.is_coordinator) continue;
+      if (payer.manual_active_until && payer.manual_active_until >= referenceMonth) continue;
+      if (payer.billing_mode === "PIX_ONLY") continue;
+      if (payer.billing_mode === "MIXED") {
+        if (!payer.needs_review) mixedToReview.push(payer.id);
+        continue;
+      }
+      payersToDeactivate.push(payer.id);
     }
 
-    payersToDeactivate.push(payer.id);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
 
   if (payersToDeactivate.length > 0) {
-    // Batch update in chunks
     for (let i = 0; i < payersToDeactivate.length; i += 500) {
       const batch = payersToDeactivate.slice(i, i + 500);
       await supabase
