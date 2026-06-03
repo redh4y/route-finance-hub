@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatCPF, formatCurrency, formatDate, formatMonthRef, formatPhone } from "@/lib/formatters";
+import { validateCPF } from "@/lib/csv-import";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   User,
@@ -38,6 +39,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
+  TrendingDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Tables } from "@/integrations/supabase/types";
@@ -53,6 +55,7 @@ type Billing = Tables<"billings">;
 export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Partial<Payer>>({});
+  const [billingStatusFilter, setBillingStatusFilter] = useState<"all" | "open" | "paid" | "cancelled">("all");
   const queryClient = useQueryClient();
 
   const { data: payer, isLoading: payerLoading } = useQuery({
@@ -104,6 +107,21 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
       countByMonth.set(key, (countByMonth.get(key) || 0) + 1);
     });
     return countByMonth;
+  }, [billings]);
+
+  const filteredBillings = useMemo(() => {
+    const all = billings || [];
+    if (billingStatusFilter === "open") return all.filter((b) => b.status === "OPEN");
+    if (billingStatusFilter === "paid") return all.filter((b) => b.status === "PAID");
+    if (billingStatusFilter === "cancelled") return all.filter((b) => b.status === "CANCELADO");
+    return all;
+  }, [billings, billingStatusFilter]);
+
+  const overdueTotal = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    return (billings || [])
+      .filter((b) => b.status === "OPEN" && b.due_date && b.due_date < today)
+      .reduce((sum, b) => sum + (b.amount_expected_cents || 0), 0);
   }, [billings]);
 
   const updateMutation = useMutation({
@@ -168,7 +186,13 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
   };
 
   const handleSave = () => {
-    updateMutation.mutate(editData);
+    const updates: Partial<Payer> = { ...editData };
+    if (updates.document !== undefined) {
+      const digits = (updates.document || "").replace(/\D/g, "");
+      (updates as any).document_digits = digits || null;
+      (updates as any).document_valid = validateCPF(digits);
+    }
+    updateMutation.mutate(updates);
   };
 
   const handleCancel = () => {
@@ -261,17 +285,19 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>CPF/CNPJ</Label>
+                        <Label>CPF</Label>
                         <Input
-                          value={editData.document || ""}
-                          onChange={(e) => setEditData({ ...editData, document: e.target.value })}
+                          placeholder="000.000.000-00"
+                          value={editData.document ? formatCPF(editData.document.replace(/\D/g, "")) : ""}
+                          onChange={(e) => setEditData({ ...editData, document: e.target.value.replace(/\D/g, "").slice(0, 11) })}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label>Telefone</Label>
                         <Input
-                          value={editData.phone || ""}
-                          onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
+                          placeholder="(00) 00000-0000"
+                          value={editData.phone ? formatPhone(editData.phone.replace(/\D/g, "")) : ""}
+                          onChange={(e) => setEditData({ ...editData, phone: e.target.value.replace(/\D/g, "").slice(0, 11) })}
                         />
                       </div>
                       <div className="space-y-2">
@@ -389,9 +415,41 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
             </TabsContent>
 
             <TabsContent value="billings" className="mt-4">
-              <div className="space-y-2">
-                {billings && billings.length > 0 ? (
-                  billings.map((billing) => (
+              <div className="space-y-3">
+                {/* Overdue total badge */}
+                {overdueTotal > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/5 border border-destructive/20">
+                    <TrendingDown className="h-4 w-4 text-destructive shrink-0" />
+                    <span className="text-sm font-medium text-destructive">
+                      {formatCurrency(overdueTotal)} em aberto vencido
+                    </span>
+                  </div>
+                )}
+
+                {/* Status filter */}
+                {billings && billings.length > 0 && (
+                  <div className="flex gap-1 flex-wrap">
+                    {(["all", "open", "paid", "cancelled"] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setBillingStatusFilter(f)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                          billingStatusFilter === f
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        }`}
+                      >
+                        {f === "all" ? "Todos" : f === "open" ? "Em aberto" : f === "paid" ? "Pagos" : "Cancelados"}
+                        <span className="ml-1 opacity-60 tabular-nums">
+                          ({f === "all" ? billings.length : f === "open" ? billings.filter(b => b.status === "OPEN").length : f === "paid" ? billings.filter(b => b.status === "PAID").length : billings.filter(b => b.status === "CANCELADO").length})
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {filteredBillings && filteredBillings.length > 0 ? (
+                  filteredBillings.map((billing) => (
                     <motion.div
                       key={billing.id}
                       initial={{ opacity: 0, x: -10 }}
@@ -409,7 +467,7 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
                           </p>
                           {(duplicateCountByMonth.get(billing.reference_month || "sem-ref") || 0) > 1 && (
                             <Badge variant="outline" className="mt-1 text-[10px]">
-                              Boleto duplicado no m?s
+                              Boleto duplicado no mês
                             </Badge>
                           )}
                         </div>
@@ -430,7 +488,7 @@ export function PayerDetailsModal({ payerId, onClose }: PayerDetailsModalProps) 
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     <Receipt className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>Nenhuma cobrança encontrada</p>
+                    <p>{billings && billings.length > 0 ? "Nenhuma cobrança com esse status" : "Nenhuma cobrança encontrada"}</p>
                   </div>
                 )}
               </div>

@@ -50,6 +50,7 @@ export interface PayersFilters {
   needsReview?: boolean;
   reviewReason?: string;
   documentValid?: boolean;
+  overdueIds?: string[];
   search?: string;
   page?: number;
   pageSize?: number;
@@ -93,6 +94,10 @@ export function usePayers(filters: PayersFilters = {}) {
       if (filters.documentValid !== undefined) {
         query = query.eq("document_valid", filters.documentValid);
       }
+      if (filters.overdueIds !== undefined) {
+        if (filters.overdueIds.length === 0) return { rows: [], count: 0 };
+        query = query.in("id", filters.overdueIds);
+      }
       if (filters.search) {
         const search = filters.search.trim();
         const searchLower = search.toLowerCase();
@@ -101,10 +106,12 @@ export function usePayers(filters: PayersFilters = {}) {
         const clauses = [
           `name_lower.ilike.%${searchLower}%`,
           `payer_code.ilike.%${search}%`,
+          `email.ilike.%${searchLower}%`,
         ];
 
         if (searchDigits) {
           clauses.push(`document_digits.ilike.%${searchDigits}%`);
+          clauses.push(`phone.ilike.%${searchDigits}%`);
         }
 
         query = query.or(clauses.join(","));

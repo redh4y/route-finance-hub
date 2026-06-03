@@ -6,8 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { PayerDetailsModal } from "@/components/payers/PayerDetailsModal";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export-utils";
+import { exportToExcel } from "@/lib/export-utils";
 import { PageTransition } from "@/components/ui/page-transition";
-import { formatCPF, formatPhone, formatCurrency } from "@/lib/formatters";
+import { formatCPF, formatPhone, formatCurrency, formatMonthRef } from "@/lib/formatters";
 import { validateCPF } from "@/lib/csv-import";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +37,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
@@ -60,6 +78,12 @@ import {
   ArrowDown,
   CheckCheck,
   TrendingDown,
+  Filter,
+  Download,
+  Loader2,
+  CheckSquare,
+  Smile,
+  TrendingUp,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -68,6 +92,7 @@ const QUICK_FILTERS = [
   { key: "all", label: "Todos", icon: Users },
   { key: "active", label: "Ativos", icon: UserCheck },
   { key: "inactive", label: "Inativos", icon: UserX },
+  { key: "overdue", label: "Inadimplentes", icon: TrendingDown },
   { key: "review", label: "Revisão", icon: AlertTriangle },
   { key: "uncatalogued", label: "Sem cadastro", icon: AlertCircle },
   { key: "invalidCpf", label: "CPF inválido", icon: ShieldAlert },
@@ -95,6 +120,17 @@ export default function Payers() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isValidatingCpfs, setIsValidatingCpfs] = useState(false);
+  const [validationProgress, setValidationProgress] = useState<{ done: number; total: number } | null>(null);
+  const [confirmInactivate, setConfirmInactivate] = useState<{ id: string; name: string } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState<{
+    billingMode: string;
+    route: string;
+    hasPhone: string;
+    hasEmail: string;
+  }>({ billingMode: "", route: "", hasPhone: "", hasEmail: "" });
+  const [isExportingAll, setIsExportingAll] = useState(false);
 
   const toggleSort = (col: typeof sortBy) => {
     if (sortBy === col) setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
@@ -130,10 +166,6 @@ export default function Payers() {
         from += PAGE;
       }
 
-      toast.loading(`Validando ${allPayers.length} CPFs...`, { id: "cpf-validate" });
-
-      // Calculate new validity for each
-      let corrected = 0;
       const BATCH = 50;
       const toUpdate: { id: string; valid: boolean }[] = [];
 
@@ -145,38 +177,116 @@ export default function Payers() {
       }
 
       if (toUpdate.length === 0) {
-        toast.dismiss("cpf-validate");
         toast.success(`Todos os ${allPayers.length} CPFs já estavam validados corretamente`);
         setIsValidatingCpfs(false);
+        setValidationProgress(null);
         return;
       }
 
-      // Update in parallel batches
+      setValidationProgress({ done: 0, total: toUpdate.length });
+
+      let corrected = 0;
       for (let i = 0; i < toUpdate.length; i += BATCH) {
         const batch = toUpdate.slice(i, i + BATCH);
-        const pct = Math.round(((i + batch.length) / toUpdate.length) * 100);
-        toast.loading(`Atualizando ${i + batch.length}/${toUpdate.length} (${pct}%)...`, { id: "cpf-validate" });
-
         await Promise.all(
           batch.map(({ id, valid }) =>
             supabase.from("payers").update({ document_valid: valid }).eq("id", id)
           )
         );
         corrected += batch.length;
+        setValidationProgress({ done: corrected, total: toUpdate.length });
       }
 
-      toast.dismiss("cpf-validate");
+      setValidationProgress(null);
       toast.success(`Validação concluída: ${corrected} CPFs corrigidos de ${allPayers.length} total`);
       queryClient.invalidateQueries({ queryKey: ["payers"] });
       queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
     } catch (err: any) {
-      toast.dismiss("cpf-validate");
+      setValidationProgress(null);
       toast.error("Erro ao validar CPFs: " + (err?.message || "falha"));
       console.error("bulkValidateCpfs error:", err);
     } finally {
       setIsValidatingCpfs(false);
     }
   }, [queryClient]);
+
+  const handleExportAll = useCallback(async () => {
+    setIsExportingAll(true);
+    try {
+      const { data, error } = await supabase
+        .from("payers")
+        .select("name, document_digits, phone, email, default_route, billing_mode, status, last_payment_at, document_valid")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      exportToExcel(
+        (data || []).map((p) => ({
+          Nome: p.name,
+          CPF: p.document_digits ? formatCPF(p.document_digits) : "",
+          Telefone: p.phone ? formatPhone(p.phone) : "",
+          Email: p.email || "",
+          Rota: p.default_route || "",
+          "Modo de Cobrança": p.billing_mode,
+          Status: p.status,
+          "Último Pagamento": p.last_payment_at ? new Date(p.last_payment_at).toLocaleDateString("pt-BR") : "",
+          "CPF Válido": p.document_valid ? "Sim" : "Não",
+        })),
+        [
+          { key: "Nome", label: "Nome" },
+          { key: "CPF", label: "CPF" },
+          { key: "Telefone", label: "Telefone" },
+          { key: "Email", label: "E-mail" },
+          { key: "Rota", label: "Rota" },
+          { key: "Modo de Cobrança", label: "Modo de Cobrança" },
+          { key: "Status", label: "Status" },
+          { key: "Último Pagamento", label: "Último Pagamento" },
+          { key: "CPF Válido", label: "CPF Válido" },
+        ],
+        "pagadores-completo",
+        "Pagadores"
+      );
+      toast.success(`${(data || []).length} pagadores exportados`);
+    } catch (err: any) {
+      toast.error("Erro ao exportar: " + (err?.message || "falha"));
+    } finally {
+      setIsExportingAll(false);
+    }
+  }, []);
+
+  const handleBulkMarkReviewed = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const ids = [...selectedIds];
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          supabase.from("payers").update({ needs_review: false, review_flag: false }).eq("id", id)
+        )
+      );
+      toast.success(`${ids.length} pagador(es) marcado(s) como revisado(s)`);
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast.error("Erro: " + (err?.message || "falha"));
+    }
+  }, [selectedIds, queryClient]);
+
+  const handleBulkSetStatus = useCallback(async (newStatus: "ATIVO" | "INATIVO") => {
+    if (selectedIds.size === 0) return;
+    const ids = [...selectedIds];
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          supabase.from("payers").update({ status: newStatus }).eq("id", id)
+        )
+      );
+      toast.success(`${ids.length} pagador(es) ${newStatus === "ATIVO" ? "ativado(s)" : "inativado(s)"}`);
+      queryClient.invalidateQueries({ queryKey: ["payers"] });
+      queryClient.invalidateQueries({ queryKey: ["payers-stats"] });
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast.error("Erro: " + (err?.message || "falha"));
+    }
+  }, [selectedIds, queryClient]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -190,18 +300,24 @@ export default function Payers() {
     return () => media.removeListener(update);
   }, []);
 
-  const filters = useMemo(() => {
-    switch (quickFilter) {
-      case "active": return { status: "ATIVO" };
-      case "inactive": return { status: "INATIVO" };
-      case "review": return { needsReview: true };
-      case "uncatalogued": return { reviewReason: IMPORT_MISSING_PAYER_REASON };
-      case "invalidCpf": return { documentValid: false };
-      default: return {};
-    }
-  }, [quickFilter]);
+  const { data: overduePayerIds = new Set<string>() } = useOverduePayerIds();
 
-  useEffect(() => { setPage(1); }, [quickFilter, searchTerm]);
+  const filters = useMemo(() => {
+    const base: Record<string, any> = {};
+    switch (quickFilter) {
+      case "active": base.status = "ATIVO"; break;
+      case "inactive": base.status = "INATIVO"; break;
+      case "overdue": base.overdueIds = [...overduePayerIds]; break;
+      case "review": base.needsReview = true; break;
+      case "uncatalogued": base.reviewReason = IMPORT_MISSING_PAYER_REASON; break;
+      case "invalidCpf": base.documentValid = false; break;
+    }
+    if (advancedFilters.billingMode) base.billingMode = advancedFilters.billingMode;
+    if (advancedFilters.route) base.route = advancedFilters.route;
+    return base;
+  }, [quickFilter, overduePayerIds, advancedFilters]);
+
+  useEffect(() => { setPage(1); }, [quickFilter, searchTerm, advancedFilters]);
 
   const { data: payersResult, isLoading, error } = usePayers({
     ...filters,
@@ -213,7 +329,6 @@ export default function Payers() {
   });
 
   const toggleStatus = useTogglePayerStatus();
-  const { data: overduePayerIds = new Set<string>() } = useOverduePayerIds();
 
   const payers = payersResult?.rows || [];
   const totalCount = payersResult?.count || 0;
@@ -294,6 +409,7 @@ export default function Payers() {
       case "all": return stats.total;
       case "active": return stats.active;
       case "inactive": return stats.inactive;
+      case "overdue": return overduePayerIds.size;
       case "review": return stats.review;
       case "uncatalogued": return stats.uncatalogued;
       case "invalidCpf": return stats.invalidCpf;
@@ -313,20 +429,28 @@ export default function Payers() {
               </p>
             </div>
             <div className="flex gap-2 self-start sm:self-auto flex-wrap">
-              <ExportButton
-                data={payers || []}
-                columns={[
-                  { key: "name", label: "Nome" },
-                  { key: "document", label: "CPF", format: (v) => v ? formatCPF(v) : "" },
-                  { key: "phone", label: "Telefone", format: (v) => v ? formatPhone(v) : "" },
-                  { key: "email", label: "E-mail" },
-                  { key: "route", label: "Rota" },
-                  { key: "status", label: "Status" },
-                ] as ExportColumn[]}
-                filename="pagadores"
-                title="Pagadores"
-                disabled={!payers?.length}
-              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={handleExportAll}
+                disabled={isExportingAll}
+              >
+                {isExportingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                <span className="hidden sm:inline">{isExportingAll ? "Exportando..." : "Exportar tudo"}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className={cn("gap-1.5", showAdvancedFilters && "bg-accent text-accent-foreground")}
+                onClick={() => setShowAdvancedFilters((v) => !v)}
+              >
+                <Filter className="h-4 w-4" />
+                <span className="hidden sm:inline">Filtros</span>
+                {(advancedFilters.billingMode || advancedFilters.route) && (
+                  <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                )}
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -344,6 +468,59 @@ export default function Payers() {
             </div>
           </div>
 
+          {/* ── Validation progress bar ── */}
+          {validationProgress && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Validando CPFs... {validationProgress.done}/{validationProgress.total}</span>
+                <span>{Math.round((validationProgress.done / validationProgress.total) * 100)}%</span>
+              </div>
+              <Progress value={(validationProgress.done / validationProgress.total) * 100} className="h-2" />
+            </div>
+          )}
+
+          {/* ── Advanced filters panel ── */}
+          {showAdvancedFilters && (
+            <div className="flex flex-wrap gap-3 p-3 rounded-lg border bg-muted/30 text-sm">
+              <div className="flex items-center gap-2">
+                <Label className="shrink-0 text-xs">Modo</Label>
+                <select
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  value={advancedFilters.billingMode}
+                  onChange={(e) => setAdvancedFilters((f) => ({ ...f, billingMode: e.target.value }))}
+                >
+                  <option value="">Todos</option>
+                  <option value="BOLETO">Boleto</option>
+                  <option value="PIX_ONLY">PIX</option>
+                  <option value="MIXED">Misto</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="shrink-0 text-xs">Rota</Label>
+                <select
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  value={advancedFilters.route}
+                  onChange={(e) => setAdvancedFilters((f) => ({ ...f, route: e.target.value }))}
+                >
+                  <option value="">Todas</option>
+                  <option value="FRANCA">Franca</option>
+                  <option value="BARRETOS">Barretos</option>
+                  <option value="DESCONHECIDO">Desconhecido</option>
+                </select>
+              </div>
+              {(advancedFilters.billingMode || advancedFilters.route) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs gap-1"
+                  onClick={() => setAdvancedFilters({ billingMode: "", route: "", hasPhone: "", hasEmail: "" })}
+                >
+                  <X className="h-3 w-3" />Limpar filtros
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* ── Stats row (scrollable on mobile) ── */}
           <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-1">
             {QUICK_FILTERS.map((filter) => {
@@ -356,13 +533,15 @@ export default function Payers() {
                     ? "text-emerald-600"
                     : filter.key === "inactive"
                       ? "text-red-600"
-                      : filter.key === "review"
-                        ? "text-violet-600"
-                        : filter.key === "uncatalogued"
-                          ? "text-amber-600"
-                          : filter.key === "invalidCpf"
-                            ? "text-rose-600"
-                            : "text-foreground";
+                      : filter.key === "overdue"
+                        ? "text-destructive"
+                        : filter.key === "review"
+                          ? "text-violet-600"
+                          : filter.key === "uncatalogued"
+                            ? "text-amber-600"
+                            : filter.key === "invalidCpf"
+                              ? "text-rose-600"
+                              : "text-foreground";
 
               return (
                 <Button
@@ -384,7 +563,7 @@ export default function Payers() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Buscar por nome, CPF ou código..."
+              placeholder="Buscar por nome, CPF, telefone, e-mail ou código..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-10 h-11"
@@ -442,6 +621,15 @@ export default function Payers() {
                         <Table>
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
+                              <TableHead className="w-10">
+                                <Checkbox
+                                  checked={payers.length > 0 && payers.every((p) => selectedIds.has(p.id))}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) setSelectedIds((s) => new Set([...s, ...payers.map((p) => p.id)]));
+                                    else setSelectedIds((s) => { const n = new Set(s); payers.forEach((p) => n.delete(p.id)); return n; });
+                                  }}
+                                />
+                              </TableHead>
                               <TableHead>
                                 <SortHeader label="Pagador" col="name" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />
                               </TableHead>
@@ -464,9 +652,21 @@ export default function Payers() {
                                 payer={payer}
                                 isSelected={selectedPayerId === payer.id}
                                 isOverdue={overduePayerIds.has(payer.id)}
+                                isChecked={selectedIds.has(payer.id)}
                                 onClick={() => setSelectedPayerId(payer.id)}
                                 onEdit={() => setEditPayerId(payer.id)}
-                                onToggleStatus={() => toggleStatus.mutate({ id: payer.id, currentStatus: payer.status })}
+                                onToggleStatus={() => {
+                                  if (payer.status === "ATIVO") {
+                                    setConfirmInactivate({ id: payer.id, name: payer.name });
+                                  } else {
+                                    toggleStatus.mutate({ id: payer.id, currentStatus: payer.status });
+                                  }
+                                }}
+                                onCheck={(checked) => setSelectedIds((s) => {
+                                  const n = new Set(s);
+                                  if (checked) n.add(payer.id); else n.delete(payer.id);
+                                  return n;
+                                })}
                               />
                             ))}
                           </TableBody>
@@ -559,6 +759,52 @@ export default function Payers() {
 
         <PayerDetailsModal payerId={editPayerId} onClose={() => setEditPayerId(null)} />
 
+        {/* Confirm inactivate dialog */}
+        <AlertDialog open={!!confirmInactivate} onOpenChange={(open) => !open && setConfirmInactivate(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Inativar pagador?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja inativar <strong>{confirmInactivate?.name}</strong>? O pagador não será mais incluído em importações automáticas.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (confirmInactivate) {
+                    toggleStatus.mutate({ id: confirmInactivate.id, currentStatus: "ATIVO" });
+                    setConfirmInactivate(null);
+                  }
+                }}
+              >
+                Inativar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Bulk actions bar */}
+        {selectedIds.size > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-xl bg-background border shadow-lg">
+            <span className="text-sm font-medium tabular-nums">{selectedIds.size} selecionado(s)</span>
+            <div className="w-px h-5 bg-border mx-1" />
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleBulkMarkReviewed}>
+              <CheckCheck className="h-4 w-4" />Marcar revisados
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleBulkSetStatus("ATIVO")}>
+              <UserCheck className="h-4 w-4" />Ativar
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10" onClick={() => handleBulkSetStatus("INATIVO")}>
+              <UserX className="h-4 w-4" />Inativar
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         {/* Create dialog */}
         <Dialog open={isCreateOpen} onOpenChange={(open) => { setIsCreateOpen(open); if (!open) resetNewPayer(); }}>
           <DialogContent>
@@ -574,11 +820,21 @@ export default function Payers() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="new-payer-document">CPF</Label>
-                  <Input id="new-payer-document" value={newPayer.document} onChange={(e) => setNewPayer((p) => ({ ...p, document: e.target.value }))} placeholder="000.000.000-00" />
+                  <Input
+                    id="new-payer-document"
+                    placeholder="000.000.000-00"
+                    value={newPayer.document ? formatCPF(newPayer.document) : ""}
+                    onChange={(e) => setNewPayer((p) => ({ ...p, document: e.target.value.replace(/\D/g, "").slice(0, 11) }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="new-payer-phone">Telefone</Label>
-                  <Input id="new-payer-phone" value={newPayer.phone} onChange={(e) => setNewPayer((p) => ({ ...p, phone: e.target.value }))} placeholder="(00) 00000-0000" />
+                  <Input
+                    id="new-payer-phone"
+                    placeholder="(00) 00000-0000"
+                    value={newPayer.phone ? formatPhone(newPayer.phone) : ""}
+                    onChange={(e) => setNewPayer((p) => ({ ...p, phone: e.target.value.replace(/\D/g, "").slice(0, 11) }))}
+                  />
                 </div>
               </div>
               <div className="space-y-2">
@@ -717,19 +973,26 @@ function PayerRow({
   payer,
   isSelected,
   isOverdue,
+  isChecked,
   onClick,
   onEdit,
   onToggleStatus,
+  onCheck,
 }: {
   payer: Payer;
   isSelected: boolean;
   isOverdue?: boolean;
+  isChecked?: boolean;
   onClick: () => void;
   onEdit: () => void;
   onToggleStatus: () => void;
+  onCheck?: (checked: boolean) => void;
 }) {
   if (!payer) return null;
   const isActive = payer.status === "ATIVO";
+  const daysAgo = payer.last_payment_at
+    ? Math.floor((Date.now() - new Date(payer.last_payment_at).getTime()) / 86_400_000)
+    : null;
 
   return (
     <TableRow
@@ -737,9 +1000,13 @@ function PayerRow({
       onDoubleClick={onEdit}
       className={cn(
         "cursor-pointer transition-colors hover:bg-muted/50",
-        isSelected && "bg-primary/5"
+        isSelected && "bg-primary/5",
+        isChecked && "bg-primary/10"
       )}
     >
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <Checkbox checked={!!isChecked} onCheckedChange={(v) => onCheck?.(!!v)} />
+      </TableCell>
       <TableCell>
         <div className="flex items-center gap-4">
           <div
@@ -813,9 +1080,18 @@ function PayerRow({
         </Badge>
       </TableCell>
       <TableCell className="text-xs text-muted-foreground tabular-nums">
-        {payer.last_payment_at
-          ? new Date(payer.last_payment_at).toLocaleDateString("pt-BR")
-          : "—"}
+        {payer.last_payment_at ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-default underline decoration-dotted decoration-muted-foreground/40">
+                {new Date(payer.last_payment_at).toLocaleDateString("pt-BR")}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {daysAgo === 0 ? "Hoje" : daysAgo === 1 ? "Há 1 dia" : `Há ${daysAgo} dias`}
+            </TooltipContent>
+          </Tooltip>
+        ) : "—"}
       </TableCell>
       <TableCell className="text-right">
         <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
@@ -854,20 +1130,22 @@ function SortHeader({
 
 // ── Empty state ──
 function EmptyState({ searchTerm, quickFilter }: { searchTerm: string; quickFilter: QuickFilterKey }) {
+  const config: Record<string, { icon: React.ElementType; title: string; message: string; iconClass?: string }> = {
+    overdue: { icon: Smile, title: "Tudo em dia!", message: "Nenhum pagador com boleto em atraso. Ótimo sinal!", iconClass: "text-emerald-600" },
+    review: { icon: CheckCheck, title: "Tudo revisado!", message: "Não há pagadores pendentes de revisão.", iconClass: "text-emerald-600" },
+    uncatalogued: { icon: CheckCircle2, title: "Nenhum pendente", message: "Não há pagadores criados automaticamente sem cadastro.", iconClass: "text-emerald-600" },
+    invalidCpf: { icon: CheckCircle2, title: "CPFs válidos!", message: "Todos os CPFs cadastrados são válidos.", iconClass: "text-emerald-600" },
+  };
+  const ctx = !searchTerm ? config[quickFilter] : undefined;
+  const Icon = ctx?.icon || Users;
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-3">
-        <Users className="h-7 w-7 text-muted-foreground" />
+      <div className={cn("w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-3", ctx && "bg-emerald-500/10")}>
+        <Icon className={cn("h-7 w-7 text-muted-foreground", ctx?.iconClass)} />
       </div>
-      <h3 className="font-medium text-base mb-1">Nenhum pagador encontrado</h3>
+      <h3 className="font-medium text-base mb-1">{ctx?.title || "Nenhum pagador encontrado"}</h3>
       <p className="text-sm text-muted-foreground max-w-xs">
-        {searchTerm
-          ? `Nenhum resultado para "${searchTerm}"`
-          : quickFilter === "review"
-            ? "Não há pagadores pendentes de revisão"
-            : quickFilter === "uncatalogued"
-              ? "Não há pagadores criados automaticamente"
-              : "Importe pagadores através do menu de Importação"}
+        {searchTerm ? `Nenhum resultado para "${searchTerm}"` : ctx?.message || "Importe pagadores através do menu de Importação"}
       </p>
     </div>
   );
@@ -877,7 +1155,24 @@ function EmptyState({ searchTerm, quickFilter }: { searchTerm: string; quickFilt
 function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | null; isMobileSheet?: boolean }) {
   const { data: selectedPayer } = usePayerById(payerId || "");
   const markAsReviewed = useMarkAsReviewed();
+  const qc = useQueryClient();
   const payerCode = selectedPayer?.payer_code || null;
+
+  const handleMarkReviewedWithUndo = (id: string) => {
+    markAsReviewed.mutate(id);
+    toast.success("Marcado como revisado", {
+      action: {
+        label: "Desfazer",
+        onClick: async () => {
+          await supabase.from("payers").update({ needs_review: true, review_flag: true }).eq("id", id);
+          qc.invalidateQueries({ queryKey: ["payer", id] });
+          qc.invalidateQueries({ queryKey: ["payers"] });
+          qc.invalidateQueries({ queryKey: ["payers-stats"] });
+        },
+      },
+      duration: 5000,
+    });
+  };
 
   const { data: paidBillings } = useQuery({
     queryKey: ["payer-last-paid", payerId, payerCode],
@@ -904,7 +1199,7 @@ function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | 
       if (!payerId) return [];
       let query = supabase
         .from("billings")
-        .select("id, status, settlement_at, liquidation_at, due_date, payer_id, payer_code, reference_month")
+        .select("id, status, settlement_at, liquidation_at, due_date, payer_id, payer_code, reference_month, amount_expected_cents")
         .order("reference_month", { ascending: false })
         .limit(200);
       if (payerCode) query = query.or(`payer_id.eq.${payerId},payer_code.eq.${payerCode}`);
@@ -932,14 +1227,30 @@ function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | 
     const bills = allBillings || [];
     const statuses = new Set(bills.map((b) => b.status));
     const today = new Date().toISOString().split("T")[0];
-    const overdueBills = bills.filter((b) => b.status === "OPEN" && b.due_date && b.due_date < today);
+    const overdueBills = bills
+      .filter((b) => b.status === "OPEN" && b.due_date && b.due_date < today)
+      .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
     return {
       hasAny: bills.length > 0,
       hasOpen: statuses.has("OPEN"),
       hasCancelled: statuses.has("CANCELADO"),
       hasPaid: statuses.has("PAID"),
       overdueCount: overdueBills.length,
+      overdueBills,
     };
+  }, [allBillings]);
+
+  const paymentTrend = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    const bills = (allBillings || []).filter(
+      (b) => b.status !== "CANCELADO" && b.due_date && b.due_date <= today
+    );
+    if (bills.length === 0) return null;
+    const paidCount = bills.filter((b) => b.status === "PAID").length;
+    const rate = paidCount / bills.length;
+    if (rate >= 0.9) return "regular";
+    if (rate >= 0.5) return "irregular";
+    return "raro";
   }, [allBillings]);
 
   if (!payerId || !selectedPayer) {
@@ -1006,7 +1317,7 @@ function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | 
           </div>
           <button
             className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium border-t border-amber-500/20 hover:bg-amber-500/10 transition-colors"
-            onClick={() => markAsReviewed.mutate(selectedPayer.id)}
+            onClick={() => handleMarkReviewedWithUndo(selectedPayer.id)}
             disabled={markAsReviewed.isPending}
           >
             <CheckCheck className="h-3.5 w-3.5" />
@@ -1058,6 +1369,65 @@ function QuickViewPanel({ payerId, isMobileSheet = false }: { payerId: string | 
           <InfoRow icon={Receipt} label="PIX mensal" value={formatCurrency(selectedPayer.pix_monthly_amount_cents)} />
         )}
       </div>
+
+      {/* Overdue boletos detail */}
+      {billingFlags.overdueCount > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <TrendingDown className="h-3 w-3 text-destructive" />
+            Boletos em atraso
+          </h4>
+          <div className="rounded-lg border border-destructive/20 overflow-hidden">
+            {billingFlags.overdueBills.map((bill, idx) => {
+              const dueDate = bill.due_date ? new Date(bill.due_date + "T00:00:00") : null;
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const daysLate = dueDate
+                ? Math.floor((today.getTime() - dueDate.getTime()) / 86_400_000)
+                : null;
+              return (
+                <div
+                  key={bill.id}
+                  className={cn(
+                    "flex items-center justify-between px-3 py-2 text-xs gap-2",
+                    idx % 2 === 0 ? "bg-destructive/5" : "bg-background"
+                  )}
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">
+                      {bill.reference_month ? formatMonthRef(bill.reference_month) : "—"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Venc. {dueDate ? dueDate.toLocaleDateString("pt-BR") : "—"}
+                      {daysLate !== null && (
+                        <span className="text-destructive ml-1">· {daysLate}d atraso</span>
+                      )}
+                    </p>
+                  </div>
+                  <span className="font-medium text-destructive shrink-0 tabular-nums">
+                    {bill.amount_expected_cents
+                      ? formatCurrency(bill.amount_expected_cents)
+                      : "—"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Payment trend */}
+      {paymentTrend && (
+        <div className="flex items-center gap-1.5 text-xs">
+          {paymentTrend === "regular" ? (
+            <><TrendingUp className="h-3.5 w-3.5 text-emerald-600" /><span className="text-emerald-600 font-medium">Pagamento regular</span><span className="text-muted-foreground">(≥90% dos boletos)</span></>
+          ) : paymentTrend === "irregular" ? (
+            <><TrendingDown className="h-3.5 w-3.5 text-amber-600" /><span className="text-amber-600 font-medium">Pagamento irregular</span><span className="text-muted-foreground">(50–89% dos boletos)</span></>
+          ) : (
+            <><AlertTriangle className="h-3.5 w-3.5 text-destructive" /><span className="text-destructive font-medium">Inadimplência alta</span><span className="text-muted-foreground">(&lt;50% dos boletos)</span></>
+          )}
+        </div>
+      )}
 
       {/* Flags */}
       <div className="flex flex-wrap gap-1.5">

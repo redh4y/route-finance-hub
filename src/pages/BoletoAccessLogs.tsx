@@ -75,6 +75,26 @@ function formatDateShort(value: string) {
   );
 }
 
+function getDueStatus(value: string | null | undefined) {
+  if (!value) return "no_due";
+  const due = parseDateLocal(value);
+  const today = new Date();
+  due.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+
+  if (due.getTime() < today.getTime()) return "overdue";
+  if (due.getTime() === today.getTime()) return "due_today";
+  return "upcoming";
+}
+
+function getDueStatusLabel(value: string | null | undefined) {
+  const status = getDueStatus(value);
+  if (status === "overdue") return "Vencido";
+  if (status === "due_today") return "Vence hoje";
+  if (status === "upcoming") return "A vencer";
+  return "Sem vencimento";
+}
+
 function formatReferenceMonth(value: string | null | undefined) {
   if (!value || !/^\d{4}-\d{2}$/.test(value)) return "-";
   const [year, month] = value.split("-");
@@ -214,6 +234,41 @@ _Esta é uma mensagem automática. Caso já tenha combinado algo com a administr
   return `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`;
 }
 
+function normalizePhoneToBrazil(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  return digits.startsWith("55") ? digits : `55${digits}`;
+}
+
+function openWhatsAppMessage(phone: string, message: string, windowName?: string) {
+  const url = `https://wa.me/${normalizePhoneToBrazil(phone)}?text=${encodeURIComponent(message)}`;
+  window.open(url, windowName ?? "_blank");
+}
+
+function buildBoletoLinkMessage(params: {
+  studentName: string | null;
+  referenceMonthLabel: string;
+  boletoUrl: string | null;
+  dueDate: string | null;
+}) {
+  const name = params.studentName || "prezado(a)";
+  const lines = [
+    `Olá, ${name}. Tudo bem?`,
+    ``,
+    `Seu boleto referente ao mês de ${params.referenceMonthLabel} já está disponível para pagamento.`,
+    ``,
+    `Você consegue acessá-lo pelo link abaixo:`,
+    params.boletoUrl || "https://tavarestransportes.com/2-via-boletos",
+    ``,
+    `Qualquer dúvida, estamos à disposição.`,
+    `Tavares Transportes`,
+  ];
+  if (params.dueDate) {
+    lines.splice(3, 0, `Vencimento: ${formatDateShort(params.dueDate)}`);
+    lines.splice(4, 0, ``);
+  }
+  return lines.join("\n");
+}
+
 type AccessLog = {
   id: string;
   created_at: string;
@@ -244,6 +299,7 @@ type CoverageRow = {
 };
 
 const PAGE_SIZE = 50;
+const BATCH_SIZE = 10;
 
 export default function BoletoAccessLogsPage() {
   const [search, setSearch] = useState("");
@@ -253,8 +309,12 @@ export default function BoletoAccessLogsPage() {
   const [lastWhatsappCpf, setLastWhatsappCpf] = useState<string | null>(null);
   const [pendingSearch, setPendingSearch] = useState("");
   const [pendingStatusFilter, setPendingStatusFilter] = useState<
-    "all" | "unpaid" | "searched" | "untouched"
-  >("unpaid");
+    "all" | "overdue" | "due_today" | "upcoming"
+  >("all");
+  const [selectedBatchType, setSelectedBatchType] = useState<
+    "emissao" | "link" | "vencimento" | "urgente"
+  >("link");
+  const [isBatchRunning, setIsBatchRunning] = useState(false);
 
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
@@ -536,6 +596,22 @@ export default function BoletoAccessLogsPage() {
 
   const resolvedCoverageMonth = coverage?.referenceMonth ?? null;
 
+  const { data: batchItems = [], refetch: refetchBatchItems } = useQuery({
+    queryKey: ["boleto-batch-items", resolvedCoverageMonth, selectedBatchType],
+    queryFn: async () => {
+      if (!resolvedCoverageMonth) return [];
+      const { data, error } = await (supabase as any)
+        .from("boleto_message_batch_items")
+        .select("cpf_digits, status")
+        .eq("reference_month", resolvedCoverageMonth)
+        .eq("message_type", selectedBatchType);
+      if (error) throw error;
+      return (data || []) as { cpf_digits: string; status: string }[];
+    },
+    enabled: !!resolvedCoverageMonth,
+    staleTime: 10_000,
+  });
+
   const { data: contactCounts, refetch: refetchContacts } = useQuery({
     queryKey: ["boleto-contact-log-counts", resolvedCoverageMonth],
     queryFn: async () => {
@@ -569,15 +645,17 @@ export default function BoletoAccessLogsPage() {
   const total = result?.count || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const activeRows = (coverage?.rows || []).filter((row) => row.is_active);
-  // Apenas alunos ativos com boleto OPEN no mês selecionado (base para WhatsApp e ações em lote)
-  const unpaidRows = activeRows.filter((row) => row.is_open);
+  // Pendências de download: alunos que ainda não baixaram o boleto no mês selecionado.
+  const openRows = (coverage?.rows || []).filter((row) => !row.downloaded);
+  const overdueRows = openRows.filter((row) => getDueStatus(row.due_date) === "overdue");
+  const dueTodayRows = openRows.filter((row) => getDueStatus(row.due_date) === "due_today");
+  const upcomingRows = openRows.filter((row) => getDueStatus(row.due_date) === "upcoming");
 
-  const filteredPendingRows = (
-    pendingStatusFilter === "all" ? activeRows : unpaidRows
-  ).filter((row) => {
-    if (pendingStatusFilter === "searched" && !row.searched) return false;
-    if (pendingStatusFilter === "untouched" && row.searched) return false;
+  const filteredPendingRows = openRows.filter((row) => {
+    const dueStatus = getDueStatus(row.due_date);
+    if (pendingStatusFilter !== "all" && dueStatus !== pendingStatusFilter) {
+      return false;
+    }
     if (pendingSearch.trim()) {
       const q = pendingSearch.trim().toLowerCase();
       const name = (row.student_name || "").toLowerCase();
@@ -587,9 +665,27 @@ export default function BoletoAccessLogsPage() {
     return true;
   });
 
-  const semNumeroCount = unpaidRows.filter(
+  const semNumeroCount = openRows.filter(
     (r) => !normalizePhoneDigits(r.phone),
   ).length;
+
+  // Lote: computados a partir dos itens já abertos em lotes anteriores
+  const alreadyOpenedInBatchCpfs = new Set(
+    batchItems.filter((i) => i.status === "OPENED").map((i) => i.cpf_digits),
+  );
+  const batchPendingRows = openRows.filter(
+    (row) => normalizePhoneDigits(row.phone) && !alreadyOpenedInBatchCpfs.has(row.cpf_digits),
+  );
+  const batchOpenedRows = openRows.filter((row) =>
+    alreadyOpenedInBatchCpfs.has(row.cpf_digits),
+  );
+  const noPhoneRows = openRows.filter((row) => !normalizePhoneDigits(row.phone));
+
+  function getBatchRowStatus(row: CoverageRow): "PENDENTE" | "ABERTO_EM_LOTE" | "SEM_TELEFONE" {
+    if (alreadyOpenedInBatchCpfs.has(row.cpf_digits)) return "ABERTO_EM_LOTE";
+    if (!normalizePhoneDigits(row.phone)) return "SEM_TELEFONE";
+    return "PENDENTE";
+  }
 
   const exportPendingCsv = () => {
     if (filteredPendingRows.length === 0) {
@@ -600,7 +696,7 @@ export default function BoletoAccessLogsPage() {
       "Nome",
       "CPF",
       "Telefone",
-      "Status",
+      "Situação",
       "Último acesso",
       "Vencimento",
     ].join(";");
@@ -609,7 +705,7 @@ export default function BoletoAccessLogsPage() {
         r.student_name || "",
         r.cpf_digits,
         r.phone || "",
-        r.searched ? "Consultou" : "Não acessou",
+        getDueStatusLabel(r.due_date),
         r.last_access_at ? formatDateTime(r.last_access_at) : "Nunca acessou",
         r.due_date ? formatDateShort(r.due_date) : "",
       ].join(";"),
@@ -624,7 +720,7 @@ export default function BoletoAccessLogsPage() {
     URL.revokeObjectURL(url);
     toast.success(`${filteredPendingRows.length} pendências exportadas.`);
   };
-  const pendingWhatsappRows = unpaidRows
+  const pendingWhatsappRows = openRows
     .map((row) => ({
       ...row,
       whatsappUrl: buildPendingWhatsappUrl({
@@ -636,7 +732,7 @@ export default function BoletoAccessLogsPage() {
     }))
     .filter((row) => !!row.whatsappUrl);
 
-  const pendingSendLinkRows = unpaidRows
+  const pendingSendLinkRows = openRows
     .map((row) => ({
       ...row,
       whatsappUrl: buildSendLinkWhatsappUrl({
@@ -649,7 +745,7 @@ export default function BoletoAccessLogsPage() {
     }))
     .filter((row) => !!row.whatsappUrl);
 
-  const pendingVencimentoRows = unpaidRows
+  const pendingVencimentoRows = openRows
     .map((row) => ({
       ...row,
       whatsappUrl: buildDueDateReminderUrl({
@@ -662,7 +758,14 @@ export default function BoletoAccessLogsPage() {
     }))
     .filter((row) => !!row.whatsappUrl);
 
-  const firstDueDate = unpaidRows.find((r) => r.due_date)?.due_date ?? null;
+  const firstDueDate =
+    openRows
+      .filter((r) => r.due_date)
+      .sort(
+        (a, b) =>
+          parseDateLocal(a.due_date!).getTime() -
+          parseDateLocal(b.due_date!).getTime(),
+      )[0]?.due_date ?? null;
   const daysUntilDue = (() => {
     if (!firstDueDate) return null;
     const due = parseDateLocal(firstDueDate);
@@ -671,6 +774,107 @@ export default function BoletoAccessLogsPage() {
     due.setHours(0, 0, 0, 0);
     return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   })();
+
+  const handleOpenNextBatch = async () => {
+    if (!resolvedCoverageMonth) return;
+    const nextRows = batchPendingRows.slice(0, BATCH_SIZE);
+    if (nextRows.length === 0) {
+      toast.info("Não há alunos pendentes para este lote.");
+      return;
+    }
+
+    setIsBatchRunning(true);
+    try {
+      const batchId = crypto.randomUUID();
+      const referenceMonthLabel = formatReferenceMonth(resolvedCoverageMonth);
+      const rowsWithPhone = nextRows.filter((r) => r.phone);
+
+      const { error: batchErr } = await (supabase as any)
+        .from("boleto_message_batches")
+        .insert({
+          id: batchId,
+          reference_month: resolvedCoverageMonth,
+          type: selectedBatchType,
+          total_included: nextRows.length,
+          status: "OPENED",
+        });
+      if (batchErr) throw batchErr;
+
+      const { error: itemsErr } = await (supabase as any)
+        .from("boleto_message_batch_items")
+        .insert(
+          nextRows.map((row) => ({
+            batch_id: batchId,
+            cpf_digits: row.cpf_digits,
+            student_name: row.student_name,
+            phone: row.phone || null,
+            boleto_url: row.boleto_url || null,
+            reference_month: resolvedCoverageMonth,
+            message_type: selectedBatchType,
+            status: row.phone ? "OPENED" : "NO_PHONE",
+            opened_at: row.phone ? new Date().toISOString() : null,
+          })),
+        );
+      if (itemsErr) throw itemsErr;
+
+      if (rowsWithPhone.length > 0) {
+        await (supabase as any)
+          .from("boleto_contact_log")
+          .insert(
+            rowsWithPhone.map((row) => ({
+              reference_month: resolvedCoverageMonth,
+              cpf_digits: row.cpf_digits,
+              message_type: selectedBatchType,
+              source: "BATCH",
+              batch_id: batchId,
+            })),
+          );
+      }
+
+      rowsWithPhone.forEach((row, i) => {
+        window.setTimeout(() => {
+          let message: string;
+          if (selectedBatchType === "link" || selectedBatchType === "emissao") {
+            message = buildBoletoLinkMessage({
+              studentName: row.student_name,
+              referenceMonthLabel,
+              boletoUrl: row.boleto_url,
+              dueDate: row.due_date,
+            });
+          } else if (selectedBatchType === "vencimento") {
+            const url = buildDueDateReminderUrl({
+              phone: row.phone,
+              studentName: row.student_name,
+              referenceMonth: resolvedCoverageMonth,
+              dueDate: row.due_date,
+              boletoUrl: row.boleto_url,
+            });
+            if (url) { window.open(url, `tavares-wa-${row.cpf_digits}`); return; }
+            message = buildBoletoLinkMessage({ studentName: row.student_name, referenceMonthLabel, boletoUrl: row.boleto_url, dueDate: row.due_date });
+          } else {
+            const url = buildUrgencyWhatsappUrl({
+              phone: row.phone,
+              studentName: row.student_name,
+              referenceMonth: resolvedCoverageMonth,
+              boletoUrl: row.boleto_url,
+            });
+            if (url) { window.open(url, `tavares-wa-${row.cpf_digits}`); return; }
+            message = buildBoletoLinkMessage({ studentName: row.student_name, referenceMonthLabel, boletoUrl: row.boleto_url, dueDate: row.due_date });
+          }
+          openWhatsAppMessage(row.phone!, message, `tavares-wa-${row.cpf_digits}`);
+        }, i * 900);
+      });
+
+      await refetchBatchItems();
+      await refetchContacts();
+      toast.success(`${rowsWithPhone.length} conversa(s) abertas no WhatsApp.`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "desconhecido";
+      toast.error("Erro ao criar lote: " + msg);
+    } finally {
+      setIsBatchRunning(false);
+    }
+  };
 
   const openBatch = (
     urls: { cpf_digits: string; whatsappUrl: string | null }[],
@@ -859,13 +1063,12 @@ export default function BoletoAccessLogsPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Base: alunos com boleto cadastrado no mês selecionado da 2ª
-                  via. Apenas quem ainda não baixou o boleto aparece nas
-                  pendências abaixo.
+                  via. Apenas quem ainda não baixou o boleto aparece nas pendências abaixo.
                 </p>
               </CardContent>
             </Card>
 
-            {/* Pendências de download */}
+            {/* Pendências por vencimento */}
             <Card>
               <CardHeader className="pb-3 flex flex-col gap-4">
                 {/* Linha 1: título + badges + botões batch */}
@@ -875,26 +1078,40 @@ export default function BoletoAccessLogsPage() {
                       <AlertTriangle className="h-4 w-4 text-amber-500" />
                       Pendências de download
                     </CardTitle>
-                    {unpaidRows.length > 0 && (
+                    {openRows.length > 0 && (
                       <Badge
                         variant="outline"
                         className="text-rose-600 border-rose-300 bg-rose-50 font-mono"
                       >
-                        {unpaidRows.length} não pagos
+                        {openRows.length} em aberto
                       </Badge>
                     )}
-                    {pendingStatusFilter === "all" && activeRows.length > 0 && (
+                    {overdueRows.length > 0 && (
                       <Badge
                         variant="outline"
-                        className="text-slate-600 border-slate-300 bg-slate-50 font-mono"
+                        className="text-red-700 border-red-300 bg-red-50 font-mono"
                       >
-                        {activeRows.length} total
+                        {overdueRows.length} vencidos
+                      </Badge>
+                    )}
+                    {dueTodayRows.length > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-amber-700 border-amber-300 bg-amber-50 font-mono"
+                      >
+                        {dueTodayRows.length} hoje
+                      </Badge>
+                    )}
+                    {upcomingRows.length > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-blue-700 border-blue-300 bg-blue-50 font-mono"
+                      >
+                        {upcomingRows.length} a vencer
                       </Badge>
                     )}
                     {filteredPendingRows.length !==
-                      (pendingStatusFilter === "all"
-                        ? activeRows.length
-                        : unpaidRows.length) && (
+                      openRows.length && (
                       <Badge
                         variant="outline"
                         className="text-blue-600 border-blue-300 bg-blue-50 font-mono"
@@ -959,8 +1176,68 @@ export default function BoletoAccessLogsPage() {
                     </Button>
                   </div>
                 </div>
-                {/* Linha 2: busca + filtro de status + exportar */}
-                {unpaidRows.length > 0 && (
+                {/* Painel de envio em lote */}
+                {openRows.length > 0 && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 space-y-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-blue-900">
+                          Envio em lote
+                        </span>
+                        <Select
+                          value={selectedBatchType}
+                          onValueChange={(v) =>
+                            setSelectedBatchType(
+                              v as "emissao" | "link" | "vencimento" | "urgente",
+                            )
+                          }
+                        >
+                          <SelectTrigger className="h-7 w-40 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="link">Link do boleto</SelectItem>
+                            <SelectItem value="emissao">Aviso de emissão</SelectItem>
+                            <SelectItem value="vencimento">Aviso de vencimento</SelectItem>
+                            <SelectItem value="urgente">Urgente</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={batchPendingRows.length === 0 || isBatchRunning}
+                        onClick={handleOpenNextBatch}
+                      >
+                        {isBatchRunning
+                          ? "Abrindo..."
+                          : `Abrir próximas ${Math.min(BATCH_SIZE, batchPendingRows.length)} mensagens`}
+                      </Button>
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground flex-wrap">
+                      <span>
+                        Pendentes:{" "}
+                        <strong className="text-foreground">
+                          {batchPendingRows.length}
+                        </strong>
+                      </span>
+                      <span>
+                        Já abertos:{" "}
+                        <strong className="text-blue-700">
+                          {batchOpenedRows.length}
+                        </strong>
+                      </span>
+                      <span>
+                        Sem telefone:{" "}
+                        <strong className="text-muted-foreground">
+                          {noPhoneRows.length}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {/* Linha 2: busca + filtro de vencimento + exportar */}
+                {openRows.length > 0 && (
                   <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
                       <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -975,7 +1252,7 @@ export default function BoletoAccessLogsPage() {
                       value={pendingStatusFilter}
                       onValueChange={(v) =>
                         setPendingStatusFilter(
-                          v as "all" | "unpaid" | "searched" | "untouched",
+                          v as "all" | "overdue" | "due_today" | "upcoming",
                         )
                       }
                     >
@@ -984,9 +1261,9 @@ export default function BoletoAccessLogsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">Todos</SelectItem>
-                        <SelectItem value="unpaid">Não pago</SelectItem>
-                        <SelectItem value="searched">Consultou</SelectItem>
-                        <SelectItem value="untouched">Não acessou</SelectItem>
+                        <SelectItem value="overdue">Vencidos</SelectItem>
+                        <SelectItem value="due_today">Vence hoje</SelectItem>
+                        <SelectItem value="upcoming">A vencer</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button
@@ -1007,7 +1284,7 @@ export default function BoletoAccessLogsPage() {
                   <p className="text-sm text-muted-foreground">
                     Carregando cobertura...
                   </p>
-                ) : unpaidRows.length === 0 ? (
+                ) : openRows.length === 0 ? (
                   <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 shrink-0" />
                     Todos os alunos já baixaram seus boletos no mês analisado.
@@ -1029,7 +1306,7 @@ export default function BoletoAccessLogsPage() {
                             CPF
                           </th>
                           <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-[12%]">
-                            Status
+                            Situação
                           </th>
                           <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-[10%]">
                             Vencimento
@@ -1072,6 +1349,7 @@ export default function BoletoAccessLogsPage() {
                           });
                           const isHighlighted =
                             lastWhatsappCpf === row.cpf_digits;
+                          const dueStatus = getDueStatus(row.due_date);
 
                           return (
                             <tr
@@ -1095,35 +1373,44 @@ export default function BoletoAccessLogsPage() {
                                 {row.cpf_digits}
                               </td>
                               <td className="px-3 py-2.5">
-                                {row.is_paid ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="whitespace-nowrap text-[11px] text-green-700 border-green-300 bg-green-50"
-                                  >
-                                    Pago
-                                  </Badge>
-                                ) : row.is_cancelled ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="whitespace-nowrap text-[11px] text-slate-600 border-slate-300 bg-slate-50"
-                                  >
-                                    Baixado
-                                  </Badge>
-                                ) : row.searched ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="whitespace-nowrap text-[11px] text-amber-700 border-amber-300 bg-amber-50"
-                                  >
-                                    Consultou
-                                  </Badge>
-                                ) : (
-                                  <Badge
-                                    variant="outline"
-                                    className="whitespace-nowrap text-[11px] text-rose-700 border-rose-300 bg-rose-50"
-                                  >
-                                    Não acessou
-                                  </Badge>
-                                )}
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "whitespace-nowrap text-[11px]",
+                                    dueStatus === "overdue" &&
+                                      "text-red-700 border-red-300 bg-red-50",
+                                    dueStatus === "due_today" &&
+                                      "text-amber-700 border-amber-300 bg-amber-50",
+                                    dueStatus === "upcoming" &&
+                                      "text-blue-700 border-blue-300 bg-blue-50",
+                                    dueStatus === "no_due" &&
+                                      "text-slate-600 border-slate-300 bg-slate-50",
+                                  )}
+                                >
+                                  {getDueStatusLabel(row.due_date)}
+                                </Badge>
+                                {(() => {
+                                  const bs = getBatchRowStatus(row);
+                                  if (bs === "ABERTO_EM_LOTE")
+                                    return (
+                                      <Badge
+                                        variant="outline"
+                                        className="mt-1 text-[10px] text-blue-700 border-blue-300 bg-blue-50 block w-fit"
+                                      >
+                                        Aberto em lote
+                                      </Badge>
+                                    );
+                                  if (bs === "SEM_TELEFONE")
+                                    return (
+                                      <Badge
+                                        variant="outline"
+                                        className="mt-1 text-[10px] text-slate-500 border-slate-300 block w-fit"
+                                      >
+                                        Sem telefone
+                                      </Badge>
+                                    );
+                                  return null;
+                                })()}
                               </td>
                               <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                                 {row.due_date ? (
